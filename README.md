@@ -48,3 +48,9 @@ Lecteur de flux RSS avec une interface similaire à Feedly.
 * POST `/<user UUID>/filters/` create a new filter
 * PATH `/<user UUID>/filters/<filter ID>/` edit a filter
 * DELETE `/<user UUID>/filters/<filter ID>/` delete a filter
+
+## Ideas
+
+* Rename feed information
+* Change feed icon
+* Hashtag feature to find saved article
