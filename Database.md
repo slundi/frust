@@ -43,6 +43,17 @@ TODO: handle feed filters, handle global filters
 | **slug** | `UUID` | Unique UUID that will be use in the URL |
 | **name** | VARCHAR(64) | Filter name |
 | **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **find** | `VARCHAR(256)` | Text to find |
+| **is_regex** | `BOOLEAN` | if the find string is a regular expression |
+
+## ApplyFilter
+
+| Field | Type | Description |
+|-------|:----:|-------------|
+| **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **filter_id** | `INTEGER` | Foreign key to filter with CASCADE |
+| **feed_id** | `INTEGER` | Foreign key to feed with CASCADE. If `NULL`, apply to all feeds |
+| **excludes** | `BOOLEAN` | By default `TRUE`, excludes feeds with the string found |
 
 ## Feed
 
@@ -66,11 +77,9 @@ A fied can be common to multiple users so we don't want duplicate data.
 
 ## Article
 
-An article can be common to multiple users so we don't want duplicate data
+An article can be common to multiple users so we don't want duplicate data. They are kept an amount of time depending on the server configuration. Saved articles won't be deleted.
 
-TODO
-RSS: https://en.wikipedia.org/wiki/RSS
-ATOM: https://www.rfc-editor.org/rfc/rfc4287.html
+TODO: group [RSS](https://en.wikipedia.org/wiki/RSS) and [ATOM](https://www.rfc-editor.org/rfc/rfc4287.html) contents
 
 | Field | Type | Description |
 |-------|:----:|-------------|
@@ -84,9 +93,10 @@ ATOM: https://www.rfc-editor.org/rfc/rfc4287.html
 
 ## UserArticle
 
-User saved articles
+User saved and read articles
 
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **user_id** | `INTEGER` | Foreign key to user with CASCADE |
 | **article_id** | `INTEGER` | Foreign key to article with CASCADE |
+| **saved** | `DATETIME` | Date when the article was saved. Default `NULL` means the article was read. |
