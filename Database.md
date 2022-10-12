@@ -10,6 +10,7 @@ Database structure and documentation.
 | **slug** | `UUID` | Unique UUID that will be use in the URL |
 | **username** | `VARCHAR(32)` | Unique user name |
 | **password** | `VARCHAR(96)` | Bcrypt encoded password |
+| **config** | `TEXT` | JSON parsed user preferences |
 
 Security with failed login attemps have to be handled by another system like [CrowdSec](https://www.crowdsec.net/) or fail2ban. The endpoint will returns a 401 HTTP error
 
