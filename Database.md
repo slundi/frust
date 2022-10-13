@@ -2,15 +2,15 @@
 
 Database structure and documentation.
 
-## User
+## Account
 
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **id** | `INTEGER` | Primary key ID |
 | **slug** | `UUID` | Unique UUID that will be use in the URL |
-| **username** | `VARCHAR(32)` | Unique user name |
+| **username** | `VARCHAR(32)` | Unique account name |
 | **password** | `VARCHAR(96)` | Bcrypt encoded password |
-| **config** | `TEXT` | JSON parsed user preferences |
+| **config** | `TEXT` | JSON parsed account preferences |
 
 Security with failed login attemps have to be handled by another system like [CrowdSec](https://www.crowdsec.net/) or fail2ban. The endpoint will returns a 401 HTTP error
 
@@ -20,10 +20,10 @@ Auth token that is stored in browser session/cookie in order to stay logged in a
 
 | Field | Type | Description |
 |-------|:----:|-------------|
-| **id** | `UUID` | Unique user toker |
-| **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **id** | `UUID` | Unique account toker |
+| **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 | **created** | `DATETIME` | Date and time of creation |
-| **name** | `VARCHAR(64)` | If the user wants to rename it otherwise it will use browser headers to generate it |
+| **name** | `VARCHAR(64)` | If the account wants to rename it otherwise it will use browser headers to generate it |
 
 ## Folder
 
@@ -32,7 +32,7 @@ Auth token that is stored in browser session/cookie in order to stay logged in a
 | **id** | `INTEGER` | Primary key ID |
 | **slug** | `UUID` | Unique UUID that will be use in the URL |
 | **name** | VARCHAR(64) | Folder name |
-| **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 
 ## Filter
 
@@ -43,7 +43,7 @@ TODO: handle feed filters, handle global filters
 | **id** | `INTEGER` | Primary key ID |
 | **slug** | `UUID` | Unique UUID that will be use in the URL |
 | **name** | VARCHAR(64) | Filter name |
-| **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 | **find** | `VARCHAR(256)` | Text to find |
 | **is_regex** | `BOOLEAN` | if the find string is a regular expression |
 
@@ -51,14 +51,14 @@ TODO: handle feed filters, handle global filters
 
 | Field | Type | Description |
 |-------|:----:|-------------|
-| **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 | **filter_id** | `INTEGER` | Foreign key to filter with CASCADE |
 | **feed_id** | `INTEGER` | Foreign key to feed with CASCADE. If `NULL`, apply to all feeds |
 | **excludes** | `BOOLEAN` | By default `TRUE`, excludes feeds with the string found |
 
 ## Feed
 
-A fied can be common to multiple users so we don't want duplicate data.
+A fied can be common to multiple accounts so we don't want duplicate data.
 
 | Field | Type | Description |
 |-------|:----:|-------------|
@@ -67,18 +67,18 @@ A fied can be common to multiple users so we don't want duplicate data.
 | **url** | `VARCHAR(256)` | Feed URL |
 | **last_update** | `DATETIME` | Date and time when the feed has been updated |
 
-## UserFeed
+## accountFeed
 
 | Field | Type | Description |
 |-------|:----:|-------------|
-| **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 | **feed_id** | `INTEGER` | Foreign key to feed with CASCADE |
 | **folder_id** | `INTEGER` | Optional foreign key to folder with CASCADE |
 | **xpath** | `VARCHAR(256)` | Optional field to retrive feed content using HTML xpath |
 
 ## Article
 
-An article can be common to multiple users so we don't want duplicate data. They are kept an amount of time depending on the server configuration. Saved articles won't be deleted.
+An article can be common to multiple accounts so we don't want duplicate data. They are kept an amount of time depending on the server configuration. Saved articles won't be deleted.
 
 TODO: group [RSS](https://en.wikipedia.org/wiki/RSS) and [ATOM](https://www.rfc-editor.org/rfc/rfc4287.html) contents
 
@@ -92,12 +92,12 @@ TODO: group [RSS](https://en.wikipedia.org/wiki/RSS) and [ATOM](https://www.rfc-
 | **author** | `VARCHAR(256)` |  |
 | **copyright** | `VARCHAR(256)` |  |
 
-## UserArticle
+## accountArticle
 
-User saved and read articles
+account saved and read articles
 
 | Field | Type | Description |
 |-------|:----:|-------------|
-| **user_id** | `INTEGER` | Foreign key to user with CASCADE |
+| **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 | **article_id** | `INTEGER` | Foreign key to article with CASCADE |
 | **saved** | `DATETIME` | Date when the article was saved. Default `NULL` means the article was read. |
