@@ -75,12 +75,16 @@ async fn main() -> std::io::Result<()> {
     if !feed_assets_path.is_dir() {
         std::fs::create_dir_all(feed_assets_path).expect("Cannot create feed assets folder");
     }
+    let mut feed_assets_path = config.assets_path.clone();
+    feed_assets_path.push_str("/f/");
     let mut root = config.assets_path.clone();
     root.push_str("/a");
     let article_assets_path = Path::new(&root);
     if !article_assets_path.is_dir() {
         std::fs::create_dir_all(article_assets_path).expect("Cannot create article assets folder");
     }
+    let mut article_assets_path = config.assets_path.clone();
+    article_assets_path.push_str("/a/");
 
     let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
 
@@ -90,6 +94,8 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .service(Files::new("/s", "static/"))
+            .service(Files::new("/a", &article_assets_path))
+            .service(Files::new("/f", &feed_assets_path))
             //.service(web::resource("/users").route(web::post().to(add_user)))
     })
     .bind(config.server_addr.clone())?
