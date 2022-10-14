@@ -10,7 +10,7 @@ readme = "README.md"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 config = { version = "0.13", features = ["default"] }
 dotenv = "0.15"
-env_logger = "0.9"
+simple_logger = "2"
 log = "0.4"
 r2d2 = "0.8"
 r2d2_sqlite = "0.21"

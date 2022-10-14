@@ -1,4 +1,5 @@
 use actix_files::Files;
+use log;
 use std::io::prelude::*;
 use std::path::Path;
 use futures_util::future::join_all;
@@ -48,11 +49,8 @@ impl Default for Config {
 use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
 
-//use crate::config::ExampleConfig;
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     dotenv().ok();
 
     let config_ = config::Config::builder()
@@ -60,6 +58,15 @@ async fn main() -> std::io::Result<()> {
         .build()
         .expect("Cannot build config");
     let config: Config = config_.try_deserialize().expect("Cannot get config");
+
+    //configure logger
+    simple_logger::init_with_level(match &config.log_level as &str {
+        "WARN" => log::Level::Warn,
+        "ERROR" => log::Level::Error,
+        "DEBUG" => log::Level::Debug,
+        "TRACE" => log::Level::Trace,
+        _ => log::Level::Info,
+    }).unwrap();
 
     //create folders for assets
     let mut root = config.assets_path.clone();
