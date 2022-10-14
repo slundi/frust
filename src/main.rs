@@ -1,5 +1,6 @@
 use actix_files::Files;
-use std::io;
+use std::io::prelude::*;
+use std::path::Path;
 use futures_util::future::join_all;
 use r2d2_sqlite::{self, SqliteConnectionManager};
 
@@ -58,8 +59,21 @@ async fn main() -> std::io::Result<()> {
         .add_source(::config::Environment::default())
         .build()
         .expect("Cannot build config");
-
     let config: Config = config_.try_deserialize().expect("Cannot get config");
+
+    //create folders for assets
+    let mut root = config.assets_path.clone();
+    root.push_str("/f");
+    let feed_assets_path = Path::new(&root);
+    if !feed_assets_path.is_dir() {
+        std::fs::create_dir_all(feed_assets_path).expect("Cannot create feed assets folder");
+    }
+    let mut root = config.assets_path.clone();
+    root.push_str("/a");
+    let article_assets_path = Path::new(&root);
+    if !article_assets_path.is_dir() {
+        std::fs::create_dir_all(article_assets_path).expect("Cannot create article assets folder");
+    }
 
     let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
 
