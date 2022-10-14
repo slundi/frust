@@ -68,25 +68,21 @@ async fn main() -> std::io::Result<()> {
         _ => log::Level::Info,
     }).unwrap();
 
+    log::info!("Working directory: {}", std::env::current_dir().expect("Cannot get working directory").display());
+
     //create folders for assets
-    let mut root = config.assets_path.clone();
-    root.push_str("/f");
-    let feed_assets_path = Path::new(&root);
-    if !feed_assets_path.is_dir() {
-        std::fs::create_dir_all(feed_assets_path).expect("Cannot create feed assets folder");
-    }
+    create_assets_directories(&config.assets_path);
     let mut feed_assets_path = config.assets_path.clone();
     feed_assets_path.push_str("/f/");
-    let mut root = config.assets_path.clone();
-    root.push_str("/a");
-    let article_assets_path = Path::new(&root);
-    if !article_assets_path.is_dir() {
-        std::fs::create_dir_all(article_assets_path).expect("Cannot create article assets folder");
-    }
     let mut article_assets_path = config.assets_path.clone();
     article_assets_path.push_str("/a/");
 
+    /*let file = std::path::Path::new(&config.sqlite_file);
+    if file.exists() {
+        std::fs::create_dir_all(file).expect("Cannot delete database file");
+    }*/
     let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
+    db::create_schema(pool.get().expect("Cannot get connection"));
 
     let server = HttpServer::new(move || {
         /*let csrf = Csrf:: <rand::prelude::StdRng> ::new()
@@ -103,4 +99,19 @@ async fn main() -> std::io::Result<()> {
     log::info!("starting HTTP server at http://{}/", config.server_addr);
 
     server.await
+}
+
+fn create_assets_directories(path: &String) {
+    let mut root = path.clone();
+    root.push_str("/f");
+    let feed_assets_path = Path::new(&root);
+    if !feed_assets_path.is_dir() {
+        std::fs::create_dir_all(feed_assets_path).expect("Cannot create feed assets folder");
+    }
+    let mut root = path.clone();
+    root.push_str("/a");
+    let article_assets_path = Path::new(&root);
+    if !article_assets_path.is_dir() {
+        std::fs::create_dir_all(article_assets_path).expect("Cannot create article assets folder");
+    }
 }
