@@ -1,8 +1,6 @@
 use actix_files::Files;
 use log;
-use std::io::prelude::*;
 use std::path::Path;
-use futures_util::future::join_all;
 use r2d2_sqlite::{self, SqliteConnectionManager};
 
 mod routes;

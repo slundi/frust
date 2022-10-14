@@ -1,29 +1,23 @@
 # Frust
 
-A lightweight RSS feeder
+A lightweight RSS feeder and aggregator.
 
-Lecteur de flux RSS / aggrégateur RSS avec fonctionnalités sympas
+I made this project for a few reasons:
 
-Lecteur de flux RSS avec une interface similaire à Feedly.
+* to learn and practice RUST
+* to replace my use of Feedly because I don't want to subscribe for a premium account in order to just get filters
 
-### Fonctionalités
+Database is SQLite because I don't aim to host it for multiple accounts. If you want a PostgreSQL, feel free to suggest a PR.
 
-* Scroll spy pour marker les élements comme lu (comme Feedly)
+### Features
+
+* Scroll spy in UI to mark article as read (like Feedly)
 * Import/export OPML file
-* Search on all feeds (à lire, sauvegardé)
+* Search on all feeds (to read, saved)
 * Set filter to remove irrelevant feeds
 * Save feed
-* Categories
+* Folders
 * Xpath option to get article content and not brief
-
-## Libraries and design
-
-* [feed-rs](https://crates.io/crates/feed-rs)
-* [opml](https://crates.io/crates/opml)
-* actix
-* dotenv
-* [mCaptcha](https://github.com/mCaptcha/mCaptcha/)?
-* PoW (Proof of Work) for registration/login?
 
 ## Configuration
 
@@ -52,3 +46,5 @@ FEED_REFRESH_TIME=600
 * Rename feed information
 * Change feed icon
 * Hashtag feature to find saved article
+* [mCaptcha](https://github.com/mCaptcha/mCaptcha/)?
+* PoW (Proof of Work) for registration/login?
