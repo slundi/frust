@@ -1,0 +1,35 @@
+[package]
+name = "Frust"
+version = "0.1.0"
+authors = ["Sébastien LUNDI <slundi@gmail.com>"]
+edition = "2021"
+description = "Lightweight RSS aggregator"
+readme = "README.md"
+
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+config = { version = "0.13", features = ["default"] }
+dotenv = "0.15"
+env_logger = "0.9"
+log = "0.4"
+r2d2 = "0.8"
+r2d2_sqlite = "0.21"
+rusqlite = "0.28"
+#rusqlite = { version = "0.28", features = ["bundled", "backup", "hooks", "unlock_notify", "uuid"] }
+# clap = "4"
+# web framework: multipart, json, http1 or http2?, form, query, ws?, tower-log
+actix-web = { version = "4", features = ["cookies"] }
+actix-files = "0.6"
+# actix-csrf = "0.7"
+rand = { version = "0.8", features = [ "std_rng" ] }
+static-files = "0.2"
+bcrypt = "0.13"
+sailfish = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+
+#i18n
+i18n-embed = { version = "0.13", features = ["fluent-system"]}
+rust-embed = "6"
+unic-langid = "0.9"
