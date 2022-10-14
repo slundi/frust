@@ -13,7 +13,7 @@ use db::{Pool, Queries};
 use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    /// Server <IP or hostaname>:<port>. Default is `127.0.0.1:8330`
+    /// Server `<IP or hostaname>:<port>`. Default is `127.0.0.1:8330`
     pub server_addr: String,
     /// Log level (available options are: INFO, WARN, ERROR, DEBUG, TRACE). Default is `INFO`.
     pub log_level: String,
@@ -22,8 +22,11 @@ pub struct Config {
     /// Delete old (and not save from any user) articles older than XX days. Default is 30 days.
     /// u16 max value is 65535 so it is more than 175 years
     pub article_keep_time: u16,
-    /// Where do we store article assets (images for now)? Default is `data/assets`
-    pub article_assets_path: String,
+    /// Where do we store feed and article assets (images for now)? Default is `data/assets`.
+    /// Some sub folders will be created:
+    /// * `f` for feed icons (path will be:  `f/<feed UUID>.<ext>`)
+    /// * `a` for article content such as images (path will be: `a/<article UUID>/<image name>.<ext>`)
+    pub assets_path: String,
     /// Refresh all feed every XXX seconds. Default is 600 seconds (10 minutes)
     pub feed_refresh_time: u32,
 }
@@ -35,7 +38,7 @@ impl Default for Config {
             log_level: "INFO".to_owned(),
             sqlite_file: "data/frust.sqlite3".to_owned(),
             article_keep_time: 30,
-            article_assets_path: "data/assets".to_owned(),
+            assets_path: "data/assets".to_owned(),
             feed_refresh_time: 600 }
     }
 }
@@ -65,14 +68,12 @@ async fn main() -> std::io::Result<()> {
             .set_cookie(actix_web::http::Method::GET, "/login");*/
         App::new()
             .app_data(web::Data::new(pool.clone()))
-            .service(Files::new("/s", "static/")) //.show_files_listing()
+            .service(Files::new("/s", "static/"))
             //.service(web::resource("/users").route(web::post().to(add_user)))
     })
-    //.bind(config.server_addr.clone())?
-    .bind(("127.0.0.1", 8347))?
+    .bind(config.server_addr.clone())?
     .run();
-    log::info!("starting HTTP server at http://127.0.0.1:8347/");
-    //log::info!("starting HTTP server at http://{}/", config.server_addr);
+    log::info!("starting HTTP server at http://{}/", config.server_addr);
 
     server.await
 }

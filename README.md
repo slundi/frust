@@ -40,8 +40,8 @@ SQLITE_FILE="data/frust.sqlite3"
 # Delete old (and not save from any user) articles older than XX days
 ARTICLE_KEEP_TIME=30
 
-# Where do we store article assets (images for now)?
-ARTICLE_ASSETS_PATH="data/assets"
+# Where do we store feed and article assets (images for now)?
+ASSETS_PATH="data/assets"
 
 # Refresh all feed every XXX seconds
 FEED_REFRESH_TIME=600
