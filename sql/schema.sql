@@ -1,7 +1,6 @@
 CREATE TABLE IF NOT EXISTS account (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	slug VARCHAR(36) NOT NULL,
-	email VARCHAR(200) NOT NULL,
 	username  VARCHAR(32) NOT NULL,
 	encrypted_password   VARCHAR(72) NOT NULL,
 	config TEXT NOT NULL DEFAULT '{}',

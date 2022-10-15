@@ -3,6 +3,7 @@ use log;
 use std::path::Path;
 use r2d2_sqlite::{self, SqliteConnectionManager};
 
+mod model;
 mod routes;
 mod db;
 use db::{Pool, Queries};
