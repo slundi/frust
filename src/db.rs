@@ -33,6 +33,18 @@ pub enum Queries {
     DeleteUnsavedOldArticles,
 }
 
+const SQL_LOGIN: &str = "SELECT id, slug, username, password, config FROM account WHERE username = ?1";
+const SQL_REGISTER: &str = "INSERT INTO account (slug, username, password, config)
+                            VALUES ($1, $2, $3, $4)";
+const SQL_DELETE_ACCOUNT: &str = "ELETE FROM account WHERE id = $1";
+const SQL_CREATE_TOKEN: &str = "INSERT INTO token (account_id, created, name) VALUES ($1, $2, $3)";
+const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
+const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
+const SQL_CREATE_FOLDER: &str = "INSERT INTO folder (slug, name, account_id) VALUES ($1, $2, $3)";
+const SQL_GET_MY_FOLDER: &str = "SELECT id, slug, name FROM folder WHERE account_id = $1 ORDER BY name";
+const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1";
+
+
 pub(crate) fn create_schema(conn: Connection) {
     log::info!("Preparing DB schema import");
     let sql = std::fs::read_to_string(std::path::Path::new("sql/schema.sql")).expect("Cannot read schema file");
@@ -46,7 +58,7 @@ pub(crate) fn create_schema(conn: Connection) {
 pub async fn login(pool: &Pool, username: String, password: String) -> Result<Account, Error> {
     let conn = pool.get()
         .map_err(error::ErrorInternalServerError)?;
-        let mut stmt = conn.prepare("SELECT id, slug, username, password, config FROM account WHERE username = ?1").expect("Wrong login SQL");
+        let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
         stmt.execute([&username]);
         stmt.query_row([], |row| {
             Ok(Account {
