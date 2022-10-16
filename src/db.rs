@@ -1,4 +1,4 @@
-use actix_web::{web, error, Error};
+use actix_web::{web, error::{self, ErrorInternalServerError}, Error};
 
 use crate::model::Account;
 
@@ -37,7 +37,8 @@ const SQL_LOGIN: &str = "SELECT id, slug, username, password, config FROM accoun
 const SQL_REGISTER: &str = "INSERT INTO account (slug, username, password, config)
                             VALUES ($1, $2, $3, $4)";
 const SQL_DELETE_ACCOUNT: &str = "ELETE FROM account WHERE id = $1";
-const SQL_CREATE_TOKEN: &str = "INSERT INTO token (account_id, created, name) VALUES ($1, $2, $3)";
+/// Create a token, ignore it if it already exists
+const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, created, name) VALUES ($1, $2, $3)";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
 const SQL_CREATE_FOLDER: &str = "INSERT INTO folder (slug, name, account_id) VALUES ($1, $2, $3)";
@@ -55,7 +56,7 @@ pub(crate) fn create_schema(conn: Connection) {
     }
 }
 
-pub async fn login(pool: &Pool, username: String, password: String) -> Result<Account, Error> {
+pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
     let conn = pool.get()
         .map_err(error::ErrorInternalServerError)?;
         let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
@@ -70,4 +71,13 @@ pub async fn login(pool: &Pool, username: String, password: String) -> Result<Ac
             })
         })
         .map_err(error::ErrorInternalServerError)
+}
+
+pub async fn create_token(pool: &Pool, account_id: i32, client: String) {
+    let conn = pool.get().expect("Connot get connection pool");
+        let mut stmt = conn.prepare(SQL_CREATE_TOKEN).expect("Wrong create token SQL");
+        let result = stmt.execute((account_id, &client));
+        if let Err(e) = result {
+            log::error!("Cannot create token: {}", e);
+        }
 }

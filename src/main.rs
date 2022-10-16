@@ -1,3 +1,5 @@
+extern crate bcrypt;
+
 use actix_files::Files;
 use log;
 use std::path::Path;
