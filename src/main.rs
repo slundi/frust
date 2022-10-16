@@ -5,6 +5,7 @@ use r2d2_sqlite::{self, SqliteConnectionManager};
 
 mod model;
 mod routes;
+mod routes_account;
 mod db;
 use db::{Pool, Queries};
 
@@ -47,6 +48,8 @@ impl Default for Config {
 //use ::config::Config;
 use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
+
+use crate::routes_account::*;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -91,7 +94,13 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/s", "static/"))
             .service(Files::new("/a", &article_assets_path))
             .service(Files::new("/f", &feed_assets_path))
-            //.service(web::resource("/users").route(web::post().to(add_user)))
+            .service(web::scope("/users")
+                .service(route_register)
+                .service(route_login)
+                .service(route_edit_account)
+                .service(route_delete_account)
+                .service(route_delete_token)
+            )
     })
     .bind(config.server_addr.clone())?
     .run();
