@@ -52,11 +52,12 @@ CREATE TABLE IF NOT EXISTS subscription (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	account_id INTEGER NOT NULL,
 	feed_id INTEGER NOT NULL,
-	folder_id INTEGER NOT NULL,
+	folder_id INTEGER,
 	xpath VARCHAR(255),
 	UNIQUE(account_id, feed_id),
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 	FOREIGN KEY(feed_id) REFERENCES feed(id) ON DELETE CASCADE
+	FOREIGN KEY(folder_id) REFERENCES folder(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS article (
