@@ -1,5 +1,3 @@
-use std::future::IntoFuture;
-
 use actix_web::{post, patch, delete, web, HttpResponse, HttpRequest};
 use serde::Deserialize;
 
