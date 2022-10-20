@@ -49,5 +49,7 @@ SECRET_KEY="CHANGE-ME!"
 * Rename feed information
 * Change feed icon
 * Hashtag feature to find saved article
+* OTP to check registration/login POST?
 * [mCaptcha](https://github.com/mCaptcha/mCaptcha/)?
 * PoW (Proof of Work) for registration/login?
+* Web assembly to replace AJAX, for OTP, ...
