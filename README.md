@@ -39,6 +39,9 @@ ASSETS_PATH="data/assets"
 
 # Refresh all feed every XXX seconds
 FEED_REFRESH_TIME=600
+
+# Secret key for hashing functions
+SECRET_KEY="CHANGE-ME!"
 ```
 
 ## Ideas

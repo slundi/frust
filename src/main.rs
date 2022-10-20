@@ -2,14 +2,14 @@ extern crate bcrypt;
 
 use actix_files::Files;
 use log;
-use std::path::Path;
 use r2d2_sqlite::{self, SqliteConnectionManager};
+use std::path::Path;
 
+mod db;
 mod model;
 mod routes;
 mod routes_account;
 mod routes_folder;
-mod db;
 use db::{Pool, Queries};
 
 //use sailfish;
@@ -34,6 +34,8 @@ pub struct Config {
     pub assets_path: String,
     /// Refresh all feed every XXX seconds. Default is 600 seconds (10 minutes)
     pub feed_refresh_time: u32,
+    /// Secret key for hashing functions
+    pub secret_key: String,
 }
 
 impl Default for Config {
@@ -44,7 +46,9 @@ impl Default for Config {
             sqlite_file: "data/frust.sqlite3".to_owned(),
             article_keep_time: 30,
             assets_path: "data/assets".to_owned(),
-            feed_refresh_time: 600 }
+            feed_refresh_time: 600,
+            secret_key: "MY-T0P-S3CR3T-K3Y!".to_owned(),
+        }
     }
 }
 
@@ -72,9 +76,15 @@ async fn main() -> std::io::Result<()> {
         "DEBUG" => log::Level::Debug,
         "TRACE" => log::Level::Trace,
         _ => log::Level::Info,
-    }).unwrap();
+    })
+    .unwrap();
 
-    log::info!("Working directory: {}", std::env::current_dir().expect("Cannot get working directory").display());
+    log::info!(
+        "Working directory: {}",
+        std::env::current_dir()
+            .expect("Cannot get working directory")
+            .display()
+    );
 
     //create folders for assets
     create_assets_directories(&config.assets_path);
@@ -87,29 +97,31 @@ async fn main() -> std::io::Result<()> {
     if file.exists() {
         std::fs::create_dir_all(file).expect("Cannot delete database file");
     }*/
-    let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
+    let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3"))
+        .expect("Cannot create database pool");
     db::create_schema(pool.get().expect("Cannot get connection"));
 
     let server = HttpServer::new(move || {
         /*let csrf = Csrf:: <rand::prelude::StdRng> ::new()
-            .set_cookie(actix_web::http::Method::GET, "/login");*/
+        .set_cookie(actix_web::http::Method::GET, "/login");*/
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .service(Files::new("/s", "static/"))
             .service(Files::new("/a", &article_assets_path))
             .service(Files::new("/f", &feed_assets_path))
-            .service(web::scope("/users")
-                //user management
-                .service(route_register)
-                .service(route_login)
-                .service(route_edit_account)
-                .service(route_delete_account)
-                .service(route_delete_token)
-                //folder management
-                .service(route_list_folers)
-                .service(route_create_folder)
-                .service(route_edit_folder)
-                .service(route_delete_folder)
+            .service(
+                web::scope("/users")
+                    //user management
+                    .service(route_register)
+                    .service(route_login)
+                    .service(route_edit_account)
+                    .service(route_delete_account)
+                    .service(route_delete_token)
+                    //folder management
+                    .service(route_list_folers)
+                    .service(route_create_folder)
+                    .service(route_edit_folder)
+                    .service(route_delete_folder),
             )
     })
     .bind(config.server_addr.clone())?

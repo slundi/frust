@@ -47,18 +47,18 @@ pub(crate) async fn route_register(form: web::Form<RegisterForm>)  ->  HttpRespo
     HttpResponse::Ok().body("CREATE ACCOUNT")
 }
 
-#[patch("/{account_uuid}/")]
+#[patch("/{account_hid}/")]
 pub(crate) async fn route_edit_account(path: web::Path<(String,)>) ->  HttpResponse {
     HttpResponse::Ok().body("EDIT ACCOUNT")
 }
 
-#[delete("/{account_uuid}/")]
+#[delete("/{account_hid}/")]
 pub(crate) async fn route_delete_account(path: web::Path<(String,)>) ->  HttpResponse {
     //HttpResponse::Ok().body(format!("User detail: {}", path.into_inner().0))
     HttpResponse::Ok().body("DELETE ACCOUNT")
 }
 
-#[delete("/{account_uuid}/tokens/{token_uuid}/")]
+#[delete("/{account_hid}/tokens/{token_hid}/")]
 pub(crate) async fn route_delete_token(path: web::Path<(String,)>) ->  HttpResponse {
     HttpResponse::Ok().body("DELETE ACCOUNT TOKEN")
 }

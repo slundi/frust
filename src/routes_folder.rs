@@ -9,22 +9,22 @@ pub(crate) struct FolderForm {
     auth_token: String
 }
 
-#[get("/{account_uuid}/folders/")]
+#[get("/{account_hid}/folders/")]
 pub(crate) async fn route_list_folers(path: web::Path<(String,)>)  ->  HttpResponse {
     HttpResponse::Ok().body("LIST FOLDER")
 }
 
-#[post("/{account_uuid}/folders/")]
+#[post("/{account_hid}/folders/")]
 pub(crate) async fn route_create_folder(path: web::Path<(String,)>, form: web::Form<FolderForm>)  ->  HttpResponse {
     HttpResponse::Ok().body("CREATE FOLDER")
 }
 
-#[patch("/{account_uuid}/folders/{folder_uuid}/")]
+#[patch("/{account_hid}/folders/{folder_hid}/")]
 pub(crate) async fn route_edit_folder(path: web::Path<(String, String)>) ->  HttpResponse {
     HttpResponse::Ok().body("EDIT FOLDER")
 }
 
-#[delete("/{account_uuid}/folders/{folder_uuid}/")]
+#[delete("/{account_hid}/folders/{folder_hid}/")]
 pub(crate) async fn route_delete_folder(path: web::Path<(String, String)>) ->  HttpResponse {
     HttpResponse::Ok().body("DELETE FOLDER")
 }
