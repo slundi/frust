@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Token {
-    pub id: i32,
+    pub hash_id: String,
     pub account_id: i32,
     pub created: DateTime<Utc>,
     pub name: String,
@@ -11,7 +11,7 @@ pub struct Token {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Account {
-    pub id: i32,
+    pub hash_id: String,
     pub username: String,
     pub encrypted_password: String,
     pub config: String,
@@ -22,16 +22,14 @@ pub struct Account {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Folder {
-    pub id: i32,
-    pub slug: String,
+    pub hash_id: String,
     pub account_id: i32,
     pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Filter {
-    pub id: i32,
-    pub slug: String,
+    pub hash_id: String,
     pub account_id: i32,
     /// Subscription related to this filter, if None, the filter applies for all subscribed feeds.
     pub subscription_id: Option<i32>,

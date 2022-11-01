@@ -1,6 +1,8 @@
 use actix_web::{post, patch, delete, web, HttpResponse, HttpRequest};
 use serde::Deserialize;
 
+use crate::decode_id;
+
 #[derive(Debug, Deserialize)]
 pub struct LoginForm {
     username: String,
@@ -32,7 +34,7 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
                 return HttpResponse::InternalServerError().json("Internal server error");
             }
             let client: String = String::new();
-            crate::db::create_token(&pool, account.id, client).await;
+            crate::db::create_token(&pool, decode_id(account.hash_id.clone()), client).await;
             //TODO: return token used in Authorization HTTP header
             HttpResponse::Ok().json(account)
         },
@@ -57,21 +59,28 @@ pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Dat
 }
 
 #[patch("/")]
-pub(crate) async fn route_edit_account(path: web::Path<(String,)>, req: HttpRequest) ->  HttpResponse {
-    let auth = req.headers().get(actix_web::http::header::AUTHORIZATION);
-    if let Some(token) = auth {
-        return HttpResponse::Ok().body("EDIT ACCOUNT");
+pub(crate) async fn route_edit_account(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+    let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
+    if let Some(token) = value {
+        let raw_token = token.to_str();
+        if let Ok(token) = raw_token {
+            let result = crate::db::get_user_from_token(&pool, token.to_owned()).await;
+            if let Ok(account) = result {
+                // TODO: upgrade fields
+                return HttpResponse::Ok().json(account);
+            }
+        }
     }
     HttpResponse::Unauthorized().json("Wrong credentials")
 }
 
 #[delete("/")]
 pub(crate) async fn route_delete_account(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
-    //HttpResponse::Ok().body(format!("User detail: {}", path.into_inner().0))
     HttpResponse::NoContent().body("")
 }
 
+/// Allow a user to delete a token in case of problem (laptop or phone stolen) while logged in
 #[delete("/tokens/{token_hid}/")]
-pub(crate) async fn route_delete_token(path: web::Path<(String,)>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn route_delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     HttpResponse::Ok().body("DELETE ACCOUNT TOKEN")
 }

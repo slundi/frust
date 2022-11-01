@@ -1,6 +1,6 @@
-use actix_web::{web, error::{self, ErrorInternalServerError}, Error};
+use actix_web::{web, error, Error};
 
-use crate::model::Account;
+use crate::{model::{Account, Folder}, encode_id};
 
 pub type Pool = r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>;
 pub type Connection = r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>;
@@ -37,13 +37,13 @@ const SQL_LOGIN: &str = "SELECT id, slug, username, password, config, created FR
 const SQL_AUTH_TOKEN: &str = "SELECT a.*, t.value AS token, t.created AS token_created
                               FROM token t LEFT JOIN account a ON t.account_id = a.id
                               WHERE value = $1";
-const SQL_REGISTER: &str = "INSERT INTO account (slug, username, password, config) VALUES ($1, $2, $3, $4)";
+const SQL_REGISTER: &str = "INSERT INTO account (slug, username, password, config) VALUES ($1, $2, $3, $4) RETURNING *";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
-const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, created, name) VALUES ($1, $2, $3)";
+const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, created, name) VALUES ($1, $2, $3) RETURNING *";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
-const SQL_CREATE_FOLDER: &str = "INSERT INTO folder (slug, name, account_id) VALUES ($1, $2, $3)";
+const SQL_CREATE_FOLDER: &str = "INSERT INTO folder (slug, name, account_id) VALUES ($1, $2, $3) RETURNING id";
 const SQL_GET_MY_FOLDER: &str = "SELECT id, slug, name FROM folder WHERE account_id = $1 ORDER BY name";
 const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1";
 
@@ -69,7 +69,7 @@ pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
         }
         stmt.query_row([], |row| {
             let mut account = Account {
-                id: row.get(0).expect("msg"),
+                hash_id: encode_id(row.get(0)?),
                 username: row.get(1)?,
                 encrypted_password: row.get(2)?,
                 config: row.get(3)?,
@@ -86,6 +86,7 @@ pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
 
 /// Get the account assiciated to the provided token
 pub async fn get_user_from_token(pool: &Pool, token: String) -> Result<Account, Error> {
+    // TODO: consider using a `HashMap<Token, &Account>` to avoid frequent queries to DB (account should be cached somewhere too)
     let conn = pool.get().map_err(error::ErrorInternalServerError)?;
         let mut stmt = conn.prepare(SQL_AUTH_TOKEN).expect("Wrong login SQL");
         if stmt.execute([&token]).is_err() {
@@ -94,7 +95,7 @@ pub async fn get_user_from_token(pool: &Pool, token: String) -> Result<Account, 
         }
         stmt.query_row([], |row| {
             Ok(Account {
-                id: row.get(0).expect("msg"),
+                hash_id: encode_id(row.get(0)?),
                 username: row.get(1)?,
                 encrypted_password: row.get(2)?,
                 config: row.get(3)?,
@@ -115,4 +116,20 @@ pub async fn create_token(pool: &Pool, account_id: i32, client: String) {
         if let Err(e) = result {
             log::error!("Cannot create token: {}", e);
         }
+}
+
+pub async fn create_folder(pool: &Pool, account_id: i32, name: String) -> Result<Folder, Error> {
+    let conn = pool.get().expect("Connot get connection pool");
+        let mut stmt = conn.prepare(SQL_CREATE_FOLDER).expect("Wrong create token SQL");
+        if stmt.execute((account_id, &name)).is_err() {
+            log::error!("Cannot create folder: {}", name);
+        }
+        stmt.query_row([], |row| {
+            Ok(Folder {
+                hash_id: encode_id(row.get(0)?),
+                account_id: row.get(1)?,
+                name: row.get(2)?,
+            })
+        })
+        .map_err(error::ErrorInternalServerError)
 }

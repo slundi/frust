@@ -1,8 +1,9 @@
 extern crate bcrypt;
 
 use actix_files::Files;
-use log::info;
+use log::{info, error};
 use r2d2_sqlite::{self, SqliteConnectionManager};
+use serde::Deserialize;
 use std::path::Path;
 
 mod db;
@@ -12,10 +13,36 @@ mod routes_account;
 mod routes_folder;
 use db::{Pool, Queries};
 
-//use sailfish;
 //use futures::future::join_all;
 
-use serde::Deserialize;
+//static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
+static HASH_ID: std::sync::RwLock<harsh::Harsh> = std::sync::RwLock::new(harsh::Harsh::builder()
+    .salt(
+        chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string()
+            .as_bytes(),
+    )
+    .length(8)
+    .build()
+    .unwrap());
+
+pub fn encode_id(id: i32) -> String {
+    let hasher = HASH_ID.read().expect("Cannot get ID hasher");
+    hasher.encode(&[id.try_into().unwrap()])
+}
+
+/// Decode a hash ID, if wrong it return -1
+pub fn decode_id(hash: String) -> i32 {
+    let hasher = HASH_ID.read().expect("Cannot get ID hasher");
+    let result = hasher.decode(hash);
+    if let Ok(ids) = result {
+        return ids[0].try_into().unwrap();
+    }
+    error!("Cannot decode hash ID");
+    -1
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// Server `<IP or hostaname>:<port>`. Default is `127.0.0.1:8330`
