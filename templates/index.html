@@ -1,28 +1,38 @@
-{% include "header.html" %}
+<% include!("header.html"); %>
 <!-- Logo, username, password, remember me X days (see cfg), register -->
 <div class="container">
+    <div id="left">
+        <!-- Top: Frust logo + home link, GitHub, donation, -->
+        <ul>
+        <li class="folder"><ul>
+            <li><img src="f/uf1.png"/>Unsorted feed 1 BADGE ACTIONS</li>
+        </ul></li>
+        <li class="folder">Folder 1 BADGE ACTIONS<ul>
+            <li><img src="f/f1.png"/>Feed 1 BADGE ACTIONS</li>
+            <li><img src="f/f2.png"/>Feed 2 BADGE ACTIONS</li>
+        </ul></li>
+        </ul>
+    </div>
     <div class="row"><div class="col">
-        <h1>Login or Register</h1>
-        <form action="" method="POST"><!-- TODO: change post url depending on action, OTP to check in backend -->
-            <div class="mb-3">
-                <label for="auth" class="form-label">Username</label>
-                <input type="text" class="form-control form-control-sm" id="auth" />
-            </div>
-            <div class="mb-3">
-                <label for="password" class="form-label">Password</label>
-                <input type="password" class="form-control form-control-sm" id="password" />
-            </div>
-            <div class="mb-3 row"><!-- TODO: hide it when log in -->
-                <label for="psw2" class="col-sm-2 col-form-label">Confirm password</label>
-                <div class="col-sm-10"><input type="password" class="form-control form-control-sm" id="psw2" name="password2" /></div>
-            </div>
-            <div class="mb-3 form-check"><!-- TODO: hide it when register -->
-                <input type="checkbox" class="form-check-input" id="exampleCheck1">
-                <label class="form-check-label" for="exampleCheck1">Remember me for X days/weeks/months</label>
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="">Submit</button>
-        </form>
+        <% include!("login_register.html"); %>
     </div><div class="col">
     </div></div>
+    <div id="right">
+        <nav class="level">
+            <div class="level-left">
+                <div class="level-item"><div class="field has-addons">
+                    <div class="control is-loading"><input class="input" id="search" name="search" placeholder="Search..." /></div>
+                    <div class="control"><a class="button" href="javascript:search()" title="Search">&#128269;</a></div>
+                </div></div>
+                <div class="level-item"><a class="button" href="javascript:advanced_search()" title="Advanced search (modal)">Advanced search</a></div>
+            </div>
+        </nav>
+        
+        <a href="javascript:filter()" title="Filter">Filter</a>
+        <a href="javascript:sort()" title="Sort by date or title">Sort</a>
+        <a href="javascript:group()" title="Group by folder or date today/yesterday/in a week/later">Group</a>
+        <a href="javascript:disposition()" title="Disposition (title list, icon+title+brief, tiles, ...)">Disposition</a>
+        <div id="articles"></div>
+    </div>
   </div>
-  {% include "footer.html" %}
+<% include!("footer.html"); %>
