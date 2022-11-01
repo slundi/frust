@@ -1,7 +1,7 @@
 extern crate bcrypt;
 
 use actix_files::Files;
-use log;
+use log::info;
 use r2d2_sqlite::{self, SqliteConnectionManager};
 use std::path::Path;
 
@@ -79,7 +79,7 @@ async fn main() -> std::io::Result<()> {
     })
     .unwrap();
 
-    log::info!(
+    info!(
         "Working directory: {}",
         std::env::current_dir()
             .expect("Cannot get working directory")
@@ -87,7 +87,7 @@ async fn main() -> std::io::Result<()> {
     );
 
     //create folders for assets
-    create_assets_directories(&config.assets_path);
+    create_assets_directories(config.assets_path.clone());
     let mut feed_assets_path = config.assets_path.clone();
     feed_assets_path.push_str("/f/");
     let mut article_assets_path = config.assets_path.clone();
@@ -126,19 +126,19 @@ async fn main() -> std::io::Result<()> {
     })
     .bind(config.server_addr.clone())?
     .run();
-    log::info!("starting HTTP server at http://{}/", config.server_addr);
+    info!("starting HTTP server at http://{}/", config.server_addr);
 
     server.await
 }
 
-fn create_assets_directories(path: &String) {
+fn create_assets_directories(path: String) {
     let mut root = path.clone();
     root.push_str("/f");
     let feed_assets_path = Path::new(&root);
     if !feed_assets_path.is_dir() {
         std::fs::create_dir_all(feed_assets_path).expect("Cannot create feed assets folder");
     }
-    let mut root = path.clone();
+    let mut root = path;
     root.push_str("/a");
     let article_assets_path = Path::new(&root);
     if !article_assets_path.is_dir() {
