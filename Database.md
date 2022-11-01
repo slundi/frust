@@ -36,25 +36,18 @@ Auth token that is stored in browser session/cookie in order to stay logged in a
 
 ## Filter
 
-TODO: handle feed filters, handle global filters
-
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **id** | `INTEGER` | Primary key ID |
 | **slug** | `HashID` | Unique HashID that will be use in the URL |
-| **name** | VARCHAR(64) | Filter name |
+| **name** | `VARCHAR(64)` | Filter name |
 | **account_id** | `INTEGER` | Foreign key to account with CASCADE |
+| **subscription_id** | `INTEGER` | Foreign key to the subscription, `NULL` for global filters |
 | **find** | `VARCHAR(256)` | Text to find |
 | **is_regex** | `BOOLEAN` | if the find string is a regular expression |
-
-## ApplyFilter
-
-| Field | Type | Description |
-|-------|:----:|-------------|
-| **account_id** | `INTEGER` | Foreign key to account with CASCADE |
-| **filter_id** | `INTEGER` | Foreign key to filter with CASCADE |
-| **feed_id** | `INTEGER` | Foreign key to feed with CASCADE. If `NULL`, apply to all feeds |
-| **excludes** | `BOOLEAN` | By default `TRUE`, excludes feeds with the string found |
+| **in_title** | `BOOLEAN` | if we search in the title |
+| **in_content** | `BOOLEAN` | if we search in the content |
+| **includes** | `BOOLEAN` | If we only want to include results that match this filter (or other include filters). If false, results from this filter are excluded. |
 
 ## Feed
 
@@ -67,7 +60,9 @@ A fied can be common to multiple accounts so we don't want duplicate data.
 | **url** | `VARCHAR(256)` | Feed URL |
 | **last_update** | `DATETIME` | Date and time when the feed has been updated |
 
-## accountFeed
+Icon will be save on drive
+
+## Subscription
 
 | Field | Type | Description |
 |-------|:----:|-------------|
@@ -75,6 +70,7 @@ A fied can be common to multiple accounts so we don't want duplicate data.
 | **feed_id** | `INTEGER` | Foreign key to feed with CASCADE |
 | **folder_id** | `INTEGER` | Optional foreign key to folder with CASCADE |
 | **xpath** | `VARCHAR(256)` | Optional field to retrive feed content using HTML xpath |
+| **added** | `DATETIME` | When the feed was added to the account |
 
 ## Article
 

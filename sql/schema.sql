@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS subscription (
 	feed_id INTEGER NOT NULL,
 	folder_id INTEGER,
 	xpath VARCHAR(255),
+	added DATETIME NOT NULL DEFAULT NOW,
 	UNIQUE(account_id, feed_id),
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 	FOREIGN KEY(feed_id) REFERENCES feed(id) ON DELETE CASCADE
@@ -83,11 +84,16 @@ CREATE TABLE IF NOT EXISTS filter (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	slug VARCHAR(36) NOT NULL,
 	account_id INTEGER NOT NULL,
+	subscription_id INTEGER,
 	name VARCHAR(64),
 	find VARCHAR(255),
 	is_regex BOOLEAN NOT NULL DEFAULT(FALSE),
+	in_title BOOLEAN NOT NULL DEFAULT(TRUE),
+	in_content BOOLEAN NOT NULL DEFAULT(FALSE),
+	includes BOOLEAN NOT NULL DEFAULT(FALSE),
 	UNIQUE(slug),
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
+	FOREIGN KEY(subscription_id) REFERENCES subscription(id) ON DELETE CASCADE
 );
 
 -- TODO: apply filters
