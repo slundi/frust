@@ -16,6 +16,7 @@ pub struct Account {
     pub username: String,
     pub encrypted_password: String,
     pub config: String,
+    pub token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -10,7 +10,7 @@ pub(crate) struct LoginForm {
 #[derive(Debug, Deserialize)]
 pub(crate) struct RegisterForm {
     username: String,
-    encrypted_password: String,
+    clear_password: String,
     config: String,
 }
 
@@ -32,11 +32,12 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
             }
             let client: String = String::new();
             crate::db::create_token(&pool, account.id, client).await;
-            return HttpResponse::Ok().json(account);
+            //TODO: return token used in Authorization HTTP header
+            HttpResponse::Ok().json(account)
         },
         Err(_) => {
             log::warn!("Failed login attempt (wrong username). IP={:?}\tusername={}", req.peer_addr(), form.username);
-            return HttpResponse::Unauthorized().json("Wrong credentials");
+            HttpResponse::Unauthorized().json("Wrong credentials")
         }
     }
 }
@@ -48,17 +49,21 @@ pub(crate) async fn route_register(form: web::Form<RegisterForm>)  ->  HttpRespo
 }
 
 #[patch("/{account_hid}/")]
-pub(crate) async fn route_edit_account(path: web::Path<(String,)>) ->  HttpResponse {
-    HttpResponse::Ok().body("EDIT ACCOUNT")
+pub(crate) async fn route_edit_account(path: web::Path<(String,)>, req: HttpRequest) ->  HttpResponse {
+    let auth = req.headers().get(actix_web::http::header::AUTHORIZATION);
+    if let Some(token) = auth {
+        return HttpResponse::Ok().body("EDIT ACCOUNT");
+    }
+    HttpResponse::Unauthorized().json("Wrong credentials")
 }
 
 #[delete("/{account_hid}/")]
-pub(crate) async fn route_delete_account(path: web::Path<(String,)>) ->  HttpResponse {
+pub(crate) async fn route_delete_account(path: web::Path<(String,)>, req: HttpRequest) ->  HttpResponse {
     //HttpResponse::Ok().body(format!("User detail: {}", path.into_inner().0))
     HttpResponse::Ok().body("DELETE ACCOUNT")
 }
 
 #[delete("/{account_hid}/tokens/{token_hid}/")]
-pub(crate) async fn route_delete_token(path: web::Path<(String,)>) ->  HttpResponse {
+pub(crate) async fn route_delete_token(path: web::Path<(String,)>, req: HttpRequest) ->  HttpResponse {
     HttpResponse::Ok().body("DELETE ACCOUNT TOKEN")
 }

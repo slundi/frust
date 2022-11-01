@@ -56,19 +56,25 @@ pub(crate) fn create_schema(conn: Connection) {
     }
 }
 
+/// Get the accout associated to the username and password.
+/// It also returns a token on succes because auth is based on tokens
 pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
     let conn = pool.get()
         .map_err(error::ErrorInternalServerError)?;
         let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
         stmt.execute([&username]);
         stmt.query_row([], |row| {
-            Ok(Account {
+            let mut account = Account {
                 id: row.get(0).expect("msg"),
                 slug: row.get(1)?,
                 username: row.get(2)?,
                 encrypted_password: row.get(3)?,
                 config: row.get(4)?,
-            })
+                token: String::with_capacity(capacity),
+            };
+            //TODO: generate and add token
+            account.token.push_str("Token ");
+            Ok(account)
         })
         .map_err(error::ErrorInternalServerError)
 }
