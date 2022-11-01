@@ -11,7 +11,7 @@ chrono = { version = "0.4", features = ["serde"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 config = { version = "0.13", features = ["default"] }
 dotenv = "0.15"
-simple_logger = "2"
+simple_logger = "4"
 log = "0.4"
 r2d2 = "0.8"
 r2d2_sqlite = "0.21"
@@ -22,7 +22,7 @@ rand = { version = "0.8", features = [ "std_rng" ] }
 static-files = "0.2"
 bcrypt = "0.13"
 harsh = "0.2"
-sailfish = "0.4"
+sailfish = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 opml = "1.1"
