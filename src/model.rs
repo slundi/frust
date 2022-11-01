@@ -12,11 +12,12 @@ pub struct Token {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Account {
     pub id: i32,
-    pub slug: String,
     pub username: String,
     pub encrypted_password: String,
     pub config: String,
+    pub created: DateTime<Utc>,
     pub token: String,
+    pub token_created: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

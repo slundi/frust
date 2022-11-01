@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS account (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	username  VARCHAR(32) NOT NULL,
 	encrypted_password   VARCHAR(72) NOT NULL,
+	created DATETIME NOT NULL DEFAULT NOW,
 	config TEXT NOT NULL DEFAULT '{}',
 	UNIQUE(slug),
 	UNIQUE(username)
@@ -11,8 +12,8 @@ CREATE TABLE IF NOT EXISTS token (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	account_id INTEGER NOT NULL,
 	created DATETIME NOT NULL DEFAULT NOW,
-	name VARCHAR(64),
-	UNIQUE(slug), UNIQUE(token)
+	value VARCHAR(64),
+	UNIQUE(slug), UNIQUE(value)
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 );
 

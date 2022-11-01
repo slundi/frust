@@ -15,12 +15,13 @@ simple_logger = "4"
 log = "0.4"
 r2d2 = "0.8"
 r2d2_sqlite = "0.21"
-rusqlite = "0.28"
+rusqlite = { version = "0.28", features = ["chrono"]}
 actix-web = { version = "4", features = ["cookies"] }
 actix-files = "0.6"
 rand = { version = "0.8", features = [ "std_rng" ] }
 static-files = "0.2"
 bcrypt = "0.13"
+#jsonwebtoken = "8" or boringauth = "0.9"
 harsh = "0.2"
 sailfish = "0.5"
 serde = { version = "1", features = ["derive"] }
