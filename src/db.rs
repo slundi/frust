@@ -70,7 +70,7 @@ pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
                 username: row.get(2)?,
                 encrypted_password: row.get(3)?,
                 config: row.get(4)?,
-                token: String::with_capacity(capacity),
+                token: String::with_capacity(64),
             };
             //TODO: generate and add token
             account.token.push_str("Token ");
