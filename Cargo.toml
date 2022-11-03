@@ -16,7 +16,7 @@ simple_logger = "4"
 log = "0.4"
 r2d2 = "0.8"
 r2d2_sqlite = "0.21"
-rusqlite = { version = "0.28", features = ["chrono"]}
+rusqlite = { version = "0.28", features = ["bundled", "chrono"]}
 actix-web = { version = "4", features = ["cookies"] }
 actix-files = "0.6"
 rand = { version = "0.8", features = [ "std_rng" ] }
