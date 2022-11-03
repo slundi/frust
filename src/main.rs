@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate lazy_static;
 extern crate bcrypt;
 
 use actix_files::Files;
@@ -15,17 +17,19 @@ use db::{Pool, Queries};
 
 //use futures::future::join_all;
 
-//static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
-static HASH_ID: std::sync::RwLock<harsh::Harsh> = std::sync::RwLock::new(harsh::Harsh::builder()
-    .salt(
-        chrono::Local::now()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string()
-            .as_bytes(),
-    )
-    .length(8)
-    .build()
-    .unwrap());
+lazy_static! {
+    //static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
+    static ref HASH_ID: std::sync::RwLock<harsh::Harsh> = std::sync::RwLock::new(harsh::Harsh::builder()
+        .salt(
+            chrono::Local::now()
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+                .as_bytes(),
+        )
+        .length(8)
+        .build()
+        .unwrap());
+}
 
 pub fn encode_id(id: i32) -> String {
     let hasher = HASH_ID.read().expect("Cannot get ID hasher");
@@ -86,6 +90,25 @@ use dotenv::dotenv;
 use crate::routes_account::*;
 use crate::routes_folder::*;
 
+async fn check_token(pool: &web::Data<crate::db::Pool>, req: actix_web::HttpRequest) -> Option<model::Account> {
+    let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
+    if let Some(token) = value {
+        let raw_token = token.to_str();
+        if let Ok(token) = raw_token {
+            let result = crate::db::get_user_from_token(&pool, token.to_owned()).await;
+            if let Ok(account) = result {
+                return Some(account);
+            }
+        }
+    }
+    None
+}
+
+#[actix_web::get("/")]
+async fn index() -> impl actix_web::Responder {
+    actix_files::NamedFile::open_async("pages/index.html").await
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -133,6 +156,7 @@ async fn main() -> std::io::Result<()> {
         .set_cookie(actix_web::http::Method::GET, "/login");*/
         App::new()
             .app_data(web::Data::new(pool.clone()))
+            .service(index)
             .service(Files::new("/s", "static/"))
             .service(Files::new("/a", &article_assets_path))
             .service(Files::new("/f", &feed_assets_path))
@@ -171,4 +195,22 @@ fn create_assets_directories(path: String) {
     if !article_assets_path.is_dir() {
         std::fs::create_dir_all(article_assets_path).expect("Cannot create article assets folder");
     }
+}
+
+#[cfg(test)]
+mod tests {
+    /*use actix_web::{
+        http::{header::ContentType},
+        test, get,
+    };
+
+    #[actix_web::test]
+    async fn test_index_ok() {
+        let app = test::init_service(actix_web::App::new().route("/", crate::web::get().to(crate::index))).await;
+        let req = test::TestRequest::default()
+            .insert_header(ContentType::plaintext())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+    }*/
 }

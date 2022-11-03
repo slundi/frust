@@ -7,6 +7,7 @@ description = "Lightweight RSS aggregator"
 readme = "README.md"
 
 [dependencies]
+lazy_static = "1"
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 config = { version = "0.13", features = ["default"] }
