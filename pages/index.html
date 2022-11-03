@@ -1,17 +1,40 @@
 <!DOCTYPE HTML>
-<html>
+<html class="has-navbar-fixed-top">
 <head>
 <meta charset="utf-8" />
 <title>Frust</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="s/bulma.min.css" />
+<script>
+window.onload=function(){
+var token = localStorage.getItem("token");
+if(token != null){
+    //TODO: replace login/register form with user menu, get folders, get feeds, ...
+}}
+</script>
 </head>
 <body>
+<nav class="navbar is-fixed-top is-dark" role="navigation">
+<div class="navbar-brand">
+    <a class="navbar-item" href="https://github.com/slundi/frust/" target="_blank" title="View Frust sources on GitHub"><img src="s/logo.png" width="96" height="28"></a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="nb"> <span aria-hidden="true"></span> <span aria-hidden="true"></span> <span aria-hidden="true"></span> </a>
+</div><div id="nb" class="navbar-menu">
+    <div class="navbar-start"></div>
+    <div class="navbar-end" id="navbar-end">
+        <div class="navbar-item"><div class="field is-grouped">
+            <input name="username" class="control" placeholder="Username" size="8" />
+            <input name="clear_password" class="control" placeholder="Password" size="8" type="Password" />
+            <button type="submit" class="button is-primary">OK</button>
+        </div></div>
+        <a class="navbar-item" href="javascript:register()">Register</a>
+    </div>
+</div>
+</nav>
 <!-- Logo, username, password, remember me X days (see cfg), register -->
 <div class="container">
     <div id="left">
         <!-- Top: Frust logo + home link, GitHub, donation, -->
-        <ul>
+        <ul id="folders">
         <li class="folder"><ul>
             <li><img src="f/uf1.png"/>Unsorted feed 1 BADGE ACTIONS</li>
         </ul></li>
