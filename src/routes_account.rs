@@ -45,7 +45,7 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
     }
 }
 
-#[post("/")]
+#[post("/account")]
 /// Register a new user
 pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Data<crate::db::Pool>)  ->  HttpResponse {
     if form.clear_password != form.clear_password_2 {
@@ -58,8 +58,8 @@ pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Dat
     HttpResponse::Ok().body("CREATE ACCOUNT")
 }
 
-#[patch("/")]
-pub(crate) async fn route_edit_account(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+#[patch("/account")]
+pub(crate) async fn route_edit_account(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
     if let Some(token) = value {
         let raw_token = token.to_str();
@@ -74,8 +74,8 @@ pub(crate) async fn route_edit_account(path: web::Path<(String,)>, pool: web::Da
     HttpResponse::Unauthorized().json("Wrong credentials")
 }
 
-#[delete("/")]
-pub(crate) async fn route_delete_account(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+#[delete("/account")]
+pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     HttpResponse::NoContent().body("")
 }
 
@@ -83,4 +83,22 @@ pub(crate) async fn route_delete_account(path: web::Path<(String,)>, pool: web::
 #[delete("/tokens/{token_hid}/")]
 pub(crate) async fn route_delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     HttpResponse::Ok().body("DELETE ACCOUNT TOKEN")
+}
+
+#[cfg(test)]
+mod tests {
+    /*use actix_web::{
+        http::{self, header::ContentType},
+        test,
+    };
+
+    #[actix_web::test]
+    async fn test_register() {
+        let username = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+        let req = test::TestRequest::default()
+            .insert_header(ContentType::plaintext())
+            .to_http_request();
+        let resp = crate::routes_account::route_register(req).await;
+        assert_eq!(resp.status(), http::StatusCode::OK);
+    }*/
 }
