@@ -7,7 +7,6 @@ Database structure and documentation.
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **id** | `INTEGER` | Primary key ID |
-| **slug** | `HashID` | Unique HashID that will be use in the URL |
 | **username** | `VARCHAR(32)` | Unique account name |
 | **password** | `VARCHAR(96)` | Bcrypt encoded password |
 | **config** | `TEXT` | JSON parsed account preferences |
@@ -30,7 +29,6 @@ Auth token that is stored in browser session/cookie in order to stay logged in a
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **id** | `INTEGER` | Primary key ID |
-| **slug** | `HashID` | Unique HashID that will be use in the URL |
 | **name** | VARCHAR(64) | Folder name |
 | **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 
@@ -39,7 +37,6 @@ Auth token that is stored in browser session/cookie in order to stay logged in a
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **id** | `INTEGER` | Primary key ID |
-| **slug** | `HashID` | Unique HashID that will be use in the URL |
 | **name** | `VARCHAR(64)` | Filter name |
 | **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 | **subscription_id** | `INTEGER` | Foreign key to the subscription, `NULL` for global filters |
@@ -56,7 +53,6 @@ A fied can be common to multiple accounts so we don't want duplicate data.
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **id** | `INTEGER` | Primary key ID |
-| **slug** | `HashID` | Unique HashID that will be use in the URL |
 | **url** | `VARCHAR(256)` | Feed URL |
 | **last_update** | `DATETIME` | Date and time when the feed has been updated |
 
@@ -81,7 +77,6 @@ TODO: group [RSS](https://en.wikipedia.org/wiki/RSS) and [ATOM](https://www.rfc-
 | Field | Type | Description |
 |-------|:----:|-------------|
 | **id** | `INTEGER` | Primary key ID |
-| **slug** | `HashID` | Unique HashID that will be use in the URL |
 | **link** | `VARCHAR(256)` | Feed URL |
 | **title** | `VARCHAR(256)` | Article title |
 | **updated** | `VARCHAR(256)` | Article date and time

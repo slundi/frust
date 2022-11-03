@@ -9,6 +9,7 @@ use serde::Deserialize;
 use std::path::Path;
 
 mod db;
+mod messages;
 mod model;
 mod routes;
 mod routes_account;

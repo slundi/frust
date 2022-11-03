@@ -49,17 +49,16 @@ const SQL_CREATE_TOKEN: &str =
     "INSERT OR IGNORE INTO token (account_id, created, name) VALUES ($1, $2, $3) RETURNING *";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
-const SQL_CREATE_FOLDER: &str =
-    "INSERT INTO folder (slug, name, account_id) VALUES ($1, $2, $3) RETURNING id";
-const SQL_GET_MY_FOLDER: &str =
-    "SELECT id, slug, name FROM folder WHERE account_id = $1 ORDER BY name";
+const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id) VALUES ($1, $2) RETURNING id";
+const SQL_EDIT_FOLDER: &str = "UPDATE folder SET name = $1 WHERE id = $2 AND account_id = $3";
+const SQL_GET_MY_FOLDER: &str ="SELECT id, name FROM folder WHERE account_id = $1 ORDER BY name";
 const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1 AND account_id = $2";
 
 /// Create tables if not exists
 pub(crate) fn create_schema(conn: Connection) {
     log::info!("Preparing DB schema import");
     let sql = std::fs::read_to_string(std::path::Path::new("sql/schema.sql"))
-        .expect("Cannot read schema file");
+        .expect(crate::messages::ERROR_SCHEMA_FILE);
     let mut batch = rusqlite::Batch::new(&conn, &sql);
     while let Some(mut stmt) = batch.next().expect("Cannot execute next schema statement") {
         stmt.execute([]).expect("Cannot execute schema statement");
@@ -73,7 +72,7 @@ pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
     let conn = pool.get().map_err(error::ErrorInternalServerError)?;
     let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
     if stmt.execute([&username]).is_err() {
-        log::error!("Wrong username string while getting user");
+        log::error!("{}", crate::messages::ERROR_WRONG_USERNAME);
         return Err(error::ErrorInternalServerError(""));
     }
     stmt.query_row([], |row| {
@@ -99,7 +98,7 @@ pub async fn get_user_from_token(pool: &Pool, token: String) -> Result<Account, 
     let conn = pool.get().map_err(error::ErrorInternalServerError)?;
     let mut stmt = conn.prepare(SQL_AUTH_TOKEN).expect("Wrong login SQL");
     if stmt.execute([&token]).is_err() {
-        log::error!("Wrong username string while getting user");
+        log::error!("{}", crate::messages::ERROR_WRONG_TOKEN);
         return Err(error::ErrorInternalServerError(""));
     }
     stmt.query_row([], |row| {
@@ -119,23 +118,23 @@ pub async fn get_user_from_token(pool: &Pool, token: String) -> Result<Account, 
 /// Create the token for the given account.
 /// It also saves the client requesting it (like `Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0`)
 pub async fn create_token(pool: &Pool, account_id: i32, client: String) {
-    let conn = pool.get().expect("Connot get connection pool");
+    let conn = pool.get().expect("Cannot get connection pool");
     let mut stmt = conn
         .prepare(SQL_CREATE_TOKEN)
         .expect("Wrong create token SQL");
     let result = stmt.execute((account_id, &client));
     if let Err(e) = result {
-        log::error!("Cannot create token: {}", e);
+        log::error!("{}: {}", crate::messages::ERROR_CREATE_TOKEN, e);
     }
 }
 
 pub async fn create_folder(pool: &Pool, account_id: i32, name: String) -> Result<Folder, Error> {
-    let conn = pool.get().expect("Connot get connection pool");
+    let conn = pool.get().expect("Cannot get connection pool");
     let mut stmt = conn
         .prepare(SQL_CREATE_FOLDER)
-        .expect("Wrong create token SQL");
+        .expect("Wrong create folder SQL");
     if stmt.execute((account_id, &name)).is_err() {
-        log::error!("Cannot create folder: {}", name);
+        log::error!("{}: {}", crate::messages::ERROR_CREATE_FOLDER, name);
     }
     stmt.query_row([], |row| {
         Ok(Folder {
@@ -147,14 +146,28 @@ pub async fn create_folder(pool: &Pool, account_id: i32, name: String) -> Result
     .map_err(error::ErrorInternalServerError)
 }
 
+pub async fn edit_folder(pool: &Pool, account_hid: String, folder_hid: String, name: String) -> Result<(), Error> {
+    let conn = pool.get().expect("Cannot get connection pool");
+    let mut stmt = conn
+        .prepare(SQL_EDIT_FOLDER)
+        .expect("Wrong edit folder SQL");
+    let id = crate::decode_id(folder_hid);
+    if stmt.execute((&name, id, crate::decode_id(account_hid))).is_err() {
+        log::error!("{}: {}", crate::messages::ERROR_EDIT_FOLDER, id);
+        return Err(error::ErrorInternalServerError("Cannot edit folder"));
+    }
+    Ok(())
+}
+
 /// Delete a folder from the folder and account hash IDs (double check)
 pub async fn delete_folder(pool: &Pool, account_hid: String, folder_hid: String) -> Result<(), Error> {
-    let conn = pool.get().expect("Connot get connection pool");
+    let conn = pool.get().expect("Cannot get connection pool");
     let mut stmt = conn
         .prepare(SQL_DELETE_FOLDER)
-        .expect("Wrong create token SQL");
-    if stmt.execute((crate::decode_id(folder_hid.clone()), crate::decode_id(account_hid))).is_err() {
-        log::error!("Cannot delete folder: {}", folder_hid);
+        .expect("Wrong delete folder SQL");
+    let id = crate::decode_id(folder_hid);
+    if stmt.execute((id, crate::decode_id(account_hid))).is_err() {
+        log::error!("{}: {}", crate::messages::ERROR_DELETE_FOLDER, id);
         return Err(error::ErrorInternalServerError("Cannot delete folder"));
     }
     Ok(())
