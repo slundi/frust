@@ -2,7 +2,7 @@ use actix_web::{error, Error};
 
 use crate::{
     encode_id,
-    model::{Account, Folder},
+    model::{Account, Folder}, decode_id,
 };
 
 //pub type Pool = r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>;
@@ -16,10 +16,10 @@ const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, create
 const SQL_AUTH_TOKEN: &str = "SELECT a.*, t.value AS token, t.created AS token_created
                               FROM token t LEFT JOIN account a ON t.account_id = a.id
                               WHERE value = $1";
-const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, '')";
+const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config, created) VALUES ($1, $2, '', $3)";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
-const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value) VALUES (:a, :v) RETURNING value";
+const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value, created) VALUES (:a, :v, :c) RETURNING value";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
 const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id) VALUES ($1, $2) RETURNING id";
@@ -41,7 +41,7 @@ pub(crate) fn create_schema(conn: Connection) {
 
 pub async fn create_user(conn: &Connection, username: String, encrypted_password: String) -> Result<(), Error> {
     let mut stmt = conn.prepare(SQL_REGISTER).expect("Wrong login SQL");
-    stmt.insert([&username, &encrypted_password])
+    stmt.insert((&username, &encrypted_password, chrono::Utc::now()))
         .map(|_| Ok(()))
         .unwrap_or_else(|_| Err(error::ErrorInternalServerError(crate::messages::ERROR_USERNAME_EXISTS)))
 }
@@ -91,6 +91,14 @@ pub async fn get_user_from_token(conn: &Connection, token: String) -> Result<Acc
     .map_err(error::ErrorInternalServerError)
 }
 
+pub async fn delete_account(conn: &Connection, account_hid: String) -> Result<(), Error> {
+    let mut stmt = conn.prepare(SQL_DELETE_ACCOUNT).expect("Wrong create token SQL");
+    stmt.execute([(decode_id(account_hid))]).map(|_| ()).map_err(|e|{
+        log::error!("{}: {}", crate::messages::ERROR_DELETE_ACCOUNT, e);
+        error::ErrorInternalServerError("CANNOT_DELETE_TOKEN")
+    })
+}
+
 /// Create the token for the given account.
 /// It also saves the client requesting it (like `Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0`)
 pub async fn create_token(conn: &Connection, account_id: i32, client: String) -> Result<String, Error> {
@@ -107,7 +115,7 @@ pub async fn create_folder(conn: &Connection, account_id: i32, name: String) -> 
     let mut stmt = conn
         .prepare(SQL_CREATE_FOLDER)
         .expect("Wrong create folder SQL");
-    if stmt.execute((account_id, &name)).is_err() {
+    if stmt.execute((account_id, &name, chrono::Utc::now())).is_err() {
         log::error!("{}: {}", crate::messages::ERROR_CREATE_FOLDER, name);
     }
     stmt.query_row([], |row| {

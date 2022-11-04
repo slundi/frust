@@ -54,9 +54,12 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
                 return HttpResponse::InternalServerError().json("Internal server error");
             }
             let client: String = String::new();
-            crate::db::create_token(&conn, decode_id(account.hash_id.clone()), client).await;
-            //TODO: return token used in Authorization HTTP header
-            HttpResponse::Ok().json(account)
+            let record = crate::db::create_token(&conn, decode_id(account.hash_id.clone()), client).into_future().await;
+            if let Ok(token) = record {
+                return HttpResponse::Ok().json(token);
+            }
+            log::error!("{:?}", record);
+            HttpResponse::InternalServerError().finish()
         },
         Err(_) => {
             log::warn!("Failed login attempt (wrong username). IP={:?}\tusername={}", req.peer_addr(), form.username);
@@ -97,8 +100,17 @@ pub(crate) async fn route_edit_account(pool: web::Data<crate::db::Pool>, req: Ht
     HttpResponse::Unauthorized().json("Wrong credentials")
 }
 
+/// Delete the account. We check the token first so we don't need form data
 #[delete("/account")]
 pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+    if let Some(account) = crate::check_token(&pool, req).await {
+        let conn = pool.get().expect("couldn't get db connection from pool");
+        let result = crate::db::delete_account(&conn, account.hash_id).await;
+        if result.is_ok() {
+            return  HttpResponse::NoContent().finish();
+        }
+    }
+    HttpResponse::BadRequest().json("CANNOT_DELETE_ACCOUNT");
     HttpResponse::NoContent().finish()
 }
 
