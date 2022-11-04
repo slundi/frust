@@ -2,9 +2,15 @@
 extern crate lazy_static;
 extern crate bcrypt;
 
+extern crate r2d2;
+extern crate r2d2_sqlite;
+extern crate rusqlite;
+
 use actix_files::Files;
+use actix_web::{web, App, HttpServer};
+use dotenv::dotenv;
 use log::{info, error};
-use r2d2_sqlite::{self, SqliteConnectionManager};
+use r2d2_sqlite::SqliteConnectionManager;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -14,9 +20,10 @@ mod model;
 mod routes;
 mod routes_account;
 mod routes_folder;
-use db::{Pool, Queries};
+use db::Pool;
 
-//use futures::future::join_all;
+use crate::routes_account::*;
+use crate::routes_folder::*;
 
 lazy_static! {
     //static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
@@ -84,27 +91,6 @@ impl Default for Config {
     }
 }
 
-//use ::config::Config;
-use actix_web::{web, App, HttpServer};
-use dotenv::dotenv;
-
-use crate::routes_account::*;
-use crate::routes_folder::*;
-
-async fn check_token(pool: &web::Data<crate::db::Pool>, req: actix_web::HttpRequest) -> Option<model::Account> {
-    let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
-    if let Some(token) = value {
-        let raw_token = token.to_str();
-        if let Ok(token) = raw_token {
-            let result = crate::db::get_user_from_token(&pool, token.to_owned()).await;
-            if let Ok(account) = result {
-                return Some(account);
-            }
-        }
-    }
-    None
-}
-
 #[actix_web::get("/")]
 async fn index() -> impl actix_web::Responder {
     actix_files::NamedFile::open_async("pages/index.html").await
@@ -148,8 +134,7 @@ async fn main() -> std::io::Result<()> {
     if file.exists() {
         std::fs::create_dir_all(file).expect("Cannot delete database file");
     }*/
-    let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3"))
-        .expect("Cannot create database pool");
+    let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
     db::create_schema(pool.get().expect("Cannot get connection"));
 
     let server = HttpServer::new(move || {
@@ -178,6 +163,7 @@ async fn main() -> std::io::Result<()> {
             )
     })
     .bind(config.server_addr.clone())?
+    .workers(2)
     .run();
     info!("starting HTTP server at http://{}/", config.server_addr);
 

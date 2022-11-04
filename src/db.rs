@@ -5,8 +5,10 @@ use crate::{
     model::{Account, Folder},
 };
 
-pub type Pool = r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>;
-pub type Connection = r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>;
+//pub type Pool = r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>;
+//pub type Pool = r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>;
+pub(crate) type Pool = r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>;
+pub(crate) type Connection = r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>;
 
 //example [here](https://github.com/actix/examples/tree/master/databases/sqlite)
 
@@ -40,7 +42,7 @@ const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, create
 const SQL_AUTH_TOKEN: &str = "SELECT a.*, t.value AS token, t.created AS token_created
                               FROM token t LEFT JOIN account a ON t.account_id = a.id
                               WHERE value = $1";
-const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, $3) RETURNING *";
+const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, '')";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
 const SQL_CREATE_TOKEN: &str =
@@ -64,10 +66,16 @@ pub(crate) fn create_schema(conn: Connection) {
     }
 }
 
+pub async fn create_user(conn: &Connection, username: String, encrypted_password: String) -> Result<(), Error> {
+    let mut stmt = conn.prepare(SQL_REGISTER).expect("Wrong login SQL");
+    stmt.insert([&username, &encrypted_password])
+        .map(|_| Ok(()))
+        .unwrap_or_else(|_| Err(error::ErrorInternalServerError(crate::messages::ERROR_USERNAME_EXISTS)))
+}
+
 /// Get the account associated to the username and password.
 /// It also returns a token on succes because auth is based on tokens
-pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
-    let conn = pool.get().map_err(error::ErrorInternalServerError)?;
+pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Error> {
     let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
     if stmt.execute([&username]).is_err() {
         log::error!("{}", crate::messages::ERROR_WRONG_USERNAME);
@@ -91,9 +99,8 @@ pub async fn get_user(pool: &Pool, username: String) -> Result<Account, Error> {
 }
 
 /// Get the account assiciated to the provided token
-pub async fn get_user_from_token(pool: &Pool, token: String) -> Result<Account, Error> {
+pub async fn get_user_from_token(conn: &Connection, token: String) -> Result<Account, Error> {
     // TODO: consider using a `HashMap<Token, &Account>` to avoid frequent queries to DB (account should be cached somewhere too)
-    let conn = pool.get().map_err(error::ErrorInternalServerError)?;
     let mut stmt = conn.prepare(SQL_AUTH_TOKEN).expect("Wrong login SQL");
     if stmt.execute([&token]).is_err() {
         log::error!("{}", crate::messages::ERROR_WRONG_TOKEN);
@@ -115,8 +122,7 @@ pub async fn get_user_from_token(pool: &Pool, token: String) -> Result<Account, 
 
 /// Create the token for the given account.
 /// It also saves the client requesting it (like `Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0`)
-pub async fn create_token(pool: &Pool, account_id: i32, client: String) {
-    let conn = pool.get().expect("Cannot get connection pool");
+pub async fn create_token(conn: &Connection, account_id: i32, client: String) {
     let mut stmt = conn
         .prepare(SQL_CREATE_TOKEN)
         .expect("Wrong create token SQL");
@@ -126,8 +132,7 @@ pub async fn create_token(pool: &Pool, account_id: i32, client: String) {
     }
 }
 
-pub async fn create_folder(pool: &Pool, account_id: i32, name: String) -> Result<Folder, Error> {
-    let conn = pool.get().expect("Cannot get connection pool");
+pub async fn create_folder(conn: &Connection, account_id: i32, name: String) -> Result<Folder, Error> {
     let mut stmt = conn
         .prepare(SQL_CREATE_FOLDER)
         .expect("Wrong create folder SQL");
@@ -144,8 +149,7 @@ pub async fn create_folder(pool: &Pool, account_id: i32, name: String) -> Result
     .map_err(error::ErrorInternalServerError)
 }
 
-pub async fn edit_folder(pool: &Pool, account_hid: String, folder_hid: String, name: String) -> Result<(), Error> {
-    let conn = pool.get().expect("Cannot get connection pool");
+pub async fn edit_folder(conn: &Connection, account_hid: String, folder_hid: String, name: String) -> Result<(), Error> {
     let mut stmt = conn
         .prepare(SQL_EDIT_FOLDER)
         .expect("Wrong edit folder SQL");
@@ -158,8 +162,7 @@ pub async fn edit_folder(pool: &Pool, account_hid: String, folder_hid: String, n
 }
 
 /// Delete a folder from the folder and account hash IDs (double check)
-pub async fn delete_folder(pool: &Pool, account_hid: String, folder_hid: String) -> Result<(), Error> {
-    let conn = pool.get().expect("Cannot get connection pool");
+pub async fn delete_folder(conn: &Connection, account_hid: String, folder_hid: String) -> Result<(), Error> {
     let mut stmt = conn
         .prepare(SQL_DELETE_FOLDER)
         .expect("Wrong delete folder SQL");
