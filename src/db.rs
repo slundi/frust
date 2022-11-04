@@ -12,41 +12,14 @@ pub(crate) type Connection = r2d2::PooledConnection<r2d2_sqlite::SqliteConnectio
 
 //example [here](https://github.com/actix/examples/tree/master/databases/sqlite)
 
-#[allow(clippy::enum_variant_names)]
-pub enum Queries {
-    // user queries
-    Login,
-    Register,
-    GetTokens,
-    RevokeToken,
-    DeleteAccount,
-
-    //folder queries
-    AddFolder,
-    DeleteFolder,
-
-    //feed queries
-    AddFeed,
-    DeleteFeed,
-    DeleteUnusedFeeds,
-
-    //article queries
-    AddArticle,
-    ReadArticle,
-    SaveArticle,
-    DeleteArticle,
-    DeleteUnsavedOldArticles,
-}
-
-const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, created FROM account WHERE username = $1";
+const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, created FROM account WHERE username = :u";
 const SQL_AUTH_TOKEN: &str = "SELECT a.*, t.value AS token, t.created AS token_created
                               FROM token t LEFT JOIN account a ON t.account_id = a.id
                               WHERE value = $1";
 const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, '')";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
-const SQL_CREATE_TOKEN: &str =
-    "INSERT OR IGNORE INTO token (account_id, created, name) VALUES ($1, $2, $3) RETURNING *";
+const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value) VALUES (:a, :v) RETURNING value";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
 const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id) VALUES ($1, $2) RETURNING id";
@@ -57,7 +30,7 @@ const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1 AND account_id
 /// Create tables if not exists
 pub(crate) fn create_schema(conn: Connection) {
     log::info!("Preparing DB schema import");
-    let sql = std::fs::read_to_string(std::path::Path::new("sql/schema.sql"))
+    let sql = std::fs::read_to_string(std::path::Path::new("schema.sqlite.sql"))
         .expect(crate::messages::ERROR_SCHEMA_FILE);
     let mut batch = rusqlite::Batch::new(&conn, &sql);
     while let Some(mut stmt) = batch.next().expect("Cannot execute next schema statement") {
@@ -76,26 +49,24 @@ pub async fn create_user(conn: &Connection, username: String, encrypted_password
 /// Get the account associated to the username and password.
 /// It also returns a token on succes because auth is based on tokens
 pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Error> {
+    log::info!("get_user: {}", username);
     let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
-    if stmt.execute([&username]).is_err() {
-        log::error!("{}", crate::messages::ERROR_WRONG_USERNAME);
-        return Err(error::ErrorInternalServerError(""));
-    }
-    stmt.query_row([], |row| {
+    stmt.query_row(&[(":u", &username)], |row| {
+        log::info!("row");
         let mut account = Account {
             hash_id: encode_id(row.get(0)?),
             username: row.get(1)?,
             encrypted_password: row.get(2)?,
             config: row.get(3)?,
-            created: row.get(4)?,
+            created: chrono::Utc::now(), //created: row.get(4)?, //FIXME:
             token: String::with_capacity(64),
             token_created: chrono::Utc::now(),
         };
         //TODO: generate and add token
         account.token.push_str("Token ");
+        log::info!("account: {:?}", account);
         Ok(account)
-    })
-    .map_err(error::ErrorInternalServerError)
+    }).map_err(error::ErrorInternalServerError)
 }
 
 /// Get the account assiciated to the provided token
@@ -122,14 +93,14 @@ pub async fn get_user_from_token(conn: &Connection, token: String) -> Result<Acc
 
 /// Create the token for the given account.
 /// It also saves the client requesting it (like `Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0`)
-pub async fn create_token(conn: &Connection, account_id: i32, client: String) {
-    let mut stmt = conn
-        .prepare(SQL_CREATE_TOKEN)
-        .expect("Wrong create token SQL");
-    let result = stmt.execute((account_id, &client));
-    if let Err(e) = result {
+pub async fn create_token(conn: &Connection, account_id: i32, client: String) -> Result<String, Error> {
+    let mut stmt = conn.prepare(SQL_CREATE_TOKEN).expect("Wrong create token SQL");
+    stmt.query_row(&[(":a", &account_id.to_string()), (":v", &uuid::Uuid::new_v4().to_string())], |row| {
+        row.get(0)
+    }).map_err(|e|{
         log::error!("{}: {}", crate::messages::ERROR_CREATE_TOKEN, e);
-    }
+        error::ErrorInternalServerError("CANNOT_CREATE_TOKEN")
+    })
 }
 
 pub async fn create_folder(conn: &Connection, account_id: i32, name: String) -> Result<Folder, Error> {

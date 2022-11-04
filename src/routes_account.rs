@@ -45,6 +45,7 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
     log::debug!("Login");
     let conn = pool.get().expect("couldn't get db connection from pool");
     let result = crate::db::get_user(&conn, form.username.clone()).into_future().await;
+    log::info!("login: {:?}", result);
     match result {
         Ok(account) => {
             let valid = bcrypt::verify(&form.clear_password, &account.encrypted_password);
@@ -72,7 +73,7 @@ pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Dat
         return HttpResponse::BadRequest().json("Passwords are differents");
     }
     let conn = pool.get().expect("couldn't get db connection from pool");
-    let result = crate::db::create_user(&conn, form.username.clone(), form.clear_password.clone()).into_future().await;
+    let result = crate::db::create_user(&conn, form.username.clone(), bcrypt::hash(form.clear_password.clone(), 10).unwrap()).into_future().await;
     result.map(|_| HttpResponse::Created().finish()).unwrap_or_else(|_| {
             log::warn!("{}", crate::messages::ERROR_USERNAME_EXISTS);
             HttpResponse::BadRequest().json("USERNAME_ALREADY_EXISTS")
