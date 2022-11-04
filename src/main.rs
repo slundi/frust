@@ -157,18 +157,19 @@ async fn main() -> std::io::Result<()> {
         .set_cookie(actix_web::http::Method::GET, "/login");*/
         App::new()
             .app_data(web::Data::new(pool.clone()))
+            .wrap(actix_web::middleware::Logger::default())
             .service(index)
             .service(Files::new("/s", "static/"))
             .service(Files::new("/a", &article_assets_path))
             .service(Files::new("/f", &feed_assets_path))
+            //user management
+            .service(route_register)
+            .service(route_login)
+            .service(route_edit_account)
+            .service(route_delete_account)
+            .service(route_delete_token)
             .service(
-                web::scope("/users")
-                    //user management
-                    .service(route_register)
-                    .service(route_login)
-                    .service(route_edit_account)
-                    .service(route_delete_account)
-                    .service(route_delete_token)
+                web::scope("/folders")
                     //folder management
                     .service(route_list_folers)
                     .service(route_create_folder)

@@ -25,6 +25,7 @@ pub struct RegisterForm {
 /// It returns the JSON formatted account
 #[post("/login")]
 pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+    log::debug!("Login");
     let result = crate::db::get_user(&pool, form.username.clone()).await;
     match result {
         Ok(account) => {
@@ -47,7 +48,8 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
 
 #[post("/account")]
 /// Register a new user
-pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Data<crate::db::Pool>)  ->  HttpResponse {
+pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
+    log::debug!("Register");
     if form.clear_password != form.clear_password_2 {
         return HttpResponse::BadRequest().json("Passwords are differents");
     }
@@ -55,7 +57,7 @@ pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Dat
     if result.is_ok() {
         return HttpResponse::BadRequest().json("Username already exists");
     }
-    HttpResponse::Ok().body("CREATE ACCOUNT")
+    HttpResponse::Created().json("")
 }
 
 #[patch("/account")]

@@ -4,7 +4,6 @@ CREATE TABLE IF NOT EXISTS account (
 	encrypted_password   VARCHAR(72) NOT NULL,
 	created DATETIME NOT NULL DEFAULT NOW,
 	config TEXT NOT NULL DEFAULT '{}',
-	UNIQUE(slug),
 	UNIQUE(username)
 );
 
@@ -13,7 +12,7 @@ CREATE TABLE IF NOT EXISTS token (
 	account_id INTEGER NOT NULL,
 	created DATETIME NOT NULL DEFAULT NOW,
 	value VARCHAR(64),
-	UNIQUE(slug), UNIQUE(value)
+	UNIQUE(value)
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 );
 
@@ -21,7 +20,7 @@ CREATE TABLE IF NOT EXISTS folder (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	account_id INTEGER NOT NULL,
 	name VARCHAR(64),
-	UNIQUE(slug),
+	UNIQUE(account_id, name),
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 );
 

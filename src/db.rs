@@ -36,13 +36,11 @@ pub enum Queries {
     DeleteUnsavedOldArticles,
 }
 
-const SQL_LOGIN: &str =
-    "SELECT id, slug, username, password, config, created FROM account WHERE username = ?1";
+const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, created FROM account WHERE username = $1";
 const SQL_AUTH_TOKEN: &str = "SELECT a.*, t.value AS token, t.created AS token_created
                               FROM token t LEFT JOIN account a ON t.account_id = a.id
                               WHERE value = $1";
-const SQL_REGISTER: &str =
-    "INSERT INTO account (slug, username, password, config) VALUES ($1, $2, $3, $4) RETURNING *";
+const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, $3) RETURNING *";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
 const SQL_CREATE_TOKEN: &str =
