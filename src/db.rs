@@ -16,10 +16,10 @@ const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, create
 const SQL_AUTH_TOKEN: &str = "SELECT a.*, t.value AS token, t.created AS token_created
                               FROM token t LEFT JOIN account a ON t.account_id = a.id
                               WHERE value = $1";
-const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config, created) VALUES ($1, $2, '', $3)";
+const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, '')";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
-const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value, created) VALUES (:a, :v, :c) RETURNING value";
+const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value) VALUES (:a, :v) RETURNING value";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
 const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id) VALUES ($1, $2) RETURNING id";
@@ -41,7 +41,7 @@ pub(crate) fn create_schema(conn: Connection) {
 
 pub async fn create_user(conn: &Connection, username: String, encrypted_password: String) -> Result<(), Error> {
     let mut stmt = conn.prepare(SQL_REGISTER).expect("Wrong login SQL");
-    stmt.insert((&username, &encrypted_password, chrono::Utc::now()))
+    stmt.insert((&username, &encrypted_password))
         .map(|_| Ok(()))
         .unwrap_or_else(|_| Err(error::ErrorInternalServerError(crate::messages::ERROR_USERNAME_EXISTS)))
 }
@@ -115,7 +115,7 @@ pub async fn create_folder(conn: &Connection, account_id: i32, name: String) -> 
     let mut stmt = conn
         .prepare(SQL_CREATE_FOLDER)
         .expect("Wrong create folder SQL");
-    if stmt.execute((account_id, &name, chrono::Utc::now())).is_err() {
+    if stmt.execute((account_id, &name)).is_err() {
         log::error!("{}: {}", crate::messages::ERROR_CREATE_FOLDER, name);
     }
     stmt.query_row([], |row| {
