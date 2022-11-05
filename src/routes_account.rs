@@ -20,12 +20,16 @@ pub struct RegisterForm {
 
 pub(crate) async fn check_token(pool: &actix_web::web::Data<crate::db::Pool>, req: actix_web::HttpRequest) -> Option<crate::model::Account> {
     let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
-    if let Some(token) = value {
-        let raw_token = token.to_str();
-        if let Ok(token) = raw_token {
+    if let Some(token_h) = value {
+        let raw_token = token_h.to_str().unwrap_or("").to_lowercase();
+        if !raw_token.starts_with("token ") {
+            return None
+        }
+        let token_cleaned = raw_token.strip_prefix("token ");
+        if let Some(token) = token_cleaned {
+            log::info!("Token 6: {:?}", token);
             let conn = pool.get().expect("couldn't get db connection from pool");
-            let fut = std::future::IntoFuture::into_future(crate::db::get_user_from_token(&conn, token.to_owned()));
-            let result = fut.await;
+            let result = std::future::IntoFuture::into_future(crate::db::get_user_from_token(&conn, token.to_owned())).await;
             if let Ok(account) = result {
                 return Some(account);
             }
@@ -104,14 +108,15 @@ pub(crate) async fn route_edit_account(pool: web::Data<crate::db::Pool>, req: Ht
 #[delete("/account")]
 pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::check_token(&pool, req).await {
+        log::info!("Deleting account: {:?}", account);
         let conn = pool.get().expect("couldn't get db connection from pool");
         let result = crate::db::delete_account(&conn, account.hash_id).await;
+        log::info!("Deleting account result: {:?}", result);
         if result.is_ok() {
             return  HttpResponse::NoContent().finish();
         }
     }
-    HttpResponse::BadRequest().json("CANNOT_DELETE_ACCOUNT");
-    HttpResponse::NoContent().finish()
+    HttpResponse::BadRequest().json("CANNOT_DELETE_ACCOUNT")
 }
 
 /// Allow a user to delete a token in case of problem (laptop or phone stolen) while logged in
