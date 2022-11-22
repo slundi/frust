@@ -4,6 +4,7 @@ pub(crate) const ERROR_USERNAME_EXISTS: &str = "[ACCOUNT] username already exist
 pub(crate) const ERROR_DELETE_ACCOUNT: &str = "[ACCOUNT] delete";
 pub(crate) const ERROR_WRONG_TOKEN: &str = "[TOKEN] no matching token";
 pub(crate) const ERROR_CREATE_TOKEN: &str = "[TOKEN] create";
+pub(crate) const ERROR_DELETE_TOKEN: &str = "[TOKEN] delete";
 
 // folders
 pub(crate) const ERROR_CREATE_FOLDER: &str = "[FOLDER] create";

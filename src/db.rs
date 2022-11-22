@@ -1,5 +1,6 @@
 use actix_web::{error, Error};
 use chrono::prelude::*;
+use rusqlite::params;
 
 use crate::{
     encode_id,
@@ -14,15 +15,15 @@ pub(crate) type Connection = r2d2::PooledConnection<r2d2_sqlite::SqliteConnectio
 //example [here](https://github.com/actix/examples/tree/master/databases/sqlite)
 
 const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, created FROM account WHERE username = :u";
-const SQL_AUTH_TOKEN: &str = "SELECT a.*, t.value AS token, t.created AS token_created
-                              FROM token t LEFT JOIN account a ON t.account_id = a.id
-                              WHERE value = $1";
+const SQL_AUTH_TOKEN: &str = "SELECT a.id, a.username, a.encrypted_password, a.created, a.config, t.value AS token, t.created AS token_created
+                              FROM token t INNER JOIN account a ON t.account_id = a.id
+                              WHERE t.value = $1";
 const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, '')";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
 const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value) VALUES (:a, :v) RETURNING value";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
-const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE id = $1";
+const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE account_id = $1 AND value = $2";
 const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id) VALUES ($1, $2) RETURNING id";
 const SQL_EDIT_FOLDER: &str = "UPDATE folder SET name = $1 WHERE id = $2 AND account_id = $3";
 const SQL_GET_MY_FOLDER: &str ="SELECT id, name FROM folder WHERE account_id = $1 ORDER BY name";
@@ -30,7 +31,7 @@ const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1 AND account_id
 
 const DATETIME_UTC_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
 fn get_datetime_utc(data: String) -> DateTime<Utc> {
-    chrono::DateTime::parse_from_str(&format!("{} +0000", data), DATETIME_UTC_FORMAT).unwrap().with_timezone(&Utc)
+    chrono::DateTime::parse_from_str(&format!("{} +0000", data), DATETIME_UTC_FORMAT).expect("Cannot parse DB datetime").with_timezone(&Utc)
 }
 
 /// Create tables if not exists
@@ -84,10 +85,10 @@ pub async fn get_user_from_token(conn: &Connection, token: String) -> Result<Acc
             hash_id: encode_id(row.get(0)?),
             username: row.get(1)?,
             encrypted_password: row.get(2)?,
-            config: row.get(3)?,
-            created: get_datetime_utc(row.get(4)?),  //created: row.get(4)?,
+            config: row.get(4)?,
+            created: get_datetime_utc(row.get(3)?),
             token: row.get(5)?,
-            token_created: chrono::Utc::now(), //token_created: row.get(6)?,
+            token_created: get_datetime_utc(row.get(6)?),
         })
     }).map_err(|e|{
         log::error!("{}: {:?}", crate::messages::ERROR_WRONG_TOKEN, e);
@@ -104,14 +105,21 @@ pub async fn delete_account(conn: &Connection, account_hid: String) -> Result<()
 }
 
 /// Create the token for the given account.
-/// It also saves the client requesting it (like `Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0`)
-pub async fn create_token(conn: &Connection, account_id: i32, client: String) -> Result<String, Error> {
+pub async fn create_token(conn: &Connection, account_id: i32) -> Result<String, Error> {
     let mut stmt = conn.prepare(SQL_CREATE_TOKEN).expect("Wrong create token SQL");
     stmt.query_row(&[(":a", &account_id.to_string()), (":v", &uuid::Uuid::new_v4().to_string())], |row| {
         row.get(0)
     }).map_err(|e|{
         log::error!("{}: {}", crate::messages::ERROR_CREATE_TOKEN, e);
         error::ErrorInternalServerError("CANNOT_CREATE_TOKEN")
+    })
+}
+
+pub async fn delete_token(conn: &Connection, account_hid: String, token: String) -> Result<(), Error> {
+    let mut stmt = conn.prepare(SQL_DELETE_TOKEN).expect("Wrong create token SQL");
+    stmt.execute(params![decode_id(account_hid), token]).map(|_| ()).map_err(|e|{
+        log::error!("{}: {}", crate::messages::ERROR_DELETE_TOKEN, e);
+        error::ErrorInternalServerError("CANNOT_DELETE_TOKEN")
     })
 }
 

@@ -18,6 +18,7 @@ pub struct RegisterForm {
     clear_password_2: String,
 }
 
+/// Check if the token in the Authorization HTTP header is OK and return the account object
 pub(crate) async fn check_token(pool: &actix_web::web::Data<crate::db::Pool>, req: actix_web::HttpRequest) -> Option<crate::model::Account> {
     let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
     if let Some(token_h) = value {
@@ -57,8 +58,7 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
                 log::error!("Bcrypt error during login: {}", e);
                 return HttpResponse::InternalServerError().json("Internal server error");
             }
-            let client: String = String::new();
-            let record = crate::db::create_token(&conn, decode_id(account.hash_id.clone()), client).into_future().await;
+            let record = crate::db::create_token(&conn, decode_id(account.hash_id.clone())).into_future().await;
             if let Ok(token) = record {
                 return HttpResponse::Ok().json(token);
             }
@@ -119,10 +119,19 @@ pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: 
     HttpResponse::BadRequest().json("CANNOT_DELETE_ACCOUNT")
 }
 
-/// Allow a user to delete a token in case of problem (laptop or phone stolen) while logged in
-#[delete("/tokens/{token_hid}/")]
+/// Allow a user to delete a token in case of problem (laptop or phone stolen) while logged in, it also log the
+/// user out if he deletes its current authorization token
+#[delete("/tokens/{token}")]
 pub(crate) async fn route_delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
-    HttpResponse::Ok().body("DELETE ACCOUNT TOKEN")
+    if let Some(account) = crate::check_token(&pool, req).await {
+        let conn = pool.get().expect("couldn't get db connection from pool");
+        log::info!("DELETE TOKEN for account: {:?}", account);
+        let result = crate::db::delete_token(&conn, account.hash_id, path.0.clone()).await;
+        if result.is_ok() {
+            return  HttpResponse::NoContent().finish();
+        }
+    }
+    HttpResponse::Ok().body("CANNOT_TOKEN_DELETED")
 }
 
 #[cfg(test)]
