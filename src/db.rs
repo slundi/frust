@@ -1,4 +1,5 @@
 use actix_web::{error, Error};
+use chrono::prelude::*;
 
 use crate::{
     encode_id,
@@ -26,6 +27,11 @@ const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id) VALUES ($1
 const SQL_EDIT_FOLDER: &str = "UPDATE folder SET name = $1 WHERE id = $2 AND account_id = $3";
 const SQL_GET_MY_FOLDER: &str ="SELECT id, name FROM folder WHERE account_id = $1 ORDER BY name";
 const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1 AND account_id = $2";
+
+const DATETIME_UTC_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
+fn get_datetime_utc(data: String) -> DateTime<Utc> {
+    chrono::DateTime::parse_from_str(&format!("{} +0000", data), DATETIME_UTC_FORMAT).unwrap().with_timezone(&Utc)
+}
 
 /// Create tables if not exists
 pub(crate) fn create_schema(conn: Connection) {
@@ -58,7 +64,7 @@ pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Er
             username: row.get(1)?,
             encrypted_password: row.get(2)?,
             config: row.get(3)?,
-            created: chrono::Utc::now(), //created: row.get(4)?, //FIXME:
+            created: get_datetime_utc(row.get(4)?), //chrono::Utc::now(), //created: row.get(4)?, //FIXME:
             token: String::with_capacity(64),
             token_created: chrono::Utc::now(),
         };
@@ -73,22 +79,20 @@ pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Er
 pub async fn get_user_from_token(conn: &Connection, token: String) -> Result<Account, Error> {
     // TODO: consider using a `HashMap<Token, &Account>` to avoid frequent queries to DB (account should be cached somewhere too)
     let mut stmt = conn.prepare(SQL_AUTH_TOKEN).expect("Wrong login SQL");
-    if stmt.execute([&token]).is_err() {
-        log::error!("{}", crate::messages::ERROR_WRONG_TOKEN);
-        return Err(error::ErrorInternalServerError(""));
-    }
-    stmt.query_row([], |row| {
+    stmt.query_row([&token], |row| {
         Ok(Account {
             hash_id: encode_id(row.get(0)?),
             username: row.get(1)?,
             encrypted_password: row.get(2)?,
             config: row.get(3)?,
-            created: row.get(4)?,
+            created: get_datetime_utc(row.get(4)?),  //created: row.get(4)?,
             token: row.get(5)?,
-            token_created: row.get(6)?,
+            token_created: chrono::Utc::now(), //token_created: row.get(6)?,
         })
+    }).map_err(|e|{
+        log::error!("{}: {:?}", crate::messages::ERROR_WRONG_TOKEN, e);
+        error::ErrorInternalServerError("WRONG_TOKEN")
     })
-    .map_err(error::ErrorInternalServerError)
 }
 
 pub async fn delete_account(conn: &Connection, account_hid: String) -> Result<(), Error> {
