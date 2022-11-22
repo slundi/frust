@@ -59,25 +59,23 @@ SECRET_KEY="CHANGE-ME!"
 - [ ] Filter modal
 ### Server
 
-| Dev | Tests | Task |
-|:---:|:-----:|------|
-| [x] | [ ]   | Register |
-| [x] | [ ]   | Login (create token) |
-| [ ] | [ ]   | Logout (delete token) |
-| [ ] | [ ]   | Save user's preferences (dark mode, ...) |
-| [ ] | [ ]   | Handle token expiration |
-| [ ] | [ ]   | Add feed |
-| [ ] | [ ]   | Remove feed |
-| [ ] | [ ]   | Refresh feed (force) |
-| [ ] | [ ]   | Show article |
-| [ ] | [ ]   | Mark article as read or saved (same API endpoint) |
-| [x] | [ ]   | Add folder |
-| [x] | [ ]   | Edit folder (rename) |
-| [x] | [ ]   | Remove folder |
-| [ ] | [ ]   | Search |
-| [ ] | [ ]   | Advanced search |
-| [ ] | [ ]   | Download article as PDF?, HTML?, ePub? |
-| [ ] | [ ]   | Export OPML |
+- [x] Register
+- [x] Login (create token)
+- [ ] Logout (delete token)
+- [ ] Save user's preferences (dark mode, ...)
+- [ ] Handle token expiration
+- [ ] Add feed
+- [ ] Remove feed
+- [ ] Refresh feed (force)
+- [ ] Show article
+- [ ] Mark article as read or saved (same API endpoint)
+- [x] Add folder
+- [x] Edit folder (rename)
+- [x] Remove folder
+- [ ] Search
+- [ ] Advanced search
+- [ ] Download article as PDF?, HTML?, ePub?
+- [ ] Export OPML
 
 ## Ideas
 
