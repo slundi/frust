@@ -44,6 +44,41 @@ FEED_REFRESH_TIME=600
 SECRET_KEY="CHANGE-ME!"
 ```
 
+## Todo
+
+### Web UI
+
+- [ ] Skeleton
+- [ ] JS
+  - [ ] Register
+  - [ ] Login
+  - [ ] Add/edit/remove folder
+  - [ ] Add/remove feed
+  - [ ] Refresh token (in order to stay connected, otherwise, the server will clean token after X days of inactivity)
+  - [ ] Mark article as read/saved
+- [ ] Filter modal
+### Server
+
+| Dev | Tests | Task |
+|:---:|:-----:|------|
+| [x] | [ ]   | Register |
+| [x] | [ ]   | Login (create token) |
+| [ ] | [ ]   | Logout (delete token) |
+| [ ] | [ ]   | Save user's preferences (dark mode, ...) |
+| [ ] | [ ]   | Handle token expiration |
+| [ ] | [ ]   | Add feed |
+| [ ] | [ ]   | Remove feed |
+| [ ] | [ ]   | Refresh feed (force) |
+| [ ] | [ ]   | Show article |
+| [ ] | [ ]   | Mark article as read or saved (same API endpoint) |
+| [x] | [ ]   | Add folder |
+| [x] | [ ]   | Edit folder (rename) |
+| [x] | [ ]   | Remove folder |
+| [ ] | [ ]   | Search |
+| [ ] | [ ]   | Advanced search |
+| [ ] | [ ]   | Download article as PDF?, HTML?, ePub? |
+| [ ] | [ ]   | Export OPML |
+
 ## Ideas
 
 * Rename feed information
