@@ -14,16 +14,12 @@ use r2d2_sqlite::SqliteConnectionManager;
 use serde::Deserialize;
 use std::path::Path;
 
+mod auth;
 mod db;
 mod messages;
 mod model;
 mod routes;
-mod routes_account;
-mod routes_folder;
 use db::Pool;
-
-use crate::routes_account::*;
-use crate::routes_folder::*;
 
 lazy_static! {
     //static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
@@ -148,18 +144,18 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/a", &article_assets_path))
             .service(Files::new("/f", &feed_assets_path))
             //user management
-            .service(route_register)
-            .service(route_login)
-            .service(route_edit_account)
-            .service(route_delete_account)
-            .service(route_delete_token)
+            .service(routes::account::route_register)
+            .service(routes::account::route_login)
+            .service(routes::account::route_edit_account)
+            .service(routes::account::route_delete_account)
+            .service(routes::account::route_delete_token)
             .service(
                 web::scope("/folders")
                     //folder management
-                    .service(route_list_folers)
-                    .service(route_create_folder)
-                    .service(route_edit_folder)
-                    .service(route_delete_folder),
+                    .service(routes::folder::route_list_folers)
+                    .service(routes::folder::route_create_folder)
+                    .service(routes::folder::route_edit_folder)
+                    .service(routes::folder::route_delete_folder),
             )
     })
     .bind(config.server_addr.clone())?

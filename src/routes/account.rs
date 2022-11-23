@@ -18,27 +18,6 @@ pub struct RegisterForm {
     clear_password_2: String,
 }
 
-/// Check if the token in the Authorization HTTP header is OK and return the account object
-pub(crate) async fn check_token(pool: &actix_web::web::Data<crate::db::Pool>, req: actix_web::HttpRequest) -> Option<crate::model::Account> {
-    let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
-    if let Some(token_h) = value {
-        let raw_token = token_h.to_str().unwrap_or("").to_lowercase();
-        if !raw_token.starts_with("token ") {
-            return None
-        }
-        let token_cleaned = raw_token.strip_prefix("token ");
-        if let Some(token) = token_cleaned {
-            log::info!("Token 6: {:?}", token);
-            let conn = pool.get().expect("couldn't get db connection from pool");
-            let result = std::future::IntoFuture::into_future(crate::db::get_user_from_token(&conn, token.to_owned())).await;
-            if let Ok(account) = result {
-                return Some(account);
-            }
-        }
-    }
-    None
-}
-
 /// Log the user in:
 /// 1. Get the user from the nickname
 /// 2. Verify bcrypt encoded password
@@ -107,7 +86,7 @@ pub(crate) async fn route_edit_account(pool: web::Data<crate::db::Pool>, req: Ht
 /// Delete the account. We check the token first so we don't need form data
 #[delete("/account")]
 pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
-    if let Some(account) = crate::check_token(&pool, req).await {
+    if let Some(account) = crate::auth::check_token(&pool, req).await {
         log::info!("Deleting account: {:?}", account);
         let conn = pool.get().expect("couldn't get db connection from pool");
         let result = crate::db::delete_account(&conn, account.hash_id).await;
@@ -123,7 +102,7 @@ pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: 
 /// user out if he deletes its current authorization token
 #[delete("/tokens/{token}")]
 pub(crate) async fn route_delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
-    if let Some(account) = crate::check_token(&pool, req).await {
+    if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect("couldn't get db connection from pool");
         log::info!("DELETE TOKEN for account: {:?}", account);
         let result = crate::db::delete_token(&conn, account.hash_id, path.0.clone()).await;
