@@ -34,11 +34,6 @@ lazy_static! {
         .unwrap());
 }
 
-#[actix_web::get("/")]
-async fn index() -> impl actix_web::Responder {
-    actix_files::NamedFile::open_async("pages/index.html").await
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -81,7 +76,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .wrap(actix_web::middleware::Logger::default())
-            .service(index)
+            .service(routes::index)
             .service(Files::new("/s", "static/"))
             .service(Files::new("/a", &article_assets_path))
             .service(Files::new("/f", &feed_assets_path))
