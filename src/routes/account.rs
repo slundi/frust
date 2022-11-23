@@ -2,7 +2,7 @@ use actix_web::{post, patch, delete, web, HttpResponse, HttpRequest};
 use serde::Deserialize;
 use std::future::IntoFuture;
 
-use crate::decode_id;
+use crate::utils::decode_id;
 
 #[derive(Debug, Deserialize)]
 pub struct LoginForm {

@@ -3,8 +3,8 @@ use chrono::prelude::*;
 use rusqlite::params;
 
 use crate::{
-    encode_id,
-    model::{Account, Folder}, decode_id,
+    utils::{decode_id, encode_id},
+    model::{Account, Folder},
 };
 
 //pub type Pool = r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>;
@@ -144,8 +144,8 @@ pub async fn edit_folder(conn: &Connection, account_hid: String, folder_hid: Str
     let mut stmt = conn
         .prepare(SQL_EDIT_FOLDER)
         .expect("Wrong edit folder SQL");
-    let id = crate::decode_id(folder_hid);
-    if stmt.execute((&name, id, crate::decode_id(account_hid))).is_err() {
+    let id = crate::utils::decode_id(folder_hid);
+    if stmt.execute((&name, id, crate::utils::decode_id(account_hid))).is_err() {
         log::error!("{}: {}", crate::messages::ERROR_EDIT_FOLDER, id);
         return Err(error::ErrorInternalServerError("Cannot edit folder"));
     }
@@ -157,8 +157,8 @@ pub async fn delete_folder(conn: &Connection, account_hid: String, folder_hid: S
     let mut stmt = conn
         .prepare(SQL_DELETE_FOLDER)
         .expect("Wrong delete folder SQL");
-    let id = crate::decode_id(folder_hid);
-    if stmt.execute((id, crate::decode_id(account_hid))).is_err() {
+    let id = crate::utils::decode_id(folder_hid);
+    if stmt.execute((id, crate::utils::decode_id(account_hid))).is_err() {
         log::error!("{}: {}", crate::messages::ERROR_DELETE_FOLDER, id);
         return Err(error::ErrorInternalServerError("Cannot delete folder"));
     }
