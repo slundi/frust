@@ -72,8 +72,8 @@ async fn main() -> std::io::Result<()> {
     if file.exists() {
         std::fs::create_dir_all(file).expect("Cannot delete database file");
     }*/
-    let pool = db::db::Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
-    db::db::create_schema(pool.get().expect("Cannot get connection"));
+    let pool = db::Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
+    db::create_schema(pool.get().expect("Cannot get connection"));
 
     let server = HttpServer::new(move || {
         /*let csrf = Csrf:: <rand::prelude::StdRng> ::new()
