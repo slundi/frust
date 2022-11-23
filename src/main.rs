@@ -9,7 +9,6 @@ extern crate rusqlite;
 use actix_files::Files;
 use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
-use log::info;
 use r2d2_sqlite::SqliteConnectionManager;
 use std::path::Path;
 
@@ -20,7 +19,6 @@ mod messages;
 mod model;
 mod routes;
 mod utils;
-use db::db::Pool;
 
 lazy_static! {
     //static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
@@ -61,12 +59,7 @@ async fn main() -> std::io::Result<()> {
     })
     .unwrap();
 
-    info!(
-        "Working directory: {}",
-        std::env::current_dir()
-            .expect("Cannot get working directory")
-            .display()
-    );
+    log::info!("Working directory: {}", std::env::current_dir().expect("Cannot get working directory").display());
 
     //create folders for assets
     create_assets_directories(config.assets_path.clone());
@@ -79,7 +72,7 @@ async fn main() -> std::io::Result<()> {
     if file.exists() {
         std::fs::create_dir_all(file).expect("Cannot delete database file");
     }*/
-    let pool = Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
+    let pool = db::db::Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
     db::db::create_schema(pool.get().expect("Cannot get connection"));
 
     let server = HttpServer::new(move || {
@@ -110,7 +103,7 @@ async fn main() -> std::io::Result<()> {
     .bind(config.server_addr.clone())?
     .workers(2)
     .run();
-    info!("starting HTTP server at http://{}/", config.server_addr);
+    log::info!("starting HTTP server at http://{}/", config.server_addr);
 
     server.await
 }
