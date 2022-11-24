@@ -1,5 +1,3 @@
-use std::ops::Add;
-
 use actix_web::{error, Error};
 use rusqlite::params;
 use crate::{model::{Account, Token}, utils::{encode_id, decode_id}};
