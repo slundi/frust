@@ -25,7 +25,7 @@ pub struct RegisterForm {
 /// 
 /// It returns the JSON formatted account
 #[post("/login")]
-pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn login(form: web::Form<LoginForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     log::debug!("Login");
     let conn = pool.get().expect("couldn't get db connection from pool");
     let result = crate::db::account::get_user(&conn, form.username.clone()).into_future().await;
@@ -53,7 +53,7 @@ pub(crate) async fn route_login(form: web::Form<LoginForm>, pool: web::Data<crat
 
 /// Register a new user
 #[post("/account")]
-pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn register(form: web::Form<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
     log::debug!("Register");
     if form.clear_password != form.clear_password_2 {
         return HttpResponse::BadRequest().json("Passwords are differents");
@@ -67,7 +67,7 @@ pub(crate) async fn route_register(form: web::Form<RegisterForm>, pool: web::Dat
 }
 
 #[patch("/account")]
-pub(crate) async fn route_edit_account(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn patch(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
     if let Some(token) = value {
         let raw_token = token.to_str();
@@ -85,7 +85,7 @@ pub(crate) async fn route_edit_account(pool: web::Data<crate::db::Pool>, req: Ht
 
 /// Delete the account. We check the token first so we don't need form data
 #[delete("/account")]
-pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn delete(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         log::info!("Deleting account: {:?}", account);
         let conn = pool.get().expect("couldn't get db connection from pool");
@@ -101,7 +101,7 @@ pub(crate) async fn route_delete_account(pool: web::Data<crate::db::Pool>, req: 
 /// Allow a user to delete a token in case of problem (laptop or phone stolen) while logged in, it also log the
 /// user out if he deletes its current authorization token
 #[delete("/tokens/{token}")]
-pub(crate) async fn route_delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect("couldn't get db connection from pool");
         log::info!("DELETE TOKEN for account: {:?}", account);
@@ -115,7 +115,7 @@ pub(crate) async fn route_delete_token(path: web::Path<(String,)>, pool: web::Da
 
 /// Get all user tokens, in case he wants to revoke/delete som
 #[get("/tokens")]
-pub(crate) async fn route_get_tokens(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn list_tokens(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect("couldn't get db connection from pool");
         let result = crate::db::account::get_tokens(&conn, account.hash_id).await;

@@ -80,19 +80,19 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/a", &article_assets_path))
             .service(Files::new("/f", &feed_assets_path))
             //user management
-            .service(routes::account::route_register)
-            .service(routes::account::route_login)
-            .service(routes::account::route_edit_account)
-            .service(routes::account::route_delete_account)
-            .service(routes::account::route_delete_token)
-            .service(routes::account::route_get_tokens)
+            .service(routes::account::register)
+            .service(routes::account::login)
+            .service(routes::account::patch)
+            .service(routes::account::delete)
+            .service(routes::account::delete_token)
+            .service(routes::account::list_tokens)
             .service(
                 web::scope("/folders")
                     //folder management
-                    .service(routes::folder::route_list_folers)
-                    .service(routes::folder::route_create_folder)
-                    .service(routes::folder::route_edit_folder)
-                    .service(routes::folder::route_delete_folder),
+                    .service(routes::folder::list)
+                    .service(routes::folder::post)
+                    .service(routes::folder::patch)
+                    .service(routes::folder::delete),
             )
     })
     .bind(config.server_addr.clone())?

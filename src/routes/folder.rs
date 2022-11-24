@@ -7,13 +7,15 @@ pub(crate) struct FolderForm {
     account_id: i32,
 }
 
+/// List folder with name
 #[get("/folders/")]
-pub(crate) async fn route_list_folers(pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn list(pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     HttpResponse::Ok().body("LIST FOLDER")
 }
 
+/// Create a folder for the user
 #[post("/folders/")]
-pub(crate) async fn route_create_folder(form: web::Form<FolderForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn post(form: web::Form<FolderForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect("couldn't get db connection from pool");
         let result = crate::db::folder::create_folder(&conn, form.account_id, form.name.clone()).await;
@@ -26,7 +28,7 @@ pub(crate) async fn route_create_folder(form: web::Form<FolderForm>, pool: web::
 
 /// Rename a folder (for now)
 #[patch("/folders/{folder_hid}/")]
-pub(crate) async fn route_edit_folder(form: web::Form<String>, path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn patch(form: web::Form<String>, path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect("couldn't get db connection from pool");
         let result = crate::db::folder::edit_folder(&conn, account.hash_id, path.into_inner(), form.0).await;
@@ -38,7 +40,7 @@ pub(crate) async fn route_edit_folder(form: web::Form<String>, path: web::Path<S
 }
 
 #[delete("/folders/{folder_hid}/")]
-pub(crate) async fn route_delete_folder(path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn delete(path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect("couldn't get db connection from pool");
         let result = crate::db::folder::delete_folder(&conn, account.hash_id, path.into_inner()).await;
