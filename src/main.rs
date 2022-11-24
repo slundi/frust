@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate bcrypt;
-
 extern crate r2d2;
 extern crate r2d2_sqlite;
 extern crate rusqlite;
@@ -86,6 +85,7 @@ async fn main() -> std::io::Result<()> {
             .service(routes::account::route_edit_account)
             .service(routes::account::route_delete_account)
             .service(routes::account::route_delete_token)
+            .service(routes::account::route_get_tokens)
             .service(
                 web::scope("/folders")
                     //folder management

@@ -1,4 +1,4 @@
-use actix_web::{post, patch, delete, web, HttpResponse, HttpRequest};
+use actix_web::{get, post, patch, delete, web, HttpResponse, HttpRequest};
 use serde::Deserialize;
 use std::future::IntoFuture;
 
@@ -111,6 +111,19 @@ pub(crate) async fn route_delete_token(path: web::Path<(String,)>, pool: web::Da
         }
     }
     HttpResponse::Ok().body("CANNOT_TOKEN_DELETED")
+}
+
+/// Get all user tokens, in case he wants to revoke/delete som
+#[get("/tokens")]
+pub(crate) async fn route_get_tokens(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+    if let Some(account) = crate::auth::check_token(&pool, req).await {
+        let conn = pool.get().expect("couldn't get db connection from pool");
+        let result = crate::db::account::get_tokens(&conn, account.hash_id).await;
+        if let Ok(tokens) = result{
+            return  HttpResponse::Ok().json(tokens);
+        }
+    }
+    HttpResponse::InternalServerError().body("CANNOT_TOKEN_DELETED")
 }
 
 #[cfg(test)]

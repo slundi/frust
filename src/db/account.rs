@@ -1,6 +1,8 @@
+use std::ops::Add;
+
 use actix_web::{error, Error};
 use rusqlite::params;
-use crate::{model::Account, utils::{encode_id, decode_id}};
+use crate::{model::{Account, Token}, utils::{encode_id, decode_id}};
 
 use super::{Connection, get_datetime_utc};
 
@@ -12,7 +14,7 @@ const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, c
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
 const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value) VALUES (:a, :v) RETURNING value";
-const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT id, created, name FROM token WHERE account_id = $1";
+const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT created, value FROM token WHERE account_id = $1 ORDER by created DESC";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE account_id = $1 AND value = $2";
 
 pub async fn create_user(conn: &Connection, username: String, encrypted_password: String) -> Result<(), Error> {
@@ -85,9 +87,29 @@ pub async fn create_token(conn: &Connection, account_id: i32) -> Result<String, 
 }
 
 pub async fn delete_token(conn: &Connection, account_hid: String, token: String) -> Result<(), Error> {
-    let mut stmt = conn.prepare(SQL_DELETE_TOKEN).expect("Wrong create token SQL");
+    let mut stmt = conn.prepare(SQL_DELETE_TOKEN).expect("Wrong delete token SQL");
     stmt.execute(params![decode_id(account_hid), token]).map(|_| ()).map_err(|e|{
         log::error!("{}: {}", crate::messages::ERROR_DELETE_TOKEN, e);
         error::ErrorInternalServerError("CANNOT_DELETE_TOKEN")
     })
+}
+
+pub async fn get_tokens(conn: &Connection, account_hid: String) -> Result<Vec<Token>, Error> {
+    let mut stmt = conn.prepare(SQL_GET_ACCOUNT_TOKENS).expect("Wrong delete token SQL");
+    let result = stmt.query_map([decode_id(account_hid)], |r| {
+        Ok(Token {
+            value: r.get(1).unwrap(),
+            created: get_datetime_utc(r.get(0).unwrap())
+        })
+    });
+    if let Err(e) = result {
+        log::error!("{}: {}", crate::messages::ERROR_GET_TOKENS, e);
+        return Err(error::ErrorInternalServerError("CANNOT_LIST_TOKENS"))
+    }
+    let rows = result.unwrap();
+    let mut results: Vec<Token> = Vec::new();
+    for t in rows {
+        results.push(t.unwrap());
+    }
+    Ok(results)
 }

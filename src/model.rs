@@ -3,10 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Token {
-    pub hash_id: String,
-    pub account_id: i32,
     pub created: DateTime<Utc>,
-    pub name: String,
+    pub value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
