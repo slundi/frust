@@ -101,7 +101,7 @@ pub async fn get_tokens(conn: &Connection, account_hid: String) -> Result<Vec<To
         })
     });
     if let Err(e) = result {
-        log::error!("{}: {}", crate::messages::ERROR_GET_TOKENS, e);
+        log::error!("{}: {}", crate::messages::ERROR_LIST_TOKENS, e);
         return Err(error::ErrorInternalServerError("CANNOT_LIST_TOKENS"))
     }
     let rows = result.unwrap();

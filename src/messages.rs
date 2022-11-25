@@ -1,13 +1,15 @@
 pub(crate) const ERROR_SCHEMA_FILE: &str = "Cannot read schema file";
 
+//account related
 pub(crate) const ERROR_USERNAME_EXISTS: &str = "[ACCOUNT] username already exists";
 pub(crate) const ERROR_DELETE_ACCOUNT: &str = "[ACCOUNT] delete";
 pub(crate) const ERROR_WRONG_TOKEN: &str = "[TOKEN] no matching token";
 pub(crate) const ERROR_CREATE_TOKEN: &str = "[TOKEN] create";
 pub(crate) const ERROR_DELETE_TOKEN: &str = "[TOKEN] delete";
-pub(crate) const ERROR_GET_TOKENS: &str = "[TOKEN] list";
+pub(crate) const ERROR_LIST_TOKENS: &str = "[TOKEN] list";
 
 // folders
 pub(crate) const ERROR_CREATE_FOLDER: &str = "[FOLDER] create";
 pub(crate) const ERROR_EDIT_FOLDER: &str = "[FOLDER] edit";
 pub(crate) const ERROR_DELETE_FOLDER: &str = "[FOLDER] delete";
+pub(crate) const ERROR_LIST_FOLDERS: &str = "[FOLDER] list";

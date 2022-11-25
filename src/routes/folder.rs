@@ -20,7 +20,7 @@ pub(crate) async fn post(form: web::Form<FolderForm>, pool: web::Data<crate::db:
         let conn = pool.get().expect("couldn't get db connection from pool");
         let result = crate::db::folder::create_folder(&conn, form.account_id, form.name.clone()).await;
         if result.is_ok() {
-            return HttpResponse::Ok().json(result.unwrap());
+            return HttpResponse::Ok().finish();
         }
     }
     HttpResponse::BadRequest().json("Cannot create folder")

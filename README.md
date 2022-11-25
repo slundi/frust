@@ -7,7 +7,9 @@ I made this project for a few reasons:
 * to learn and practice RUST
 * to replace my use of Feedly because I don't want to subscribe for a premium account in order to just get filters
 
-Database is SQLite because I don't aim to host it for multiple accounts. If you want a PostgreSQL, feel free to suggest a PR.
+Database is SQLite because I don't aim to host it for multiple accounts. SQLite is fast for this low traffic service.
+
+If you want a PostgreSQL and make the project bigger, feel free to suggest a PR.
 
 ### Features
 
@@ -61,7 +63,7 @@ SECRET_KEY="CHANGE-ME!"
 
 - [x] Register
 - [x] Login (create token)
-- [ ] Logout (delete token)
+- [x] Logout (delete token)
 - [ ] Save user's preferences (dark mode, ...)
 - [ ] Handle token expiration
 - [ ] Add feed
@@ -81,8 +83,11 @@ SECRET_KEY="CHANGE-ME!"
 
 * Rename feed information
 * Change feed icon
+* Folder icon/glyph+color?
 * Hashtag feature to find saved article
-* OTP to check registration/login POST?
-* [mCaptcha](https://github.com/mCaptcha/mCaptcha/)?
-* PoW (Proof of Work) for registration/login?
-* Web assembly to replace AJAX, for OTP, ...
+* Avoid spammers in the registration process:
+  * OTP to check registration/login POST?
+  * [mCaptcha](https://github.com/mCaptcha/mCaptcha/)?
+  * PoW (Proof of Work) for registration/login?
+* Web assembly? (to replace AJAX, for OTP, ...)
+* Cache account and tokens to avoid SQL queries
