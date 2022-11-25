@@ -21,7 +21,6 @@ pub struct Account {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Folder {
     pub hash_id: String,
-    pub account_id: i32,
     pub name: String,
 }
 
@@ -42,4 +41,28 @@ pub struct Filter {
     /// If we only want to include results that match this filter (or other include filters). If false, results from
     /// this filter are excluded.
     pub includes: bool,
+}
+
+/// Essential feed information to update data and display it.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Feed {
+    /// Name of the feed. Value is retrieved from the ATOM/RSS or from the user if he renames it.
+    pub name: String,
+    pub url: String,
+    pub updated: DateTime<Utc>,
+    /// Feed icon will be in <ASSETS_PATH>/f/<hash of the url>.png (convert it if needed)
+    pub icon_filename: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AccountFeed {
+    pub hash_id: String,
+    /// If the link is accessible to anonymous user. If you follow a private tracker, you may need to set it to `false` to make it private.
+    pub public: bool,
+    /// When the user added this feed
+    pub added: DateTime<Utc>,
+    /// HashID and name of the folder
+    pub folder: (String, String),
+    pub name: String,
+    pub feed: Feed,
 }

@@ -2,6 +2,7 @@
 use chrono::prelude::*;
 
 pub(crate) mod account;
+pub(crate) mod feed;
 pub(crate) mod folder;
 
 //pub type Pool = r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>;

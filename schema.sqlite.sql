@@ -26,23 +26,12 @@ CREATE TABLE IF NOT EXISTS folder (
 
 CREATE TABLE IF NOT EXISTS feed (
 	id  INTEGER NOT NULL PRIMARY KEY,
-	slug VARCHAR(36) NOT NULL,
 	title VARCHAR(255) NOT NULL,
 	link VARCHAR(255) NOT NULL,
 	description TEXT NOT NULL,	
 	language TEXT,
-	copyright TEXT,
-	managing_editor VARCHAR(255),
-	webmaster VARCHAR(255),
-	publication_date DATETIME,
-	last_build_date DATETIME,
-	category VARCHAR(64),
-	generator VARCHAR(64),
-	ttl INTEGER,
-	image TEXT,
+	updated DATETIME,
 	extra TEXT,
-	-- TODO: improve, ATOM support
-	UNIQUE(slug)
 );
 
 CREATE TABLE IF NOT EXISTS subscription (
