@@ -1,4 +1,5 @@
 pub(crate) const ERROR_SCHEMA_FILE: &str = "Cannot read schema file";
+pub(crate) const ERROR_CANNOT_GET_CONNEXION: &str = "couldn't get db connection from pool";
 
 //account related
 pub(crate) const ERROR_USERNAME_EXISTS: &str = "[ACCOUNT] username already exists";

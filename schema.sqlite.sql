@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS feed (
 	description TEXT NOT NULL,	
 	language TEXT,
 	updated DATETIME,
-	extra TEXT,
+	extra TEXT
 );
 
 CREATE TABLE IF NOT EXISTS subscription (

@@ -9,7 +9,7 @@ pub(crate) async fn check_token(pool: &actix_web::web::Data<crate::db::Pool>, re
         let token_cleaned = raw_token.strip_prefix("token ");
         if let Some(token) = token_cleaned {
             log::info!("Token 6: {:?}", token);
-            let conn = pool.get().expect("couldn't get db connection from pool");
+            let conn = pool.get().expect(crate::messages::ERROR_CANNOT_GET_CONNEXION);
             let result = std::future::IntoFuture::into_future(crate::db::account::get_user_from_token(&conn, token.to_owned())).await;
             if let Ok(account) = result {
                 return Some(account);

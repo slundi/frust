@@ -22,15 +22,13 @@ mod utils;
 lazy_static! {
     //static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
     static ref HASH_ID: std::sync::RwLock<harsh::Harsh> = std::sync::RwLock::new(harsh::Harsh::builder()
-        .salt(
+        .length(8).salt(
             chrono::Local::now()
                 .format("%Y-%m-%d %H:%M:%S")
                 .to_string()
                 .as_bytes(),
         )
-        .length(8)
-        .build()
-        .unwrap());
+        .build().unwrap());
 }
 
 #[actix_web::main]
@@ -39,8 +37,7 @@ async fn main() -> std::io::Result<()> {
 
     let config_ = ::config::Config::builder()
         .add_source(::config::Environment::default())
-        .build()
-        .expect("Cannot build config");
+        .build().expect("Cannot build config");
     let config: crate::config::Config = config_.try_deserialize().expect("Cannot get config");
 
     //configure logger
@@ -50,8 +47,7 @@ async fn main() -> std::io::Result<()> {
         "DEBUG" => log::Level::Debug,
         "TRACE" => log::Level::Trace,
         _ => log::Level::Info,
-    })
-    .unwrap();
+    }).unwrap();
 
     log::info!("Working directory: {}", std::env::current_dir().expect("Cannot get working directory").display());
 
@@ -62,16 +58,10 @@ async fn main() -> std::io::Result<()> {
     let mut article_assets_path = config.assets_path.clone();
     article_assets_path.push_str("/a/");
 
-    /*let file = std::path::Path::new(&config.sqlite_file);
-    if file.exists() {
-        std::fs::create_dir_all(file).expect("Cannot delete database file");
-    }*/
     let pool = db::Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
     db::create_schema(pool.get().expect("Cannot get connection"));
 
     let server = HttpServer::new(move || {
-        /*let csrf = Csrf:: <rand::prelude::StdRng> ::new()
-        .set_cookie(actix_web::http::Method::GET, "/login");*/
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .wrap(actix_web::middleware::Logger::default())

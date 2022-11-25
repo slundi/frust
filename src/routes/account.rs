@@ -2,7 +2,7 @@ use actix_web::{get, post, patch, delete, web, HttpResponse, HttpRequest};
 use serde::Deserialize;
 use std::future::IntoFuture;
 
-use crate::utils::decode_id;
+use crate::{utils::decode_id, messages::ERROR_CANNOT_GET_CONNEXION};
 
 #[derive(Debug, Deserialize)]
 pub struct LoginForm {
@@ -27,7 +27,7 @@ pub struct RegisterForm {
 #[post("/login")]
 pub(crate) async fn login(form: web::Form<LoginForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     log::debug!("Login");
-    let conn = pool.get().expect("couldn't get db connection from pool");
+    let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
     let result = crate::db::account::get_user(&conn, form.username.clone()).into_future().await;
     log::info!("login: {:?}", result);
     match result {
@@ -58,7 +58,7 @@ pub(crate) async fn register(form: web::Form<RegisterForm>, pool: web::Data<crat
     if form.clear_password != form.clear_password_2 {
         return HttpResponse::BadRequest().json("Passwords are differents");
     }
-    let conn = pool.get().expect("couldn't get db connection from pool");
+    let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
     let result = crate::db::account::create_user(&conn, form.username.clone(), bcrypt::hash(form.clear_password.clone(), 10).unwrap()).into_future().await;
     result.map(|_| HttpResponse::Created().finish()).unwrap_or_else(|_| {
             log::warn!("{}", crate::messages::ERROR_USERNAME_EXISTS);
@@ -72,7 +72,7 @@ pub(crate) async fn patch(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->
     if let Some(token) = value {
         let raw_token = token.to_str();
         if let Ok(token) = raw_token {
-            let conn = pool.get().expect("couldn't get db connection from pool");
+            let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
             let result = crate::db::account::get_user_from_token(&conn, token.to_owned()).await;
             if let Ok(account) = result {
                 // TODO: upgrade fields
@@ -88,7 +88,7 @@ pub(crate) async fn patch(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->
 pub(crate) async fn delete(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         log::info!("Deleting account: {:?}", account);
-        let conn = pool.get().expect("couldn't get db connection from pool");
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
         let result = crate::db::account::delete_account(&conn, account.hash_id).await;
         log::info!("Deleting account result: {:?}", result);
         if result.is_ok() {
@@ -103,7 +103,7 @@ pub(crate) async fn delete(pool: web::Data<crate::db::Pool>, req: HttpRequest) -
 #[delete("/tokens/{token}")]
 pub(crate) async fn delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
-        let conn = pool.get().expect("couldn't get db connection from pool");
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
         log::info!("DELETE TOKEN for account: {:?}", account);
         let result = crate::db::account::delete_token(&conn, account.hash_id, path.0.clone()).await;
         if result.is_ok() {
@@ -117,7 +117,7 @@ pub(crate) async fn delete_token(path: web::Path<(String,)>, pool: web::Data<cra
 #[get("/tokens")]
 pub(crate) async fn list_tokens(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
-        let conn = pool.get().expect("couldn't get db connection from pool");
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
         let result = crate::db::account::get_tokens(&conn, account.hash_id).await;
         if let Ok(tokens) = result{
             return  HttpResponse::Ok().json(tokens);

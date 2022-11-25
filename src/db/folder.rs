@@ -8,11 +8,11 @@ const SQL_GET_MY_FOLDER: &str ="SELECT id, name FROM folder WHERE account_id = $
 const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1 AND account_id = $2";
 
 /// Create a folder and returns its HashID
-pub async fn create_folder(conn: &Connection, account_id: i32, name: String) -> Result<String, Error> {
+pub async fn create_folder(conn: &Connection, account_hid: String, name: String) -> Result<String, Error> {
     let mut stmt = conn
         .prepare(SQL_CREATE_FOLDER)
         .expect("Wrong create folder SQL");
-    if stmt.execute((account_id, &name)).is_err() {
+    if stmt.execute((decode_id(account_hid), &name)).is_err() {
         log::error!("{}: {}", crate::messages::ERROR_CREATE_FOLDER, name);
     }
     stmt.query_row([], |row| {

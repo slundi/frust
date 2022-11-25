@@ -1,24 +1,26 @@
 use actix_web::{post, get, patch, delete, web, HttpResponse, HttpRequest};
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct FolderForm {
-    name: String,
-    account_id: i32,
-}
+use crate::messages::ERROR_CANNOT_GET_CONNEXION;
 
 /// List folder with name
-#[get("/folders/")]
+#[get("/")]
 pub(crate) async fn list(pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
-    HttpResponse::Ok().body("LIST FOLDER")
+    if let Some(account) = crate::auth::check_token(&pool, req).await {
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
+        let result = crate::db::folder::get_folders(&conn, account.hash_id).await;
+        if let Ok(folders) = result {
+            return HttpResponse::Ok().json(folders);
+        }
+    }
+    HttpResponse::BadRequest().json("Cannot get folders")
 }
 
 /// Create a folder for the user
-#[post("/folders/")]
-pub(crate) async fn post(form: web::Form<FolderForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+#[post("/")]
+pub(crate) async fn post(form: web::Form<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
-        let conn = pool.get().expect("couldn't get db connection from pool");
-        let result = crate::db::folder::create_folder(&conn, form.account_id, form.name.clone()).await;
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
+        let result = crate::db::folder::create_folder(&conn, account.hash_id, form.0).await;
         if result.is_ok() {
             return HttpResponse::Ok().finish();
         }
@@ -27,10 +29,10 @@ pub(crate) async fn post(form: web::Form<FolderForm>, pool: web::Data<crate::db:
 }
 
 /// Rename a folder (for now)
-#[patch("/folders/{folder_hid}/")]
+#[patch("/{folder_hid}/")]
 pub(crate) async fn patch(form: web::Form<String>, path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
-        let conn = pool.get().expect("couldn't get db connection from pool");
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
         let result = crate::db::folder::edit_folder(&conn, account.hash_id, path.into_inner(), form.0).await;
         if result.is_ok() {
             return HttpResponse::Ok().json(()); //TODO: return folder
@@ -39,10 +41,10 @@ pub(crate) async fn patch(form: web::Form<String>, path: web::Path<String>, pool
     HttpResponse::BadRequest().json("Cannot rename folder")
 }
 
-#[delete("/folders/{folder_hid}/")]
+#[delete("/{folder_hid}/")]
 pub(crate) async fn delete(path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
-        let conn = pool.get().expect("couldn't get db connection from pool");
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
         let result = crate::db::folder::delete_folder(&conn, account.hash_id, path.into_inner()).await;
         if result.is_ok() {
             return HttpResponse::Ok().json(());
