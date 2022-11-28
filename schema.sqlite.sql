@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS folder (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	account_id INTEGER NOT NULL,
 	name VARCHAR(64),
-	UNIQUE(account_id, name),
+	UNIQUE(UPPER(account_id), name),
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 );
 
