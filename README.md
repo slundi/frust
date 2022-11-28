@@ -81,6 +81,7 @@ SECRET_KEY="CHANGE-ME!"
 
 ## Ideas
 
+* Store articles/links (like [Wallabag](https://github.com/wallabag))
 * Rename feed information
 * Change feed icon
 * Folder icon/glyph+color?
