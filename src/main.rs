@@ -21,6 +21,7 @@ mod utils;
 
 lazy_static! {
     //static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
+    /// Hash ID data for encode and decode functions. It is initilized here because it is easier than loading a key from the `.env`.
     static ref HASH_ID: std::sync::RwLock<harsh::Harsh> = std::sync::RwLock::new(harsh::Harsh::builder()
         .length(8).salt(
             chrono::Local::now()
@@ -29,17 +30,12 @@ lazy_static! {
                 .as_bytes(),
         )
         .build().unwrap());
+    static ref CONFIG: std::sync::RwLock<crate::config::Config> = std::sync::RwLock::new(crate::config::Config::default());
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    dotenv().ok();
-
-    let config_ = ::config::Config::builder()
-        .add_source(::config::Environment::default())
-        .build().expect("Cannot build config");
-    let config: crate::config::Config = config_.try_deserialize().expect("Cannot get config");
-
+    let config = load_config();
     //configure logger
     simple_logger::init_with_level(match &config.log_level as &str {
         "WARN" => log::Level::Warn,
@@ -49,14 +45,14 @@ async fn main() -> std::io::Result<()> {
         _ => log::Level::Info,
     }).unwrap();
 
-    log::info!("Working directory: {}", std::env::current_dir().expect("Cannot get working directory").display());
-
     //create folders for assets
     create_assets_directories(config.assets_path.clone());
     let mut feed_assets_path = config.assets_path.clone();
     feed_assets_path.push_str("/f/");
     let mut article_assets_path = config.assets_path.clone();
     article_assets_path.push_str("/a/");
+
+    log::info!("Working directory: {}", std::env::current_dir().expect("Cannot get working directory").display());
 
     let pool = db::Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
     db::create_schema(pool.get().expect("Cannot get connection"));
@@ -84,6 +80,14 @@ async fn main() -> std::io::Result<()> {
                     .service(routes::folder::patch)
                     .service(routes::folder::delete),
             )
+            .service(
+                web::scope("/feed")
+                    //folder management
+                    .service(routes::feed::list)
+                    .service(routes::feed::post)
+                    .service(routes::feed::patch)
+                    .service(routes::feed::delete),
+            )
     })
     .bind(config.server_addr.clone())?
     .workers(2)
@@ -91,6 +95,16 @@ async fn main() -> std::io::Result<()> {
     log::info!("starting HTTP server at http://{}/", config.server_addr);
 
     server.await
+}
+
+fn load_config() -> config::Config {
+    dotenv().ok();
+    let config_ = ::config::Config::builder()
+        .add_source(::config::Environment::default())
+        .build().expect("Cannot build config");
+    let mut config = CONFIG.write().expect("Cannot load config");
+    *config = config_.try_deserialize().expect("Cannot get config");
+    config.clone()
 }
 
 fn create_assets_directories(path: String) {

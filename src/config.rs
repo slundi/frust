@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     /// Server `<IP or hostaname>:<port>`. Default is `127.0.0.1:8330`
     pub server_addr: String,
