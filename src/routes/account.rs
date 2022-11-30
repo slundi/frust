@@ -51,7 +51,7 @@ pub(crate) async fn login(form: web::Form<LoginForm>, pool: web::Data<crate::db:
     }
 }
 
-/// Register a new user
+/// Register a new user and create the default folder
 #[post("/account")]
 pub(crate) async fn register(form: web::Form<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
     log::debug!("Register");
@@ -64,6 +64,7 @@ pub(crate) async fn register(form: web::Form<RegisterForm>, pool: web::Data<crat
             log::warn!("{}", crate::messages::ERROR_USERNAME_EXISTS);
             HttpResponse::BadRequest().json("USERNAME_ALREADY_EXISTS")
         })
+    //TODO: create default folder
 }
 
 #[patch("/account")]

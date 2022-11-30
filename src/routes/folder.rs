@@ -41,6 +41,8 @@ pub(crate) async fn patch(text: String, path: web::Path<String>, pool: web::Data
     HttpResponse::BadRequest().json("Cannot rename folder")
 }
 
+/// Delete user's folder but, **a user must have at least 1 folder***.
+/// On deletion, choose what to do: **move them to another folder** or **remove feed**. If remove feed you have to provide what we do with articles (keep saved or delete them)
 #[delete("/{folder_hid}")]
 pub(crate) async fn delete(path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
@@ -50,5 +52,6 @@ pub(crate) async fn delete(path: web::Path<String>, pool: web::Data<crate::db::P
             return HttpResponse::NoContent().finish();
         }
     }
+    //TODO: handle actions for feeds and articles
     HttpResponse::BadRequest().json("Cannot delete folder")
 }
