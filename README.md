@@ -44,6 +44,9 @@ FEED_REFRESH_TIME=600
 
 # Secret key for hashing functions
 SECRET_KEY="CHANGE-ME!"
+
+# Default created folder when you register. A feed is always in a folder.
+DEFAULT_FOLDER="SORT ME"
 ```
 
 ## Todo

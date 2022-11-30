@@ -20,6 +20,8 @@ pub struct Config {
     pub feed_refresh_time: u32,
     /// Secret key for hashing functions
     pub secret_key: String,
+    /// When creating an account a folder is created because a feed is always in a folder
+    pub default_folder: String,
 }
 
 impl Default for Config {
@@ -32,6 +34,7 @@ impl Default for Config {
             assets_path: "data/assets".to_owned(),
             feed_refresh_time: 600,
             secret_key: "MY-T0P-S3CR3T-K3Y!".to_owned(),
+            default_folder: "UNSORTED".to_owned(),
         }
     }
 }
