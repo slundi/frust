@@ -1,8 +1,8 @@
 use actix_web::{error, Error};
 use rusqlite::params;
-use crate::{model::{Account, Token}, utils::{encode_id, decode_id}};
+use crate::{utils::{encode_id, decode_id}};
 
-use super::{Connection, get_datetime_utc};
+use super::{Connection, get_datetime_utc, Account, Token};
 
 const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, created FROM account WHERE username = :u";
 const SQL_AUTH_TOKEN: &str = "SELECT a.id, a.username, a.encrypted_password, a.created, a.config, t.value AS token, t.created AS token_created

@@ -1,5 +1,5 @@
-use crate::{model::Folder, utils::{encode_id, decode_id}};
-use super::Connection;
+use crate::{utils::{encode_id, decode_id}};
+use super::{Connection, Folder};
 use actix_web::{error, Error};
 use rusqlite::params;
 

@@ -1,5 +1,5 @@
 /// Check if the token in the Authorization HTTP header is OK and return the account object
-pub(crate) async fn check_token(pool: &actix_web::web::Data<crate::db::Pool>, req: actix_web::HttpRequest) -> Option<crate::model::Account> {
+pub(crate) async fn check_token(pool: &actix_web::web::Data<crate::db::Pool>, req: actix_web::HttpRequest) -> Option<crate::db::Account> {
     let value = req.headers().get(actix_web::http::header::AUTHORIZATION);
     if let Some(token_h) = value {
         let raw_token = token_h.to_str().unwrap_or("").to_lowercase();

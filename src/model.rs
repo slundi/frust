@@ -2,29 +2,6 @@ use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Token {
-    pub created: DateTime<Utc>,
-    pub value: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Account {
-    pub hash_id: String,
-    pub username: String,
-    pub encrypted_password: String,
-    pub config: String,
-    pub created: DateTime<Utc>,
-    pub token: String,
-    pub token_created: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Folder {
-    pub hash_id: String,
-    pub name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct Filter {
     pub hash_id: String,
     pub account_id: i32,
@@ -46,6 +23,8 @@ pub struct Filter {
 /// Essential feed information to update data and display it.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Feed {
+    hash_id: String,
+    slug: String,
     /// Name of the feed. Value is retrieved from the ATOM/RSS or from the user if he renames it.
     pub name: String,
     pub url: String,
