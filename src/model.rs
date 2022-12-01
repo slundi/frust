@@ -20,19 +20,6 @@ pub struct Filter {
     pub includes: bool,
 }
 
-/// Essential feed information to update data and display it.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Feed {
-    hash_id: String,
-    slug: String,
-    /// Name of the feed. Value is retrieved from the ATOM/RSS or from the user if he renames it.
-    pub name: String,
-    pub url: String,
-    pub updated: DateTime<Utc>,
-    /// Feed icon will be in <ASSETS_PATH>/f/<hash of the url>.png (convert it if needed)
-    pub icon_filename: String,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountFeed {
     pub hash_id: String,
@@ -43,5 +30,5 @@ pub struct AccountFeed {
     /// HashID and name of the folder
     pub folder: (String, String),
     pub name: String,
-    pub feed: Feed,
+    pub feed: crate::db::Feed,
 }

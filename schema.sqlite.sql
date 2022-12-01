@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS article (
 	slug VARCHAR(64) NOT NULL,
 	title VARCHAR(255) NOT NULL,
 	link VARCHAR(255) NOT NULL,
+	published DATETIME NOT NULL DEFAULT(DATETIME('now')),
 	-- TODO: content
 	UNIQUE(slug)
 );

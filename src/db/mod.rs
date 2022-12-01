@@ -3,6 +3,7 @@ use chrono::prelude::*;
 use serde::{Serialize, Deserialize};
 
 pub(crate) mod account;
+pub(crate) mod article;
 pub(crate) mod feed;
 pub(crate) mod folder;
 
@@ -32,6 +33,19 @@ pub struct Token {
 pub struct Folder {
     pub hash_id: String,
     pub name: String,
+}
+
+/// Essential feed information to update data and display it.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Feed {
+    pub hash_id: String,
+    pub slug: String,
+    /// Name of the feed. Value is retrieved from the ATOM/RSS or from the user if he renames it.
+    pub name: String,
+    pub url: String,
+    pub updated: DateTime<Utc>,
+    /// Feed icon will be in <ASSETS_PATH>/f/<hash of the url>.png (convert it if needed)
+    pub icon_filename: String,
 }
 
 const DATETIME_UTC_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";

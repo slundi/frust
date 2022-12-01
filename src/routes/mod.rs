@@ -1,4 +1,5 @@
 pub(crate) mod account;
+pub(crate) mod article;
 pub(crate) mod feed;
 pub(crate) mod folder;
 
