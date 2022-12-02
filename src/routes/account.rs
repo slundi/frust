@@ -60,11 +60,25 @@ pub(crate) async fn register(form: web::Form<RegisterForm>, pool: web::Data<crat
     }
     let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
     let result = crate::db::account::create_user(&conn, form.username.clone(), bcrypt::hash(form.clear_password.clone(), 10).unwrap()).into_future().await;
-    result.map(|_| HttpResponse::Created().finish()).unwrap_or_else(|_| {
-            log::warn!("{}", crate::messages::ERROR_USERNAME_EXISTS);
-            HttpResponse::BadRequest().json("USERNAME_ALREADY_EXISTS")
-        })
-    //TODO: create default folder
+    if let Ok(account_id) = result {
+        let folder = {
+            let result = crate::CONFIG.read();
+            if result.is_err() {
+                log::warn!("{}", crate::messages::ERROR_GET_CONFIG);
+                return HttpResponse::BadRequest().json("CANNOT_GET_DEFAULT_FOLDER_NAME");
+            }
+            result.unwrap().default_folder.clone()
+        };
+        let result = crate::db::folder::create_folder(&conn, crate::utils::encode_id(account_id), folder).into_future().await;
+        if result.is_err() {
+            log::warn!("{}", crate::messages::ERROR_CREATE_FOLDER);
+            return HttpResponse::BadRequest().json("CANNOT_CREATE_DEFAULT_FOLDER");
+        }
+    } else {
+        log::warn!("{}", crate::messages::ERROR_USERNAME_EXISTS);
+        return HttpResponse::BadRequest().json("USERNAME_ALREADY_EXISTS");
+    }
+    HttpResponse::Created().finish()
 }
 
 #[patch("/account")]

@@ -8,18 +8,17 @@ const SQL_LOGIN: &str = "SELECT id, username, encrypted_password, config, create
 const SQL_AUTH_TOKEN: &str = "SELECT a.id, a.username, a.encrypted_password, a.created, a.config, t.value AS token, t.created AS token_created
                               FROM token t INNER JOIN account a ON t.account_id = a.id
                               WHERE t.value = $1";
-const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, '')";
+const SQL_REGISTER: &str = "INSERT INTO account (username, encrypted_password, config) VALUES ($1, $2, '') RETURNING id";
 const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
 const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value) VALUES (:a, :v) RETURNING value";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT created, value FROM token WHERE account_id = $1 ORDER by created DESC";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE account_id = $1 AND value = $2";
 
-pub async fn create_user(conn: &Connection, username: String, encrypted_password: String) -> Result<(), Error> {
+pub async fn create_user(conn: &Connection, username: String, encrypted_password: String) -> Result<i32, Error> {
     let mut stmt = conn.prepare(SQL_REGISTER).expect("Wrong login SQL");
-    stmt.insert((&username, &encrypted_password))
-        .map(|_| Ok(()))
-        .unwrap_or_else(|_| Err(error::ErrorInternalServerError(crate::messages::ERROR_USERNAME_EXISTS)))
+    stmt.query_row([&username, &encrypted_password], |row| row.get(0))
+        .map_err(|_| error::ErrorInternalServerError(crate::messages::ERROR_USERNAME_EXISTS))
 }
 
 /// Get the account associated to the username and password.
