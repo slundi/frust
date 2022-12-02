@@ -20,6 +20,7 @@ pub(crate) const ERROR_LIST_FOLDERS: &str = "[FOLDER] list";
 // feeds
 pub(crate) const ERROR_CREATE_FEED: &str = "[FEED] create";
 pub(crate) const ERROR_EDIT_FEED: &str = "[FEED] edit";
+pub(crate) const ERROR_SUBSCRIBE_FEED: &str = "[FEED] subscribe";
 pub(crate) const ERROR_UNSUBSCRIBE_FEED: &str = "[FEED] unsubscribe";
 pub(crate) const ERROR_DELETE_FEED: &str = "[FEED] delete";
 pub(crate) const ERROR_LIST_FEEDS: &str = "[FEED] list";
