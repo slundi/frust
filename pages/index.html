@@ -6,13 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="s/bulma.min.css" />
 <link rel="stylesheet" href="s/mdi.min.css" />
-<script>
-window.onload=function(){
-var token = localStorage.getItem("token");
-if(token != null){
-    //TODO: replace login/register form with user menu, get folders, get feeds, ...
-}}
-</script>
+<script type="text/javascript" src="s/main.min.js"></script>
 </head>
 <body>
 <nav class="navbar is-fixed-top is-dark" role="navigation">
@@ -21,14 +15,14 @@ if(token != null){
     <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="nb"> <span aria-hidden="true"></span> <span aria-hidden="true"></span> <span aria-hidden="true"></span> </a>
 </div><div id="nb" class="navbar-menu">
     <div class="navbar-start">
-        <a class="navbar-item" href="javascript:modal('feed')" title="%ADD_FEED%"><i class="mdi mdi-rss"></i></a>
-        <a class="navbar-item" href="javascript:modal('folder')" title="%ADD_FOLDER%"><i class="mdi mdi-folder-plus"></i></a>
-        <a class="navbar-item" href="javascript:modal('filters')" title="%MANAGE_GLOBAL_FILTERS%"><i class="mdi mdi-filter-multiple"></i></a>
+        <a class="navbar-item js-modal-trigger" href="#" data-target="mr" title="%ADD_FEED%"><i class="mdi mdi-rss"></i></a>
+        <a class="navbar-item js-modal-trigger" href="#" data-target="md" title="%ADD_FOLDER%"><i class="mdi mdi-folder-plus"></i></a>
+        <a class="navbar-item js-modal-trigger" href="#" data-target="mf" title="%MANAGE_GLOBAL_FILTERS%"><i class="mdi mdi-filter-multiple"></i></a>
         <div class="navbar-item has-dropdown is-hoverable">
             <a class="navbar-link" title="%ACCOUNT%"><i class="mdi mdi-account"></i>&nbsp;<span id="username"></span></a>
             <div class="navbar-dropdown">
-                <a class="navbar-item" href="javascript:modal('ui')"  title="%CUSTOMIZE_UI%"><i class="mdi mdi-palette"></i>&nbsp;%CUSTOMIZE_UI%</a>
-                <a class="navbar-item" href="javascript:modal('user')" title="%MY_INFORMATION%"><i class="mdi mdi-card-account-details"></i>&nbsp;%MY_INFORMATION%</a>
+                <a class="navbar-item js-modal-trigger" href="#" data-target="mt" title="%CUSTOMIZE_UI%"><i class="mdi mdi-palette"></i>&nbsp;%CUSTOMIZE_UI%</a>
+                <a class="navbar-item js-modal-trigger" href="#" data-target="mu" title="%MY_INFORMATION%"><i class="mdi mdi-card-account-details"></i>&nbsp;%MY_INFORMATION%</a>
                 <hr class="navbar-divider" />
                 <a class="navbar-item" href="javascript:logout()" title="%LOGOUT%"><i class="mdi mdi-power"></i>&nbsp;%LOGOUT%</a>
             </div>
@@ -39,7 +33,7 @@ if(token != null){
         <div class="navbar-item"><div class="field has-addons">
             <div class="control"><input class="input" id="search" placeholder="%SEARCH%"/></div>
             <div class="control"><a class="button" href="javascript:search()" title="%SEARCH%"><i class="mdi mdi-magnify"></i></a></div>
-            <div class="control"><a class="button" href="javascript:modal('search')" title="%ADVANCED_SEARCH%"><i class="mdi mdi-magnify-expand"></i></a></div>
+            <div class="control"><a class="button js-modal-trigger" data-target="ms" href="#" title="%ADVANCED_SEARCH%"><i class="mdi mdi-magnify-expand"></i></a></div>
         </div></div>
         <a class="navbar-item" href="javascript:toggle_sort()" title="%TOGGLE_SORT%"><i class="mdi mdi-sort-ascending"></i></a>
         <div class="navbar-item has-dropdown is-hoverable">
@@ -138,5 +132,31 @@ if(token != null){
     <button type="submit" class="button is-primary"><i class="mdi mdi-account-plus"></i>&nbsp;%REGISTER%</button>
     </form>
 </div></div>
+</div>
+<div class="modal" id="mu">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head"><p class="modal-card-title">%USER%</p> <button class="delete" aria-label="close"></button></header>
+    <section class="modal-card-body">
+    change password, default sorting, default grouping, default disposition, date format, date display (date or today/yesterday/this week/...)
+    </section>
+    <footer class="modal-card-foot">
+    <button class="button is-success">Save changes</button>
+    <button class="button">Cancel</button>
+    </footer>
+  </div>
+</div>
+<div class="modal" id="ms">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head"><p class="modal-card-title">%ADVANCED_SEARCH%</p> <button class="delete" aria-label="close"></button></header>
+    <section class="modal-card-body">
+    change password, default sorting, default grouping, default disposition, date format, date display (date or today/yesterday/this week/...)
+    </section>
+    <footer class="modal-card-foot">
+    <button class="button is-success">Save changes</button>
+    <button class="button">Cancel</button>
+    </footer>
+  </div>
 </div>
 </body></html>
