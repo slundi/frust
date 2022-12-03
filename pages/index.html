@@ -5,6 +5,7 @@
 <title>Frust</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="s/bulma.min.css" />
+<link rel="stylesheet" href="s/mdi.min.css" />
 <script>
 window.onload=function(){
 var token = localStorage.getItem("token");
@@ -19,19 +20,48 @@ if(token != null){
     <a class="navbar-item" href="https://github.com/slundi/frust/" target="_blank" title="View Frust sources on GitHub"><img src="s/logo.png" width="96" height="28"></a>
     <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="nb"> <span aria-hidden="true"></span> <span aria-hidden="true"></span> <span aria-hidden="true"></span> </a>
 </div><div id="nb" class="navbar-menu">
-    <div class="navbar-start"></div>
+    <div class="navbar-start">
+        <a class="navbar-item" href="javascript:modal('feed')" title="%ADD_FEED%"><i class="mdi mdi-rss"></i></a>
+        <a class="navbar-item" href="javascript:modal('folder')" title="%ADD_FOLDER%"><i class="mdi mdi-folder-plus"></i></a>
+        <a class="navbar-item" href="javascript:modal('filters')" title="%MANAGE_GLOBAL_FILTERS%"><i class="mdi mdi-filter-multiple"></i></a>
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link" title="%ACCOUNT%"><i class="mdi mdi-account"></i>&nbsp;<span id="username"></span></a>
+            <div class="navbar-dropdown">
+                <a class="navbar-item" href="javascript:modal('ui')"  title="%CUSTOMIZE_UI%"><i class="mdi mdi-palette"></i>&nbsp;%CUSTOMIZE_UI%</a>
+                <a class="navbar-item" href="javascript:modal('user')" title="%MY_INFORMATION%"><i class="mdi mdi-card-account-details"></i>&nbsp;%MY_INFORMATION%</a>
+                <hr class="navbar-divider" />
+                <a class="navbar-item" href="javascript:logout()" title="%LOGOUT%"><i class="mdi mdi-power"></i>&nbsp;%LOGOUT%</a>
+            </div>
+        </div>
+        <a class="navbar-item" href="javascript:toggle_theme()" title="%TOGGLE_THEME%"><i class="mdi mdi-theme-light-dark"></i></a>
+    </div>
     <div class="navbar-end" id="navbar-end">
-        <div class="navbar-item"><div class="field is-grouped">
-            <input name="username" class="control" placeholder="Username" size="8" />
-            <input name="clear_password" class="control" placeholder="Password" size="8" type="Password" />
-            <button type="submit" class="button is-primary">OK</button>
+        <div class="navbar-item"><div class="field has-addons">
+            <div class="control"><input class="input" id="search" placeholder="%SEARCH%"/></div>
+            <div class="control"><a class="button" href="javascript:search()" title="%SEARCH%"><i class="mdi mdi-magnify"></i></a></div>
+            <div class="control"><a class="button" href="javascript:modal('search')" title="%ADVANCED_SEARCH%"><i class="mdi mdi-magnify-expand"></i></a></div>
         </div></div>
-        <a class="navbar-item" href="javascript:register()">Register</a>
+        <a class="navbar-item" href="javascript:toggle_sort()" title="%TOGGLE_SORT%"><i class="mdi mdi-sort-ascending"></i></a>
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link" title="%SORT_BY%"><i class="mdi mdi-view-dashboard"></i>&nbsp;</a>
+            <div class="navbar-dropdown is-right">
+                <a class="navbar-item" href="javascript:sort_by_name()"  title="%BY_TITLE%"><i class="mdi mdi-alphabetical-variant"></i>&nbsp;%BY_TITLE%</a>
+                <a class="navbar-item" href="javascript:sort_by_date()" title="%BY_DATE%"><i class="mdi mdi-calendar-month"></i>&nbsp;%BY_DATE%</a>
+            </div>
+        </div>
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link" title="%GROUP_BY%"><i class="mdi mdi-format-list-group"></i></a>
+            <div class="navbar-dropdown is-right">
+                <a class="navbar-item" href="javascript:group_by_folder()"  title="%BY_TITLE%"><i class="mdi mdi-folder"></i>&nbsp;%BY_TITLE%</a>
+                <a class="navbar-item" href="javascript:group_by_date()" title="%BY_DATE%"><i class="mdi mdi-calendar-month"></i>&nbsp;%BY_DATE%</a>
+                <a class="navbar-item" href="javascript:group_by_feed()" title="%BY_FEED%"><i class="mdi mdi-rss"></i>&nbsp;%BY_FEED%</a>
+            </div>
+        </div>
     </div>
 </div>
 </nav>
 <!-- Logo, username, password, remember me X days (see cfg), register -->
-<div class="container">
+<div class="container is-hidden" id="loggedin">
     <div id="left">
         <!-- Top: Frust logo + home link, GitHub, donation, -->
         <ul id="folders">
@@ -65,5 +95,48 @@ if(token != null){
         <a href="javascript:disposition()" title="Disposition (title list, icon+title+brief, tiles, ...)">Disposition</a>
         <div id="articles"></div>
     </div>
+</div>
+<div class="container is-fullhd" id="anonymous">
+    <h1>Frust</h1>
+    <p>Frust is a lightweight RSS/Atom feeder.</p>
+    <h2>Features</h2>
+    <p><ul>
+    <li>Atom and RSS support.</li>
+    <li>Save the article you like or download it.</li>
+    <li>Filter the content you want or don&#39;t want. You can also use <abbr title="regular expression">regex</abbr> if you are familiar with it.</li>
+    <li>No tracking, <a href="https://github.com/slundi/frust/" target="_blank">Frust</a> is free and open source. You can host it on your own server</li>
+    <li>Frust is light and fast: it is written in RUST and use a SQLite database. It is not designed to support a heavy traffic... but it is a database limitation.</li>
+    </ul></p>
+    <div class="columns is-8"><div class="column">
+    <form action="login" method="POST" class="box">
+    <h2>%LOG_IN%</h2>
+    <div class="field">
+        <label class="label" for="lu">%USERNAME%</label>
+        <div class="control"><input class="input" placeholder="I-am-a-legend" name="username" id="lu" /></div>
+    </div>
+    <div class="field">
+        <label class="label" for="lp">%PASSWORD%</label>
+        <div class="control"><input class="input" type="password" placeholder="************" name="clear_password" id="lp" /></div>
+    </div>
+    <button type="submit" class="button is-success"><i class="mdi mdi-login"></i>&nbsp;%SIGN_IN%</button>
+    </form>
+    </div><div class="column">
+    <form action="register" method="POST" class="box">
+    <h2>%REGISTER%</h2>
+    <div class="field">
+        <label class="label" for="ru">%USERNAME%</label>
+        <div class="control"><input class="input" placeholder="I-am-a-legend" name="username" id="ru" /></div>
+    </div>
+    <div class="field">
+        <label class="label" for="rp">%PASSWORD%</label>
+        <div class="control"><input class="input" type="password" placeholder="************" name="clear_password" id="rp" /></div>
+    </div>
+    <div class="field">
+        <label class="label" for="rpc">%PASSWORD_CONFIRMATION%</label>
+        <div class="control"><input class="input" type="password" placeholder="************" name="clear_password_2" id="rpc" /></div>
+    </div>
+    <button type="submit" class="button is-primary"><i class="mdi mdi-account-plus"></i>&nbsp;%REGISTER%</button>
+    </form>
+</div></div>
 </div>
 </body></html>
