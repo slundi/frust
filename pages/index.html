@@ -92,15 +92,7 @@
 </div>
 <div class="container is-fullhd" id="anonymous">
     <h1>Frust</h1>
-    <p>Frust is a lightweight RSS/Atom feeder.</p>
-    <h2>Features</h2>
-    <p><ul>
-    <li>Atom and RSS support.</li>
-    <li>Save the article you like or download it.</li>
-    <li>Filter the content you want or don&#39;t want. You can also use <abbr title="regular expression">regex</abbr> if you are familiar with it.</li>
-    <li>No tracking, <a href="https://github.com/slundi/frust/" target="_blank">Frust</a> is free and open source. You can host it on your own server</li>
-    <li>Frust is light and fast: it is written in RUST and use a SQLite database. It is not designed to support a heavy traffic... but it is a database limitation.</li>
-    </ul></p>
+    <p>Frust is a free lightweight RSS/Atom feeder and aggregator.</p>
     <div class="columns is-8"><div class="column">
     <form action="login" method="POST" class="box">
     <h2>%LOG_IN%</h2>
@@ -132,6 +124,57 @@
     <button type="submit" class="button is-primary"><i class="mdi mdi-account-plus"></i>&nbsp;%REGISTER%</button>
     </form>
 </div></div>
+    <h2>Features</h2>
+    <div class="columns">
+        <div class="column">
+            <article class="media">
+                <figure class="media-left has-text-success"><i class="mdi mdi-48px mdi-leaf"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%LIGHTWEIGHT%</strong><br/>
+                    Frust was designed to run on an ARM NAS. It is written in a compiled programming language (<a href="https://www.rust-lang.org/" target="_blank">RUST</a>) in order to be fast and does not take a lot of memory. 
+                    It also does not require a database server because it uses <a href="https://www.sqlite.org/" target="_blank">SQLite</a>. Because of SQLite use, Frust is not designed to handle hundreds 
+                    of users but is perfect for a family or a group  of friend.
+                </p></div></div>
+            </article>
+            <article class="media">
+                <figure class="media-left has-text-primary"><i class="mdi mdi-48px mdi-security-network"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%RESPECT_YOUR_PRIVACY%</strong><br/>
+                    There is no tracking; Frust is open source so you can check the <a href="https://github.com/slundi/frust/" target="_blank">sources on 
+                    GitHub <i class="mdi mdi-github"></i></a> and install it on your own server. It does not use cookies but tokens that in your browser storage.
+                </p></div></div>
+            </article>
+            <article class="media">
+                <figure class="media-left has-text-dark"><i class="mdi mdi-48px mdi-currency-usd-off"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%FREE%</strong><br/>
+                    Frust is free and open source. You can use it the way you want. You can make a donation <i class="mdi mdi-hand-coin"></i> if you want to thank me for my work.
+                </p></div></div>
+            </article>
+        </div>
+        <div class="column">
+            <article class="media">
+                <figure class="media-left has-text-info"><i class="mdi mdi-48px mdi-code-braces"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%OPEN_API%</strong><br/>
+                    Frust provide this web UI but you can implement your own client or app using the auth token to handle users.
+                </p></div></div>
+            </article>
+            <article class="media">
+                <figure class="media-left has-text-warning"><i class="mdi mdi-48px mdi-lightbulb-on"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%USEFUL_FEATURES%</strong><br/>
+                    Frust is trying to provide useful features that should be free:<ul>
+                        <li>Search text in the articles or between dates or other criteria.</li>
+                        <li>Save the article you like or download it in various format (HTML, PDF, ePub).</li>
+                        <li>Filter the content you want or don&#39;t want. You can also use <abbr title="regular expression">regex</abbr> if you are familiar with it.</li>
+                        <li>Sort, group your feeds</li>
+                    </ul>
+                    If you have an idea <i class="mdi mdi-head-lightbulb"></i>, you can ask it on GitHub by opening an <a href="https://github.com/slundi/frust/issues" target="_blank">issue</a>.
+                </p></div></div>
+            </article>
+        </div>
+    </div>
 </div>
 <div class="modal" id="mu">
   <div class="modal-background"></div>
