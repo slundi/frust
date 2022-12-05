@@ -5,7 +5,7 @@ use crate::messages::ERROR_CANNOT_GET_CONNEXION;
 
 /// Struct to create and edit form
 #[derive(Debug, Deserialize)]
-pub struct FeedForm {
+pub struct FeedData {
     /// URL of the RSS or Atom feed
     pub url: String,
     /// Optional name of the feed if the user renamed it. Otherwise it is provided in the feed data
@@ -34,12 +34,12 @@ pub(crate) async fn list(pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->
 /// - read feed information: title, icon URL (and download it), last updated, ...
 /// - save articles as unread (in DB, download images and rewrite image src, ...)
 #[post("/")]
-pub(crate) async fn post(form: web::Form<FeedForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn post(info: web::Json<FeedData>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-        let result = crate::db::feed::create_feed(&conn, account.hash_id.clone(), form.url.clone(), form.name.clone()).await;
+        let result = crate::db::feed::create_feed(&conn, account.hash_id.clone(), info.url.clone(), info.name.clone()).await;
         if let Ok(hash_id) = result {
-            let result = crate::db::feed::subscribe(&conn, account.hash_id, hash_id.clone(), form.folder.clone(), form.xpath.clone()).await;
+            let result = crate::db::feed::subscribe(&conn, account.hash_id, hash_id.clone(), info.folder.clone(), info.xpath.clone()).await;
             if result.is_ok() {
                 //TODO: get feed and articles
                 return HttpResponse::Created().json(hash_id);
@@ -55,10 +55,10 @@ pub(crate) async fn post(form: web::Form<FeedForm>, pool: web::Data<crate::db::P
 ///   - existing feed.id if the URL already exists
 ///   - new feed.id if the URL is not found in the DB -> get feed informations and articles
 #[patch("/{feed_hid}")]
-pub(crate) async fn patch(form: web::Form<FeedForm>, path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn patch(info: web::Json<FeedData>, path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-        let result = crate::db::feed::edit_feed(&conn, account.hash_id, path.into_inner(), form.url.clone(), form.name.clone()).await;
+        let result = crate::db::feed::edit_feed(&conn, account.hash_id, path.into_inner(), info.url.clone(), info.name.clone()).await;
         if result.is_ok() {
             return HttpResponse::Ok().finish();
         }

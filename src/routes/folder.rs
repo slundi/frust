@@ -17,10 +17,10 @@ pub(crate) async fn list(pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->
 
 /// Create a folder for the user
 #[post("/")]
-pub(crate) async fn post(text: String, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn post(info: web::Json<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-        let result = crate::db::folder::create_folder(&conn, account.hash_id, text).await;
+        let result = crate::db::folder::create_folder(&conn, account.hash_id, info.to_string()).await;
         if let Ok(hash_id) = result {
             return HttpResponse::Created().json(hash_id);
         }
@@ -30,10 +30,10 @@ pub(crate) async fn post(text: String, pool: web::Data<crate::db::Pool>, req: Ht
 
 /// Rename a folder (for now)
 #[patch("/{folder_hid}")]
-pub(crate) async fn patch(text: String, path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+pub(crate) async fn patch(info: web::Json<String>, path: web::Path<String>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-        let result = crate::db::folder::edit_folder(&conn, account.hash_id, path.into_inner(), text).await;
+        let result = crate::db::folder::edit_folder(&conn, account.hash_id, path.into_inner(), info.to_string()).await;
         if result.is_ok() {
             return HttpResponse::Ok().finish();
         }
