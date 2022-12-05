@@ -59,30 +59,16 @@
     <div id="left">
         <!-- Top: Frust logo + home link, GitHub, donation, -->
         <ul id="folders">
-        <li class="folder"><ul>
+        <!-- <li class="folder"><ul>
             <li><img src="f/uf1.png"/>Unsorted feed 1 BADGE ACTIONS</li>
         </ul></li>
         <li class="folder">Folder 1 BADGE ACTIONS<ul>
             <li><img src="f/f1.png"/>Feed 1 BADGE ACTIONS</li>
             <li><img src="f/f2.png"/>Feed 2 BADGE ACTIONS</li>
-        </ul></li>
+        </ul></li> -->
         </ul>
     </div>
-    <div class="row"><div class="col">
-        <% include!("login_register.html"); %>
-    </div><div class="col">
-    </div></div>
     <div id="right">
-        <nav class="level">
-            <div class="level-left">
-                <div class="level-item"><div class="field has-addons">
-                    <div class="control is-loading"><input class="input" id="search" name="search" placeholder="Search..." /></div>
-                    <div class="control"><a class="button" href="javascript:search()" title="Search">&#128269;</a></div>
-                </div></div>
-                <div class="level-item"><a class="button" href="javascript:advanced_search()" title="Advanced search (modal)">Advanced search</a></div>
-            </div>
-        </nav>
-        
         <a href="javascript:filter()" title="Filter">Filter</a>
         <a href="javascript:sort()" title="Sort by date or title">Sort</a>
         <a href="javascript:group()" title="Group by folder or date today/yesterday/in a week/later">Group</a>
@@ -91,40 +77,44 @@
     </div>
 </div>
 <div class="container is-fullhd" id="anonymous">
-    <h1>Frust</h1>
-    <p>Frust is a free lightweight RSS/Atom feeder and aggregator.</p>
+    <p class="box">Frust is a free lightweight RSS/Atom feeder and aggregator.</p>
     <div class="columns is-8"><div class="column">
-    <form action="login" method="POST" class="box">
-    <h2>%LOG_IN%</h2>
+    <form class="box" action="javascript:login()">
+    <h2 class="is-size-3">%LOG_IN%</h2>
     <div class="field">
         <label class="label" for="lu">%USERNAME%</label>
-        <div class="control"><input class="input" placeholder="I-am-a-legend" name="username" id="lu" /></div>
+        <div class="control"><input class="input" placeholder="I-am-a-legend" id="lu" /></div>
     </div>
     <div class="field">
         <label class="label" for="lp">%PASSWORD%</label>
-        <div class="control"><input class="input" type="password" placeholder="************" name="clear_password" id="lp" /></div>
+        <div class="control"><input class="input" type="password" placeholder="************" id="lp" /></div>
     </div>
     <button type="submit" class="button is-success"><i class="mdi mdi-login"></i>&nbsp;%SIGN_IN%</button>
+    <p class="help is-danger is-hidden">%WRONG_USERNAME_OR_PASSWORD%</p>
     </form>
     </div><div class="column">
-    <form action="register" method="POST" class="box">
-    <h2>%REGISTER%</h2>
+    <form action="javascript:register()" class="box">
+    <h2 class="is-size-3">%REGISTER%</h2>
     <div class="field">
         <label class="label" for="ru">%USERNAME%</label>
-        <div class="control"><input class="input" placeholder="I-am-a-legend" name="username" id="ru" /></div>
+        <div class="control"><input class="input" placeholder="I-am-a-legend" id="ru" /></div>
+        <p class="help is-danger is-hidden" id="ru_exists">%USERNAME_EXISTS%</p>
     </div>
     <div class="field">
         <label class="label" for="rp">%PASSWORD%</label>
-        <div class="control"><input class="input" type="password" placeholder="************" name="clear_password" id="rp" /></div>
+        <div class="control"><input class="input" type="password" placeholder="************" id="rp" /></div>
+        <p class="help is-warning is-hidden" id="rp_weak">%PASSWORD_TOO_WEAK%</p>
     </div>
     <div class="field">
         <label class="label" for="rpc">%PASSWORD_CONFIRMATION%</label>
-        <div class="control"><input class="input" type="password" placeholder="************" name="clear_password_2" id="rpc" /></div>
+        <div class="control"><input class="input" type="password" placeholder="************" id="rpc" /></div>
+        <p class="help is-danger is-hidden" id="rpc_diff">%PASSWORD_DIFFERENT%</p>
     </div>
     <button type="submit" class="button is-primary"><i class="mdi mdi-account-plus"></i>&nbsp;%REGISTER%</button>
     </form>
 </div></div>
-    <h2>Features</h2>
+    <div class="box">
+    <h2 class="is-size-3">Features</h2>
     <div class="columns">
         <div class="column">
             <article class="media">
@@ -141,7 +131,8 @@
                 <div class="media-content"><div class="content"><p>
                     <strong>%RESPECT_YOUR_PRIVACY%</strong><br/>
                     There is no tracking; Frust is open source so you can check the <a href="https://github.com/slundi/frust/" target="_blank">sources on 
-                    GitHub <i class="mdi mdi-github"></i></a> and install it on your own server. It does not use cookies but tokens that in your browser storage.
+                    GitHub <i class="mdi mdi-github"></i></a> and install it on your own server. It does not use cookies but tokens that are in your internal 
+                    browser storage. Tokens are also easier to use in native application.
                 </p></div></div>
             </article>
             <article class="media">
@@ -174,7 +165,7 @@
                 </p></div></div>
             </article>
         </div>
-    </div>
+    </div></div>
 </div>
 <div class="modal" id="mu">
   <div class="modal-background"></div>
