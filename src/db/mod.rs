@@ -46,6 +46,8 @@ pub struct Feed {
     pub updated: DateTime<Utc>,
     /// Feed icon will be in <ASSETS_PATH>/f/<hash of the url>.png (convert it if needed)
     pub icon_filename: String,
+    /// how many articles are unread for the user
+    pub unread_count: u32,
 }
 
 const DATETIME_UTC_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";

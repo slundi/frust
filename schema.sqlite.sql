@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS subscription (
 	account_id INTEGER NOT NULL,
 	feed_id INTEGER NOT NULL,
 	folder_id INTEGER,
+	name: VARCHAR(255), -- feed name if the user rename it
 	xpath VARCHAR(255),
 	added DATETIME NOT NULL DEFAULT(DATETIME('now')),
 	UNIQUE(account_id, feed_id),

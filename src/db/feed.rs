@@ -74,6 +74,7 @@ pub async fn get_feeds(conn: &Connection, account_hid: String, feed_hid: Option<
             url: r.get(3).unwrap(),
             updated: get_datetime_utc(r.get(4).unwrap()),
             icon_filename: sha256(r.get(3).unwrap()),
+            unread_count: 0,
         })
     });
     if let Err(e) = result {
