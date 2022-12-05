@@ -25,17 +25,18 @@ pub struct RegisterForm {
 /// 
 /// It returns the JSON formatted account
 #[post("/login")]
-pub(crate) async fn login(form: web::Form<LoginForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn login(info: web::Json<LoginForm>, pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->  HttpResponse {
     log::debug!("Login");
     let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-    let result = crate::db::account::get_user(&conn, form.username.clone()).into_future().await;
-    log::info!("login: {:?}", result);
+    let result = crate::db::account::get_user(&conn, info.username.clone()).into_future().await;
     match result {
         Ok(account) => {
-            let valid = bcrypt::verify(&form.clear_password, &account.encrypted_password);
-            if let Err(e) = valid {
-                log::error!("Bcrypt error during login: {}", e);
-                return HttpResponse::InternalServerError().json("Internal server error");
+            let valid = bcrypt::verify(&info.clear_password, &account.encrypted_password);
+            if let Ok( ok) = valid {
+                if !ok {
+                    log::warn!("Failed login attempt (wrong username). IP={:?}\tusername={}", req.peer_addr(), info.username);
+                    return HttpResponse::Unauthorized().json("WRONG_CREDENTIALS");
+                }
             }
             let record = crate::db::account::create_token(&conn, decode_id(account.hash_id.clone())).into_future().await;
             if let Ok(token) = record {
@@ -45,21 +46,21 @@ pub(crate) async fn login(form: web::Form<LoginForm>, pool: web::Data<crate::db:
             HttpResponse::InternalServerError().finish()
         },
         Err(_) => {
-            log::warn!("Failed login attempt (wrong username). IP={:?}\tusername={}", req.peer_addr(), form.username);
-            HttpResponse::Unauthorized().json("Wrong credentials")
+            log::warn!("Failed login attempt (wrong username). IP={:?}\tusername={}", req.peer_addr(), info.username);
+            HttpResponse::Unauthorized().json("WRONG_CREDENTIALS")
         }
     }
 }
 
 /// Register a new user and create the default folder
 #[post("/account")]
-pub(crate) async fn register(form: web::Form<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
+pub(crate) async fn register(info: web::Json<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
     log::debug!("Register");
-    if form.clear_password != form.clear_password_2 {
+    if info.clear_password != info.clear_password_2 {
         return HttpResponse::BadRequest().json("Passwords are differents");
     }
     let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-    let result = crate::db::account::create_user(&conn, form.username.clone(), bcrypt::hash(form.clear_password.clone(), 10).unwrap()).into_future().await;
+    let result = crate::db::account::create_user(&conn, info.username.clone(), bcrypt::hash(info.clear_password.clone(), 10).unwrap()).into_future().await;
     if let Ok(account_id) = result {
         let folder = {
             let result = crate::CONFIG.read();
