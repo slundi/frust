@@ -1,6 +1,21 @@
+function update_ui(logged) {
+  let els = Array.from(document.getElementsByClassName("l"));
+  if (logged) {
+    els.forEach((e) => {
+      e.classList.remove("is-hidden");
+    });
+    document.getElementById("anonymous").classList.add("is-hidden");
+  } else {
+    els.forEach((e) => {
+      e.classList.add("is-hidden");
+    });
+    document.getElementById("anonymous").classList.remove("is-hidden");
+  }
+}
 window.onload = function () {
   var token = localStorage.getItem("token");
   if (token != null) {
+    update_ui(true);
     //TODO: replace login/register form with user menu, get folders, get feeds, ...
   }
 };
@@ -50,33 +65,52 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+function logout() {
+  localStorage.clear();
+  update_ui(false);
+}
+
 function login() {
   let u = document.getElementById("lu").value;
   let p = document.getElementById("lp").value;
-  console.log(q("login", "POST", {"username":u, "clear_password":p}));
+  q("login", "POST", { username: u, clear_password: p }).then(
+    (response) => {
+      if (response.status === 200) {
+        update_ui(true);
+        response.json().then((v) => {
+          localStorage.setItem("token", v);
+        });
+        //TODO: get folders and feeds list, get articles
+      } else {
+      }
+    },
+    function (err) {}
+  );
 }
 function register() {
   let u = document.getElementById("ru").value;
   let p = document.getElementById("rp").value;
   let p2 = document.getElementById("rpc").value;
-  console.log(q("register", "POST", {"username":u, "clear_password":p, "clear_password_2":p2}));
+  q("account", "POST", {
+    username: u,
+    clear_password: p,
+    clear_password_2: p2,
+  }).then(
+    (response) => {
+      //TODO: modal OK and ask to log in
+    },
+    function (err) {}
+  );
 }
 
 async function q(url, method, data) {
-    try {
-        const response = await fetch(url, {
-            method: method,
-            headers: {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(data),
-        });
-        const res = response.json;
-        if (res.status === 200) {
-            console.log("Q OK");
-        }
-    } catch (err) {
-        console.log("Q " + err);
-    }
+  const response = await fetch(url, {
+    method: method,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+  return response;
 }

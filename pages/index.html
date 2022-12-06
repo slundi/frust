@@ -9,7 +9,7 @@
 <script type="text/javascript" src="s/main.min.js"></script>
 </head>
 <body>
-<nav class="navbar is-fixed-top is-dark" role="navigation">
+<nav class="navbar is-fixed-top is-dark l is-hidden" role="navigation">
 <div class="navbar-brand">
     <a class="navbar-item" href="https://github.com/slundi/frust/" target="_blank" title="View Frust sources on GitHub"><img src="s/logo.png" width="96" height="28"></a>
     <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="nb"> <span aria-hidden="true"></span> <span aria-hidden="true"></span> <span aria-hidden="true"></span> </a>
@@ -55,7 +55,7 @@
 </div>
 </nav>
 <!-- Logo, username, password, remember me X days (see cfg), register -->
-<div class="container is-hidden" id="loggedin">
+<div class="container l is-hidden">
     <div id="left">
         <!-- Top: Frust logo + home link, GitHub, donation, -->
         <ul id="folders">
@@ -76,7 +76,7 @@
         <div id="articles"></div>
     </div>
 </div>
-<div class="container is-fullhd" id="anonymous">
+<div class="container is-fullhd a" id="anonymous">
     <p class="box">Frust is a free lightweight RSS/Atom feeder and aggregator.</p>
     <div class="columns is-8"><div class="column">
     <form class="box" action="javascript:login()">

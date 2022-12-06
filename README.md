@@ -55,8 +55,9 @@ DEFAULT_FOLDER="SORT ME"
 
 - [ ] Skeleton
 - [ ] JS
-  - [ ] Register
-  - [ ] Login
+  - [ ] Register (check form and display messages in case of error, send query, handle server response OK/username exists/password rules)
+  - [ ] Login (send query, handle wrong credential error)
+  - [x] Logout
   - [ ] Add/edit/remove folder
   - [ ] Add/remove feed
   - [ ] Refresh token (in order to stay connected, otherwise, the server will clean token after X days of inactivity)
@@ -84,6 +85,7 @@ DEFAULT_FOLDER="SORT ME"
 
 ## Ideas
 
+* Check password strength/password rules
 * Store articles/links (like [Wallabag](https://github.com/wallabag))
 * Rename feed information
 * Change feed icon
