@@ -76,12 +76,14 @@ function login() {
   q("login", "POST", { username: u, clear_password: p }).then(
     (response) => {
       if (response.status === 200) {
+        document.getElementById("wrong_credentials").classList.add("is-hidden");
         update_ui(true);
         response.json().then((v) => {
           localStorage.setItem("token", v);
         });
         //TODO: get folders and feeds list, get articles
       } else {
+        document.getElementById("wrong_credentials").classList.remove("is-hidden");
       }
     },
     function (err) {}

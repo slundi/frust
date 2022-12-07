@@ -56,7 +56,7 @@ DEFAULT_FOLDER="SORT ME"
 - [ ] Skeleton
 - [ ] JS
   - [ ] Register (check form and display messages in case of error, send query, handle server response OK/username exists/password rules)
-  - [ ] Login (send query, handle wrong credential error)
+  - [x] Login (send query, handle wrong credential error)
   - [x] Logout
   - [ ] Add/edit/remove folder
   - [ ] Add/remove feed
