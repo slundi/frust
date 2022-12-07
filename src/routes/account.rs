@@ -57,7 +57,6 @@ pub(crate) async fn login(info: web::Json<LoginForm>, pool: web::Data<crate::db:
 pub(crate) async fn register(info: web::Json<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
     log::debug!("Register");
     if info.clear_password != info.clear_password_2 {
-        return HttpResponse::BadRequest().json("Passwords are differents");
     }
     let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
     let result = crate::db::account::create_user(&conn, info.username.clone(), bcrypt::hash(info.clear_password.clone(), 10).unwrap()).into_future().await;
