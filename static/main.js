@@ -1,3 +1,16 @@
+async function q(url, method, data) {
+  var h = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+  };
+  var token = localStorage.getItem("token");
+  if(token != null) h["Authorization"] = "token "+token;
+  var request = {method: method, headers: h, };
+  if(data != null) request["body"] = data;
+  const response = await fetch(url, request);
+  return response;
+}
+
 function update_ui(logged) {
   let els = Array.from(document.getElementsByClassName("l"));
   if (logged) {
@@ -5,6 +18,16 @@ function update_ui(logged) {
       e.classList.remove("is-hidden");
     });
     document.getElementById("anonymous").classList.add("is-hidden");
+    q("folders/", "GET", null).then((response) => {
+      if (response.status === 200) {
+        console.log("TODO FOLDERS");
+      }
+    });
+    q("feeds/", "GET", null).then((response) => {
+      if (response.status === 200) {
+        console.log("TODO FEEDS");
+      }
+    });
   } else {
     els.forEach((e) => {
       e.classList.add("is-hidden");
@@ -123,16 +146,4 @@ function register() {
     },
     function (err) {}
   );
-}
-
-async function q(url, method, data) {
-  const response = await fetch(url, {
-    method: method,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-  return response;
 }

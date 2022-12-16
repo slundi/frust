@@ -81,7 +81,7 @@ async fn main() -> std::io::Result<()> {
                     .service(routes::folder::delete),
             )
             .service(
-                web::scope("/feed")
+                web::scope("/feeds")
                     //folder management
                     .service(routes::feed::list)
                     .service(routes::feed::post)
