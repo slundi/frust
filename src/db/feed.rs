@@ -15,7 +15,7 @@ const SQL_REMOVE_UNUSED_FEEDS: &str = "DELETE FROM feed WHERE id = $1 AND id NOT
 /// Create a feed and returns its HashID
 pub async fn create_feed(conn: &Connection, account_hid: String, url: String, name: String) -> Result<String, Error> {
     let mut stmt = conn.prepare(SQL_CREATE_FEED).expect("Wrong create feed SQL");
-    stmt.query_row(params![&url, &name, decode_id(account_hid), Uuid::new_v4().to_string()], |row| {
+    stmt.query_row(params![&url, &name, decode_id(account_hid), String::from(Uuid::new_v4().simple().encode_lower(&mut Uuid::encode_buffer()))], |row| {
         Ok(encode_id(row.get(0)?))
     }).map_err({
         log::error!("{}: {}", crate::messages::ERROR_CREATE_FEED, name);

@@ -31,8 +31,11 @@ pub struct Token {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Folder {
+    /// Hash ID for POST/PATCH/DELETE
     pub hash_id: String,
     pub name: String,
+    /// Use UUID4 slug instead of HashID for permalink
+    pub slug: String,
 }
 
 /// Essential feed information to update data and display it.

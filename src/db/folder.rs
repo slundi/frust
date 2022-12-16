@@ -2,16 +2,17 @@ use crate::{utils::{encode_id, decode_id}};
 use super::{Connection, Folder};
 use actix_web::{error, Error};
 use rusqlite::params;
+use uuid::Uuid;
 
-const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id) VALUES ($1, $2) RETURNING id";
+const SQL_CREATE_FOLDER: &str ="INSERT INTO folder (name, account_id, slug) VALUES ($1, $2, $3) RETURNING id";
 const SQL_EDIT_FOLDER: &str = "UPDATE folder SET name = $1 WHERE id = $2 AND account_id = $3";
-const SQL_GET_MY_FOLDER: &str ="SELECT id, name FROM folder WHERE account_id = $1 ORDER BY name";
+const SQL_GET_MY_FOLDER: &str ="SELECT id, name, slug FROM folder WHERE account_id = $1 ORDER BY name";
 const SQL_DELETE_FOLDER: &str = "DELETE FROM folder WHERE id = $1 AND account_id = $2";
 
 /// Create a folder and returns its HashID
 pub async fn create_folder(conn: &Connection, account_hid: String, name: String) -> Result<String, Error> {
     let mut stmt = conn.prepare(SQL_CREATE_FOLDER).expect("Wrong create folder SQL");
-    stmt.query_row(params![&name, decode_id(account_hid)], |row| {
+    stmt.query_row(params![&name, decode_id(account_hid), String::from(Uuid::new_v4().simple().encode_lower(&mut Uuid::encode_buffer()))], |row| {
         Ok(encode_id(row.get(0)?))
     }).map_err({
         log::error!("{}: {}", crate::messages::ERROR_CREATE_FOLDER, name);
@@ -45,7 +46,8 @@ pub async fn get_folders(conn: &Connection, account_hid: String) -> Result<Vec<F
     let result = stmt.query_map([decode_id(account_hid)], |r| {
         Ok(Folder {
             hash_id: encode_id(r.get(0).unwrap()),
-            name: r.get(1).unwrap()
+            name: r.get(1).unwrap(),
+            slug: r.get(2).unwrap(),
         })
     });
     if let Err(e) = result {

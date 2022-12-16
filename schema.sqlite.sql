@@ -18,9 +18,11 @@ CREATE TABLE IF NOT EXISTS token (
 
 CREATE TABLE IF NOT EXISTS folder (
 	id  INTEGER NOT NULL PRIMARY KEY,
+	slug VARCHAR(64) NOT NULL,
 	account_id INTEGER NOT NULL,
 	name VARCHAR(64),
 	UNIQUE(UPPER(account_id), name),
+	UNIQUE(slug),
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 );
 
