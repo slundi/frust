@@ -20,7 +20,19 @@ function update_ui(logged) {
     document.getElementById("anonymous").classList.add("is-hidden");
     q("folders/", "GET", null).then((response) => {
       if (response.status === 200) {
-        console.log("TODO FOLDERS");
+        let folders = document.getElementById("folders");
+        response.json().then(a => {
+          for(const f of a) {
+            var e = document.createElement("li");
+            var link = document.createElement("a");
+            link.setAttribute("href", "#");
+            link.setAttribute("id", "f_"+f.hash_id);
+            link.innerHTML = f.name;
+            console.log("TODO FOLDERS");
+            e.append(link);
+            folders.append(e);
+          }
+        });
       }
     });
     q("feeds/", "GET", null).then((response) => {
