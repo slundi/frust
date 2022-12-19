@@ -6,7 +6,7 @@ async function q(url, method, data) {
   var token = localStorage.getItem("token");
   if(token != null) h["Authorization"] = "token "+token;
   var request = {method: method, headers: h, };
-  if(data != null) request["body"] = data;
+  if(data != null) request["body"] = JSON.stringify(data);
   const response = await fetch(url, request);
   return response;
 }
@@ -113,22 +113,25 @@ function login() {
   );
 }
 function register() {
-  let u = document.getElementById("ru").value;
-  let p = document.getElementById("rp").value;
-  let p2 = document.getElementById("rpc").value;
-  if(p!=p2) {
+  let u = document.getElementById("ru");
+  let p = document.getElementById("rp");
+  let p2 = document.getElementById("rpc");
+  if(p.value!=p2.value) {
     document.getElementById("rpc_diff").classList.remove("is-hidden");
   }
   q("account", "POST", {
-    username: u,
-    clear_password: p,
-    clear_password_2: p2,
+    "username": u.value,
+    "clear_password": p.value,
+    "clear_password_2": p2.value,
   }).then(
     (response) => {
       if (response.status === 201) {
         document.getElementById("ru_exists").classList.add("is-hidden");
-        document.getElementById("rp_week").classList.add("is-hidden");
+        document.getElementById("rp_weak").classList.add("is-hidden");
         document.getElementById("rpc_diff").classList.add("is-hidden");
+        u.value = "";
+        p.value = "";
+        p2.value = "";
         //TODO: modal OK and ask to log in
       } else {
         if (response.status === 400) {
@@ -136,7 +139,7 @@ function register() {
             if (msg == "USERNAME_ALREADY_EXISTS") {
               document.getElementById("ru_exists").classList.remove("is-hidden");
             } else if (msg == "PASSWORD_TOO_WEEK") {
-              document.getElementById("rp_week").classList.remove("is-hidden");
+              document.getElementById("rp_weak").classList.remove("is-hidden");
             } else if (msg == "DIFFERENT_PASSWORDS") {
               document.getElementById("rpc_diff").classList.remove("is-hidden");
             }
