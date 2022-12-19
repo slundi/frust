@@ -2,12 +2,11 @@ use crate::{utils::{encode_id, decode_id, sha256}};
 use super::{Connection, get_datetime_utc, Feed};
 use actix_web::{error, Error};
 use rusqlite::params;
-use uuid::Uuid;
 
-const SQL_CREATE_FEED: &str ="INSERT INTO feed (url, name, account_id, slug) VALUES ($1, $2, $3, $4) ON CONFLICT (url) DO NOTHING RETURNING id, name";
+const SQL_CREATE_FEED: &str ="INSERT INTO feed (url, name, account_id) VALUES ($1, $2, $3) ON CONFLICT (url) DO NOTHING RETURNING id, name";
 const SQL_SUBSCRIBE: &str = "INSERT INTO subscription (account_id, feed_id, folder_id, xpath) VALUES(:account, :feed, :folder) ON CONFLICT DO UPDATE SET xpath = :xpath, folder_id = :folder";
 const SQL_EDIT_FEED: &str = "UPDATE subscription SET url = $1, name =$2 WHERE feed_id = $3 AND account_id = $4";
-const SQL_GET_MY_FEEDS: &str ="SELECT id, slug, name, url, updated FROM feed WHERE account_id = $1 ORDER BY name";
+const SQL_GET_MY_FEEDS: &str ="SELECT id, name, url, updated FROM feed WHERE account_id = $1 ORDER BY name";
 const SQL_DELETE_USER_FEED: &str = "DELETE FROM subscription WHERE feed_id = $1 AND account_id = $2";
 /// Remove feeds without subscriptions. Tou need to pass the feed ID you want to delete as SQL parameter
 const SQL_REMOVE_UNUSED_FEEDS: &str = "DELETE FROM feed WHERE id = $1 AND id NOT IN (SELECT feed_id FROM subscription WHERE feed_id = $1)";
@@ -15,7 +14,7 @@ const SQL_REMOVE_UNUSED_FEEDS: &str = "DELETE FROM feed WHERE id = $1 AND id NOT
 /// Create a feed and returns its HashID
 pub async fn create_feed(conn: &Connection, account_hid: String, url: String, name: String) -> Result<String, Error> {
     let mut stmt = conn.prepare(SQL_CREATE_FEED).expect("Wrong create feed SQL");
-    stmt.query_row(params![&url, &name, decode_id(account_hid), String::from(Uuid::new_v4().simple().encode_lower(&mut Uuid::encode_buffer()))], |row| {
+    stmt.query_row(params![&url, &name, decode_id(account_hid)], |row| {
         Ok(encode_id(row.get(0)?))
     }).map_err({
         log::error!("{}: {}", crate::messages::ERROR_CREATE_FEED, name);
@@ -69,11 +68,10 @@ pub async fn get_feeds(conn: &Connection, account_hid: String, feed_hid: Option<
     let result = stmt.query_map([decode_id(account_hid)], |r| {
         Ok(Feed {
             hash_id: encode_id(r.get(0).unwrap()),
-            slug: r.get(1).unwrap(),
-            name: r.get(2).unwrap(),
-            url: r.get(3).unwrap(),
-            updated: get_datetime_utc(r.get(4).unwrap()),
-            icon_filename: sha256(r.get(3).unwrap()),
+            name: r.get(1).unwrap(),
+            url: r.get(2).unwrap(),
+            updated: get_datetime_utc(r.get(3).unwrap()),
+            icon_filename: sha256(r.get(2).unwrap()),
             unread_count: 0,
         })
     });
