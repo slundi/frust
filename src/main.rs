@@ -24,12 +24,7 @@ lazy_static! {
     //static TOKEN_CACHE: std::sync::RwLock<std::collections::HashMap<String, &model::Account>> = std::sync::RwLock::new(std::collections::HashMap::with_capacity(1024));
     /// Hash ID data for encode and decode functions. It is initilized here because it is easier than loading a key from the `.env`.
     static ref HASH_ID: std::sync::RwLock<harsh::Harsh> = std::sync::RwLock::new(harsh::Harsh::builder()
-        .length(8).salt(
-            chrono::Local::now()
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string()
-                .as_bytes(),
-        )
+        .length(8).salt(load_config().secret_key.as_bytes())
         .build().unwrap());
     static ref CONFIG: std::sync::RwLock<crate::config::Config> = std::sync::RwLock::new(crate::config::Config::default());
 }
