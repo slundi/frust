@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS token (
 CREATE TABLE IF NOT EXISTS folder (
 	id  INTEGER NOT NULL PRIMARY KEY,
 	account_id INTEGER NOT NULL,
-	name VARCHAR(64) NOT NULL,
+	name VARCHAR(64) NOT NULL COLLATE NOCASE,
 	UNIQUE(account_id, name)
 	FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE
 );
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS subscription (
 	account_id INTEGER NOT NULL,
 	feed_id INTEGER NOT NULL,
 	folder_id INTEGER,
-	name VARCHAR(255), -- feed name if the user rename it
+	name VARCHAR(255) COLLATE NOCASE, -- feed name if the user rename it
 	xpath VARCHAR(255),
 	added DATETIME NOT NULL DEFAULT(DATETIME('now')),
 	UNIQUE(account_id, feed_id),
