@@ -11,6 +11,34 @@ async function q(url, method, data) {
   return response;
 }
 
+function display_folders() {
+  const a = JSON.parse(localStorage.getItem("folders"));
+  var folders = document.getElementById("folders");
+  folders.textContent = "";
+  for(const f of a) {
+    var e = document.createElement("li");
+    var link = document.createElement("a");
+    link.setAttribute("href", "#");
+    link.setAttribute("id", "f_"+toString(f.hash_id));
+    link.innerHTML = f.name;
+    console.log("TODO FOLDERS");
+    e.append(link);
+    folders.append(e);
+  }
+}
+
+function get_folders() {
+  q("folders/", "GET", null).then((response) => {
+    if (response.status === 200) {
+      let folders = document.getElementById("folders");
+      response.text().then(t => {
+        localStorage.setItem("folders", t);
+        display_folders();
+      })
+    }
+  });
+}
+
 function update_ui(logged) {
   let els = Array.from(document.getElementsByClassName("l"));
   if (logged) {
@@ -18,23 +46,7 @@ function update_ui(logged) {
       e.classList.remove("is-hidden");
     });
     document.getElementById("anonymous").classList.add("is-hidden");
-    q("folders/", "GET", null).then((response) => {
-      if (response.status === 200) {
-        let folders = document.getElementById("folders");
-        response.json().then(a => {
-          for(const f of a) {
-            var e = document.createElement("li");
-            var link = document.createElement("a");
-            link.setAttribute("href", "#");
-            link.setAttribute("id", "f_"+f.hash_id);
-            link.innerHTML = f.name;
-            console.log("TODO FOLDERS");
-            e.append(link);
-            folders.append(e);
-          }
-        });
-      }
-    });
+    get_folders();
     q("feeds/", "GET", null).then((response) => {
       if (response.status === 200) {
         console.log("TODO FEEDS");
@@ -82,7 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Add a click event on various child elements to close the parent modal
   (
     document.querySelectorAll(
-      ".modal-background, .modal-close, .modal-card-head .delete, .modal-card-foot .button"
+      ".modal-background, .modal-close, .modal-card-head .delete, .modal-card-foot .cancel"
     ) || []
   ).forEach(($close) => {
     const $target = $close.closest(".modal");
@@ -112,9 +124,9 @@ function login() {
     (response) => {
       if (response.status === 200) {
         document.getElementById("wrong_credentials").classList.add("is-hidden");
-        update_ui(true);
         response.json().then((v) => {
           localStorage.setItem("token", v);
+          update_ui(true);
         });
         //TODO: get folders and feeds list, get articles
       } else {
@@ -161,4 +173,36 @@ function register() {
     },
     function (err) {}
   );
+}
+
+function add_folder() {
+  let e = document.getElementById("folder");
+  let e_length = document.getElementById("md-length");
+  let e_exists = document.getElementById("md-exists");
+  e_length.classList.add("is-hidden");
+  e_exists.classList.add("is-hidden");
+  if(e.value.length < 3 || e.value.length > 64) {
+    e_length.classList.remove("is-hidden");
+  } else {
+    q("folders/", "POST", e.value).then((response) => {
+      if (response.status === 201) {
+        let f = JSON.parse(localStorage.getItem("folders"));
+        f.push({"hash_id": response.text(), "name": e.value});
+        f.sort(sort_by_name);
+        localStorage.setItem("folders", JSON.stringify(f));
+        display_folders();
+        document.getElementById("md").classList.remove("is-active");
+        e.value = "";
+      } else {
+        e_exists.classList.remove("is-hidden");
+      }
+    });
+  }
+}
+
+function sort_by_name(a, b) {
+  let na = a.name.toLowerCase(), nb = b.name.toLowerCase();
+  if(na < nb) return -1;
+  if(na > nb) return 1;
+  return 0;
 }
