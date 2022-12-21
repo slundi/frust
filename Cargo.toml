@@ -23,7 +23,6 @@ rand = { version = "0.8", features = [ "std_rng" ] }
 static-files = "0.2"
 sha2 = "0.10"
 bcrypt = "0.13"
-#jsonwebtoken = "8" or boringauth = "0.9"
 harsh = "0.2"
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 serde = { version = "1", features = ["derive"] }
