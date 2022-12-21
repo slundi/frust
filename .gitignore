@@ -31,3 +31,6 @@ Cargo.lock
 # ---> Ansible
 *.retry
 
+
+#custom rules
+static/*.map
