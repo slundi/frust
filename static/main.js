@@ -11,18 +11,52 @@ async function q(url, method, data) {
   return response;
 }
 
+function get_link(href, html, classes) {
+  var a = document.createElement("a");
+  a.setAttribute("href", href);
+  if(classes != null) a.setAttribute("class", classes);
+  a.innerHTML = html;
+  return a;
+}
+
+function get_folder_dropdown(hash_id) {
+  var e = document.createElement("div");
+  e.setAttribute("class", "dropdown is-hoverable is-pulled-right");
+  var t = document.createElement("div");
+  t.setAttribute("class", "dropdown-trigger");
+  t.innerHTML = '<button class="button is-small"><span>...</span></button>';
+  e.append(t);
+  var m = document.createElement("div");
+  m.setAttribute("class", "dropdown-menu");
+  m.setAttribute("id", "ddd-"+hash_id);
+  e.append(m);
+  var c = document.createElement("div");
+  c.setAttribute("class", "dropdown-content");
+  c.append(get_link("javascript:read_folder('"+hash_id+"')", '<i class="mdi mdi-check-all"></i> Mark all as read', "dropdown-item"));
+  c.append(get_link("javascript:share('"+hash_id+"')", '<i class="mdi mdi-share-variant"></i> Share', "dropdown-item"));
+  c.append(get_link("javascript:filter_folder('"+hash_id+"')", '<i class="mdi mdi-filter-cog"></i> Filter', "dropdown-item"));
+  c.append(get_link("javascript:rename_folder('"+hash_id+"')", '<i class="mdi mdi-form-textbox"></i> Rename', "dropdown-item"));
+  var h = document.createElement("hr");
+  h.setAttribute("class", "dropdown-divider");
+  c.append(h);
+  c.append(get_link("javascript:delete_folder('"+hash_id+"')", '<i class="mdi mdi-delete"></i> Delete', "dropdown-item"));
+  m.append(c);
+  return e;
+}
 function display_folders() {
   const a = JSON.parse(localStorage.getItem("folders"));
   var folders = document.getElementById("folders");
   folders.textContent = "";
   for(const f of a) {
+    const id = f["hash_id"];
     var e = document.createElement("li");
     var link = document.createElement("a");
     link.setAttribute("href", "#");
-    link.setAttribute("id", "f_"+toString(f.hash_id));
-    link.innerHTML = f.name;
+    link.setAttribute("id", "f_"+id);
+    link.innerHTML = '<i class="mdi mdi-folder"></i> ' + f.name;
     console.log("TODO FOLDERS");
     e.append(link);
+    e.append(get_folder_dropdown(id));
     folders.append(e);
   }
 }
