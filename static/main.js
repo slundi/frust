@@ -21,7 +21,7 @@ function get_link(href, html, classes) {
 
 function get_folder_dropdown(hash_id) {
   var e = document.createElement("div");
-  e.setAttribute("class", "dropdown is-hoverable is-pulled-right");
+  e.setAttribute("class", "dropdown is-hoverable");
   var t = document.createElement("div");
   t.setAttribute("class", "dropdown-trigger");
   t.innerHTML = '<button class="button is-small"><span>...</span></button>';
@@ -56,7 +56,15 @@ function display_folders() {
     link.innerHTML = '<i class="mdi mdi-folder"></i> ' + f.name;
     console.log("TODO FOLDERS");
     e.append(link);
-    e.append(get_folder_dropdown(id));
+    var right = document.createElement("span");
+    right.setAttribute("class", "is-pullled-right");
+    var badge = document.createElement("div");
+    badge.textContent = "0";
+    badge.setAttribute("id", "f_n_"+id);
+    badge.setAttribute("class", "tag is-rounded");
+    right.append(badge);
+    right.append(get_folder_dropdown(id));
+    e.append(right);
     folders.append(e);
   }
 }
@@ -232,6 +240,21 @@ function add_folder() {
       }
     });
   }
+}
+function delete_folder(hash_id) {
+  q("folders/"+hash_id, "DELETE", null).then((response) => {
+    if (response.status === 204) {
+      var e = document.getElementById("f_"+hash_id);
+      var a = JSON.parse(localStorage.getItem("folders"));
+      var b = [];
+      for(const f of a) {
+        if(f["hash_id"] != hash_id) b.push(f);
+      }
+      localStorage.setItem("folders", JSON.stringify(b));
+      e.parentElement.remove();
+    }
+    //TODO: else {handle error}
+  });
 }
 
 function sort_by_name(a, b) {
