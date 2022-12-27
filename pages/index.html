@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="s/main.min.css" />
 <link rel="stylesheet" href="s/mdi.min.css" />
-<script type="text/javascript" src="s/main.min.js"></script>
+<script type="text/javascript" src="s/main.min.js" defer></script>
 </head>
 <body>
 <nav class="navbar is-fixed-top is-dark l is-hidden" role="navigation">
@@ -16,7 +16,7 @@
 </div><div id="nb" class="navbar-menu">
     <div class="navbar-start">
         <a class="navbar-item js-modal-trigger" href="#" data-target="mr" title="%ADD_FEED%"><i class="mdi mdi-rss"></i></a>
-        <a class="navbar-item js-modal-trigger" href="#" data-target="md" title="%ADD_FOLDER%"><i class="mdi mdi-folder-plus"></i></a>
+        <a class="navbar-item" href="javascript:modal_folder(null)" title="%ADD_FOLDER%"><i class="mdi mdi-folder-plus"></i></a>
         <a class="navbar-item js-modal-trigger" href="#" data-target="mf" title="%MANAGE_GLOBAL_FILTERS%"><i class="mdi mdi-filter-multiple"></i></a>
         <div class="navbar-item has-dropdown is-hoverable">
             <a class="navbar-link" title="%ACCOUNT%"><i class="mdi mdi-account"></i>&nbsp;<span id="username"></span></a>
@@ -214,14 +214,15 @@
 <div class="modal" id="md">
   <div class="modal-background"></div>
   <div class="modal-card">
-    <header class="modal-card-head"><p class="modal-card-title" id="mdt">%ADD_FOLDER%</p> <button class="delete" aria-label="close"></button></header>
+    <header class="modal-card-head"><p class="modal-card-title is-hidden" id="mdta">%ADD_FOLDER%</p><p class="modal-card-title is-hidden" id="mdte">%RENAME_FOLDER%</p> <button class="delete" aria-label="close"></button></header>
     <section class="modal-card-body">
+      <input type="hidden" id="folder_hid" value="" />
       <input id="folder" class="input" placeholder="%FOLDER_NAME%" />
       <p class="help is-danger is-hidden" id="md-length">%FOLDER_NAME_LENGTH%</p>
       <p class="help is-danger is-hidden" id="md-exists">%FOLDER_NAME_EXISTS%</p>
     </section>
     <footer class="modal-card-foot">
-    <a href="javascript:add_folder()" class="button is-success">Save changes</a>
+    <a href="javascript:save_folder()" class="button is-success">Save changes</a>
     <button class="button cancel">Cancel</button>
     </footer>
   </div>

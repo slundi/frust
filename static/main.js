@@ -35,7 +35,7 @@ function get_folder_dropdown(hash_id) {
   c.append(get_link("javascript:read_folder('"+hash_id+"')", '<i class="mdi mdi-check-all"></i> Mark all as read', "dropdown-item"));
   c.append(get_link("javascript:share('"+hash_id+"')", '<i class="mdi mdi-share-variant"></i> Share', "dropdown-item"));
   c.append(get_link("javascript:filter_folder('"+hash_id+"')", '<i class="mdi mdi-filter-cog"></i> Filter', "dropdown-item"));
-  c.append(get_link("javascript:rename_folder('"+hash_id+"')", '<i class="mdi mdi-form-textbox"></i> Rename', "dropdown-item"));
+  c.append(get_link("javascript:modal_folder('"+hash_id+"')", '<i class="mdi mdi-form-textbox"></i> Rename', "dropdown-item"));
   var h = document.createElement("hr");
   h.setAttribute("class", "dropdown-divider");
   c.append(h);
@@ -217,26 +217,64 @@ function register() {
   );
 }
 
-function add_folder() {
-  let e = document.getElementById("folder");
-  let e_length = document.getElementById("md-length");
-  let e_exists = document.getElementById("md-exists");
-  e_length.classList.add("is-hidden");
-  e_exists.classList.add("is-hidden");
-  if(e.value.length < 3 || e.value.length > 64) {
-    e_length.classList.remove("is-hidden");
+let folder_input = document.getElementById("folder");
+let folder_hid = document.getElementById("folder_hid");
+let folder_msg_length = document.getElementById("md-length");
+let folder_msg_exists = document.getElementById("md-exists");
+let folder_modal = document.getElementById("md");
+let folder_title_add = document.getElementById("mdta");
+let folder_title_edit = document.getElementById("mdte");
+
+function modal_folder(hid) {
+  folder_input.value = "";
+  if(hid == undefined) {
+    folder_hid.value = "";
+    folder_title_add.classList.remove("is-hidden");
+    folder_title_edit.classList.add("is-hidden");
   } else {
-    q("folders/", "POST", e.value).then((response) => {
+    folder_hid.value = hid;
+    folder_input.value = document.getElementById("f_"+hid).textContent.trim();
+    folder_title_add.classList.add("is-hidden");
+    folder_title_edit.classList.remove("is-hidden");
+  }
+  folder_modal.classList.add("is-active");
+}
+
+function save_folder() {
+  folder_msg_length.classList.add("is-hidden");
+  folder_msg_exists.classList.add("is-hidden");
+  if(folder_input.value.length < 3 || folder_input.value.length > 64) {
+    folder_msg_length.classList.remove("is-hidden");
+  } else {
+    if(folder_hid.value == "") q("folders/", "POST", folder_input.value).then((response) => {
       if (response.status === 201) {
         let f = JSON.parse(localStorage.getItem("folders"));
-        f.push({"hash_id": response.text(), "name": e.value});
+        f.push({"hash_id": response.text(), "name": folder_input.value});
         f.sort(sort_by_name);
         localStorage.setItem("folders", JSON.stringify(f));
         display_folders();
-        document.getElementById("md").classList.remove("is-active");
-        e.value = "";
+        folder_modal.classList.remove("is-active");
+        folder_input.value = "";
       } else {
-        e_exists.classList.remove("is-hidden");
+        folder_msg_exists.classList.remove("is-hidden");
+      }
+    });
+    else q("folders/"+folder_hid.value, "PATCH", folder_input.value).then((response) => {
+      if (response.status === 204) {
+        let f = JSON.parse(localStorage.getItem("folders"));
+        for(var d of f) {
+          if(d["hash_id"] == folder_hid.value) {
+            d["name"] = folder_input.value;
+            break;
+          }
+        }
+        localStorage.setItem("folders", JSON.stringify(f));
+        display_folders();
+        folder_modal.classList.remove("is-active");
+        folder_hid.value = "";
+        folder_input.value = "";
+      } else {
+        folder_msg_exists.classList.remove("is-hidden");
       }
     });
   }
