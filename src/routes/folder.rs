@@ -35,7 +35,7 @@ pub(crate) async fn patch(info: web::Json<String>, path: web::Path<String>, pool
         let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
         let result = crate::db::folder::edit_folder(&conn, account.hash_id, path.into_inner(), info.to_string()).await;
         if result.is_ok() {
-            return HttpResponse::Ok().finish();
+            return HttpResponse::NoContent().finish();
         }
     }
     HttpResponse::BadRequest().json("Cannot rename folder")
