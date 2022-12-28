@@ -134,7 +134,7 @@ pub(crate) async fn delete(pool: web::Data<crate::db::Pool>, req: HttpRequest) -
 pub(crate) async fn renew_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-        log::info!("RENEW TOKEN for account: {:?}", account);
+        log::info!("RENEW TOKEN for account: {}", account.username);
         let result = crate::db::account::renew_token(&conn, account.hash_id, path.0.clone()).await;
         if let Ok(token) = result {
             return  HttpResponse::Ok().json(token);
@@ -149,7 +149,7 @@ pub(crate) async fn renew_token(path: web::Path<(String,)>, pool: web::Data<crat
 pub(crate) async fn delete_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     if let Some(account) = crate::auth::check_token(&pool, req).await {
         let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
-        log::info!("DELETE TOKEN for account: {:?}", account);
+        log::info!("DELETE TOKEN for account: {}", account.username);
         let result = crate::db::account::delete_token(&conn, account.hash_id, path.0.clone()).await;
         if result.is_ok() {
             return  HttpResponse::NoContent().finish();

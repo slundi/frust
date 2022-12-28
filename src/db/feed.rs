@@ -6,7 +6,17 @@ use rusqlite::params;
 const SQL_CREATE_FEED: &str ="INSERT INTO feed (url, name, account_id) VALUES ($1, $2, $3) ON CONFLICT (url) DO NOTHING RETURNING id, name";
 const SQL_SUBSCRIBE: &str = "INSERT INTO subscription (account_id, feed_id, folder_id, xpath) VALUES(:account, :feed, :folder) ON CONFLICT DO UPDATE SET xpath = :xpath, folder_id = :folder";
 const SQL_EDIT_FEED: &str = "UPDATE subscription SET url = $1, name =$2 WHERE feed_id = $3 AND account_id = $4";
-const SQL_GET_MY_FEEDS: &str ="SELECT id, name, url, updated FROM feed WHERE account_id = $1 ORDER BY name";
+const SQL_GET_FEEDS: &str ="SELECT s.id AS subscription_id, folder_id, d.name as folder,
+    feed_id, CASE WHEN s.name IS NULL THEN f.title ELSE s.name END as name, xpath, f.link, description, language, added, updated,
+    sum(saved) AS read, COUNT(*) AS total
+    FROM subscription s
+    INNER JOIN feed f    ON s.feed_id    = f.id
+    LEFT  JOIN folder d  ON s.folder_id  = d.id
+    LEFT  join article a ON f.id = s.feed_id
+    LEFT  JOIN read r    ON a.id = r.article_id AND s.account_id = r.account_id
+    WHERE s.account_id = $1 AND saved = FALSE
+    GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+    ORDER BY d.name, name";
 const SQL_DELETE_USER_FEED: &str = "DELETE FROM subscription WHERE feed_id = $1 AND account_id = $2";
 /// Remove feeds without subscriptions. Tou need to pass the feed ID you want to delete as SQL parameter
 const SQL_REMOVE_UNUSED_FEEDS: &str = "DELETE FROM feed WHERE id = $1 AND id NOT IN (SELECT feed_id FROM subscription WHERE feed_id = $1)";
@@ -64,7 +74,7 @@ pub async fn clear_unused_feed(conn: &Connection, feed_hid: String) -> Result<()
 
 /// Get user's feeds
 pub async fn get_feeds(conn: &Connection, account_hid: String, feed_hid: Option<String>) -> Result<Vec<Feed>, Error> {
-    let mut stmt = conn.prepare(SQL_GET_MY_FEEDS).expect("Wrong delete token SQL");
+    let mut stmt = conn.prepare(SQL_GET_FEEDS).expect("Wrong delete token SQL");
     let result = stmt.query_map([decode_id(account_hid)], |r| {
         Ok(Feed {
             hash_id: encode_id(r.get(0).unwrap()),
