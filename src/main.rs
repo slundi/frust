@@ -67,6 +67,7 @@ async fn main() -> std::io::Result<()> {
             .service(routes::account::patch)
             .service(routes::account::delete)
             .service(routes::account::delete_token)
+            .service(routes::account::renew_token)
             .service(routes::account::list_tokens)
             .service(
                 web::scope("/folders")

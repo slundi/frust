@@ -1,5 +1,5 @@
 use actix_web::{get, post, patch, delete, web, HttpResponse, HttpRequest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::future::IntoFuture;
 
 use crate::{utils::decode_id, messages::ERROR_CANNOT_GET_CONNEXION};
@@ -16,6 +16,20 @@ pub struct RegisterForm {
     clear_password: String,
     /// To check against clear_password
     clear_password_2: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FolderData {
+    hash_id: String,
+    name: String,
+    feeds: Vec<crate::db::Feed>
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoginResponse {
+    username: String,
+    token: String,
+    folders: Vec<FolderData>,
 }
 
 /// Log the user in:
@@ -40,6 +54,7 @@ pub(crate) async fn login(info: web::Json<LoginForm>, pool: web::Data<crate::db:
             }
             let record = crate::db::account::create_token(&conn, decode_id(account.hash_id.clone())).into_future().await;
             if let Ok(token) = record {
+                //TODO: get feeds with folder and unread article count/feed
                 return HttpResponse::Ok().json(token);
             }
             log::error!("{:?}", record);
@@ -57,6 +72,7 @@ pub(crate) async fn login(info: web::Json<LoginForm>, pool: web::Data<crate::db:
 pub(crate) async fn register(info: web::Json<RegisterForm>, pool: web::Data<crate::db::Pool>, _req: HttpRequest)  ->  HttpResponse {
     log::debug!("Register");
     if info.clear_password != info.clear_password_2 {
+        return HttpResponse::BadRequest().json("DIFFERENT_PASSWORDS");
     }
     let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
     let result = crate::db::account::create_user(&conn, info.username.clone(), bcrypt::hash(info.clear_password.clone(), 10).unwrap()).into_future().await;
@@ -113,6 +129,20 @@ pub(crate) async fn delete(pool: web::Data<crate::db::Pool>, req: HttpRequest) -
     HttpResponse::BadRequest().json("CANNOT_DELETE_ACCOUNT")
 }
 
+/// Renew the current token: it does not take data but it returns a new UUID as a response
+#[patch("/tokens/{token}")]
+pub(crate) async fn renew_token(path: web::Path<(String,)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+    if let Some(account) = crate::auth::check_token(&pool, req).await {
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
+        log::info!("RENEW TOKEN for account: {:?}", account);
+        let result = crate::db::account::renew_token(&conn, account.hash_id, path.0.clone()).await;
+        if let Ok(token) = result {
+            return  HttpResponse::Ok().json(token);
+        }
+    }
+    HttpResponse::InternalServerError().body("CANNOT_RENEW_TOKEN")
+}
+
 /// Allow a user to delete a token in case of problem (laptop or phone stolen) while logged in, it also log the
 /// user out if he deletes its current authorization token
 #[delete("/tokens/{token}")]
@@ -125,7 +155,7 @@ pub(crate) async fn delete_token(path: web::Path<(String,)>, pool: web::Data<cra
             return  HttpResponse::NoContent().finish();
         }
     }
-    HttpResponse::Ok().body("CANNOT_TOKEN_DELETED")
+    HttpResponse::InternalServerError().body("CANNOT_DELETE_TOKEN")
 }
 
 /// Get all user tokens, in case he wants to revoke/delete som
@@ -138,7 +168,7 @@ pub(crate) async fn list_tokens(pool: web::Data<crate::db::Pool>, req: HttpReque
             return  HttpResponse::Ok().json(tokens);
         }
     }
-    HttpResponse::InternalServerError().body("CANNOT_TOKEN_DELETED")
+    HttpResponse::InternalServerError().body("CANNOT_LIST_TOKENS")
 }
 
 #[cfg(test)]

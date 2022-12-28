@@ -13,6 +13,7 @@ const SQL_DELETE_ACCOUNT: &str = "DELETE FROM account WHERE id = $1";
 /// Create a token, ignore it if it already exists
 const SQL_CREATE_TOKEN: &str = "INSERT OR IGNORE INTO token (account_id, value) VALUES (:a, :v) RETURNING value";
 const SQL_GET_ACCOUNT_TOKENS: &str = "SELECT created, value FROM token WHERE account_id = $1 ORDER by created DESC";
+const SQL_RENEW_TOKEN: &str = "UPDATE token SET value = :new, created = DATETIME('now') WHERE account_id = :a AND value = :old";
 const SQL_DELETE_TOKEN: &str = "DELETE FROM token WHERE account_id = $1 AND value = $2";
 
 pub async fn create_user(conn: &Connection, username: String, encrypted_password: String) -> Result<i32, Error> {
@@ -24,10 +25,8 @@ pub async fn create_user(conn: &Connection, username: String, encrypted_password
 /// Get the account associated to the username and password.
 /// It also returns a token on succes because auth is based on tokens
 pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Error> {
-    log::info!("get_user: {}", username);
     let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
     stmt.query_row(&[(":u", &username)], |row| {
-        log::info!("row");
         let mut account = Account {
             hash_id: encode_id(row.get(0)?),
             username: row.get(1)?,
@@ -39,7 +38,6 @@ pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Er
         };
         //TODO: generate and add token
         account.token.push_str("Token ");
-        log::info!("account: {:?}", account);
         Ok(account)
     }).map_err(error::ErrorInternalServerError)
 }
@@ -80,6 +78,18 @@ pub async fn create_token(conn: &Connection, account_id: i32) -> Result<String, 
     }).map_err(|e|{
         log::error!("{}: {}", crate::messages::ERROR_CREATE_TOKEN, e);
         error::ErrorInternalServerError("CANNOT_CREATE_TOKEN")
+    })
+}
+
+/// Renew the token by updating the one used. It also updates the crated date in the SQL statement.
+pub async fn renew_token(conn: &Connection, account_hid: String, token: String) -> Result<String, Error> {
+    let mut stmt = conn.prepare(SQL_RENEW_TOKEN).expect("Wrong renew token SQL");
+    let new_token = uuid::Uuid::new_v4().to_string();
+    stmt.execute(&[(":a", &decode_id(account_hid).to_string()), (":new", &new_token.clone()), (":old", &token)])
+    .map(|_| new_token)
+    .map_err(|e|{
+        log::error!("{}: {:?}", crate::messages::ERROR_RENEW_TOKEN, e);
+        error::ErrorInternalServerError("RENEW_TOKEN")
     })
 }
 
