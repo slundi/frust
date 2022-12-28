@@ -55,10 +55,10 @@ DEFAULT_FOLDER="SORT ME"
 
 - [ ] Skeleton
 - [ ] JS
-  - [ ] Register (check form and display messages in case of error, send query, handle server response OK/username exists/password rules)
+  - [x] Register (check form and display messages in case of error, send query, handle server response OK/username exists/password rules)
   - [x] Login (send query, handle wrong credential error)
   - [x] Logout
-  - [ ] Add/edit/remove folder
+  - [x] Add/edit/remove folder
   - [ ] Add/remove feed
   - [ ] Refresh token (in order to stay connected, otherwise, the server will clean token after X days of inactivity)
   - [ ] Mark article as read/saved
@@ -75,9 +75,7 @@ DEFAULT_FOLDER="SORT ME"
 - [ ] Refresh feed (force)
 - [ ] Show article
 - [ ] Mark article as read or saved (same API endpoint)
-- [x] Add folder
-- [x] Edit folder (rename)
-- [x] Remove folder
+- [x] Add/edit-rename/remove folder
 - [ ] Search
 - [ ] Advanced search
 - [ ] Download article as PDF?, HTML?, ePub?

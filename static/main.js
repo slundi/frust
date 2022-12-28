@@ -1,3 +1,5 @@
+var folders = [];
+
 async function q(url, method, data) {
   var h = {
     "Accept": "application/json",
@@ -44,10 +46,9 @@ function get_folder_dropdown(hash_id) {
   return e;
 }
 function display_folders() {
-  const a = JSON.parse(localStorage.getItem("folders"));
-  var folders = document.getElementById("folders");
-  folders.textContent = "";
-  for(const f of a) {
+  var el = document.getElementById("folders");
+  el.textContent = "";
+  for(const f of folders) {
     const id = f["hash_id"];
     var e = document.createElement("li");
     var link = document.createElement("a");
@@ -65,16 +66,15 @@ function display_folders() {
     right.append(badge);
     right.append(get_folder_dropdown(id));
     e.append(right);
-    folders.append(e);
+    el.append(e);
   }
 }
 
 function get_folders() {
   q("folders/", "GET", null).then((response) => {
     if (response.status === 200) {
-      let folders = document.getElementById("folders");
-      response.text().then(t => {
-        localStorage.setItem("folders", t);
+      response.json().then(l => {
+        folders = l;
         display_folders();
       })
     }
@@ -248,10 +248,8 @@ function save_folder() {
   } else {
     if(folder_hid.value == "") q("folders/", "POST", folder_input.value).then((response) => {
       if (response.status === 201) {
-        let f = JSON.parse(localStorage.getItem("folders"));
-        f.push({"hash_id": response.text(), "name": folder_input.value});
-        f.sort(sort_by_name);
-        localStorage.setItem("folders", JSON.stringify(f));
+        folders.push({"hash_id": response.text(), "name": folder_input.value});
+        folders.sort(sort_by_name);
         display_folders();
         folder_modal.classList.remove("is-active");
         folder_input.value = "";
@@ -261,14 +259,13 @@ function save_folder() {
     });
     else q("folders/"+folder_hid.value, "PATCH", folder_input.value).then((response) => {
       if (response.status === 204) {
-        let f = JSON.parse(localStorage.getItem("folders"));
-        for(var d of f) {
-          if(d["hash_id"] == folder_hid.value) {
-            d["name"] = folder_input.value;
+        for(var i=0; i<folders.length; i++) {
+          if(folders[i]["hash_id"] == folder_hid.value) {
+            folders[i]["name"] = folder_input.value;
+            folders.sort(sort_by_name);
             break;
           }
         }
-        localStorage.setItem("folders", JSON.stringify(f));
         display_folders();
         folder_modal.classList.remove("is-active");
         folder_hid.value = "";
@@ -283,12 +280,10 @@ function delete_folder(hash_id) {
   q("folders/"+hash_id, "DELETE", null).then((response) => {
     if (response.status === 204) {
       var e = document.getElementById("f_"+hash_id);
-      var a = JSON.parse(localStorage.getItem("folders"));
       var b = [];
-      for(const f of a) {
+      for(const f of folders) {
         if(f["hash_id"] != hash_id) b.push(f);
       }
-      localStorage.setItem("folders", JSON.stringify(b));
       e.parentElement.remove();
     }
     //TODO: else {handle error}
