@@ -41,7 +41,7 @@ pub async fn delete_folder(conn: &Connection, account_hid: String, folder_hid: S
 
 /// Get user's folders
 pub async fn get_folders(conn: &Connection, account_hid: String) -> Result<Vec<Folder>, Error> {
-    let mut stmt = conn.prepare(SQL_GET_MY_FOLDER).expect("Wrong delete token SQL");
+    let mut stmt = conn.prepare_cached(SQL_GET_MY_FOLDER).expect("Wrong delete token SQL");
     let result = stmt.query_map([decode_id(account_hid)], |r| {
         Ok(Folder {
             hash_id: encode_id(r.get(0).unwrap()),

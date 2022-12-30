@@ -25,7 +25,7 @@ pub async fn create_user(conn: &Connection, username: String, encrypted_password
 /// Get the account associated to the username and password.
 /// It also returns a token on succes because auth is based on tokens
 pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Error> {
-    let mut stmt = conn.prepare(SQL_LOGIN).expect("Wrong login SQL");
+    let mut stmt = conn.prepare_cached(SQL_LOGIN).expect("Wrong login SQL");
     stmt.query_row(&[(":u", &username)], |row| {
         let mut account = Account {
             hash_id: encode_id(row.get(0)?),
@@ -45,7 +45,7 @@ pub async fn get_user(conn: &Connection, username: String) -> Result<Account, Er
 /// Get the account assiciated to the provided token
 pub async fn get_user_from_token(conn: &Connection, token: String) -> Result<Account, Error> {
     // TODO: consider using a `HashMap<Token, &Account>` to avoid frequent queries to DB (account should be cached somewhere too)
-    let mut stmt = conn.prepare(SQL_AUTH_TOKEN).expect("Wrong login SQL");
+    let mut stmt = conn.prepare_cached(SQL_AUTH_TOKEN).expect("Wrong login SQL");
     stmt.query_row([&token], |row| {
         Ok(Account {
             hash_id: encode_id(row.get(0)?),
@@ -72,7 +72,7 @@ pub async fn delete_account(conn: &Connection, account_hid: String) -> Result<()
 
 /// Create the token for the given account.
 pub async fn create_token(conn: &Connection, account_id: i32) -> Result<String, Error> {
-    let mut stmt = conn.prepare(SQL_CREATE_TOKEN).expect("Wrong create token SQL");
+    let mut stmt = conn.prepare_cached(SQL_CREATE_TOKEN).expect("Wrong create token SQL");
     stmt.query_row(&[(":a", &account_id.to_string()), (":v", &uuid::Uuid::new_v4().to_string())], |row| {
         row.get(0)
     }).map_err(|e|{
@@ -83,7 +83,7 @@ pub async fn create_token(conn: &Connection, account_id: i32) -> Result<String, 
 
 /// Renew the token by updating the one used. It also updates the crated date in the SQL statement.
 pub async fn renew_token(conn: &Connection, account_hid: String, token: String) -> Result<String, Error> {
-    let mut stmt = conn.prepare(SQL_RENEW_TOKEN).expect("Wrong renew token SQL");
+    let mut stmt = conn.prepare_cached(SQL_RENEW_TOKEN).expect("Wrong renew token SQL");
     let new_token = uuid::Uuid::new_v4().to_string();
     stmt.execute(&[(":a", &decode_id(account_hid).to_string()), (":new", &new_token.clone()), (":old", &token)])
     .map(|_| new_token)
@@ -102,7 +102,7 @@ pub async fn delete_token(conn: &Connection, account_hid: String, token: String)
 }
 
 pub async fn get_tokens(conn: &Connection, account_hid: String) -> Result<Vec<Token>, Error> {
-    let mut stmt = conn.prepare(SQL_GET_ACCOUNT_TOKENS).expect("Wrong delete token SQL");
+    let mut stmt = conn.prepare_cached(SQL_GET_ACCOUNT_TOKENS).expect("Wrong delete token SQL");
     let result = stmt.query_map([decode_id(account_hid)], |r| {
         Ok(Token {
             value: r.get(1).unwrap(),
