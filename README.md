@@ -60,7 +60,7 @@ DEFAULT_FOLDER="SORT ME"
   - [x] Logout
   - [x] Add/edit/remove folder
   - [ ] Add/remove feed
-  - [ ] Refresh token (in order to stay connected, otherwise, the server will clean token after X days of inactivity)
+  - [x] Refresh token (in order to stay connected, otherwise, the server will clean token after X days of inactivity)
   - [ ] Mark article as read/saved
 - [ ] Filter modal
 ### Server

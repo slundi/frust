@@ -105,6 +105,8 @@ window.onload = function () {
   var token = localStorage.getItem("token");
   if (token != null) {
     update_ui(true);
+    //renew token everytime you log in
+    q("tokens/" + token, "PATCH", null).then((response) => {});
     //TODO: replace login/register form with user menu, get folders, get feeds, ...
   }
 };
@@ -168,6 +170,7 @@ function login() {
         document.getElementById("wrong_credentials").classList.add("is-hidden");
         response.json().then((v) => {
           localStorage.setItem("token", v);
+          localStorage.setItem("date", new Date().toLocaleString('en-GB', { timeZone: 'UTC' }));
           update_ui(true);
         });
         //TODO: get folders and feeds list, get articles
