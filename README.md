@@ -45,6 +45,9 @@ FEED_REFRESH_TIME=600
 # Secret key for hashing functions
 SECRET_KEY="CHANGE-ME!"
 
+# Token duration (in days)
+TOKEN_DURATION=7
+
 # Default created folder when you register. A feed is always in a folder.
 DEFAULT_FOLDER="SORT ME"
 ```
@@ -69,7 +72,7 @@ DEFAULT_FOLDER="SORT ME"
 - [x] Login (create token)
 - [x] Logout (delete token)
 - [ ] Save user's preferences (dark mode, ...)
-- [ ] Handle token expiration
+- [x] Handle token expiration (delete inactive every X days)
 - [ ] Add feed
 - [ ] Remove feed
 - [ ] Refresh feed (force)

@@ -6,6 +6,7 @@ extern crate r2d2_sqlite;
 extern crate rusqlite;
 extern crate uuid;
 
+use actix::Actor;
 use actix_files::Files;
 use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
@@ -18,6 +19,7 @@ mod config;
 mod messages;
 mod model;
 mod routes;
+mod scheduler;
 mod utils;
 
 lazy_static! {
@@ -52,6 +54,8 @@ async fn main() -> std::io::Result<()> {
 
     let pool = db::Pool::new(SqliteConnectionManager::file("frust.sqlite3")).expect("Cannot create database pool");
     db::create_schema(pool.get().expect("Cannot get connection"));
+
+    scheduler::Scheduler{pool: pool.clone()}.start();
 
     let server = HttpServer::new(move || {
         App::new()

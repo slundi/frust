@@ -8,6 +8,8 @@ pub struct Config {
     pub log_level: String,
     /// Where the SQLite database should be created/loaded. Default is `data/frust.sqlite3`
     pub sqlite_file: String,
+    /// Token duration before expiration (in days)
+    pub token_duration: u16,
     /// Delete old (and not save from any user) articles older than XX days. Default is 30 days.
     /// u16 max value is 65535 so it is more than 175 years
     pub article_keep_time: u16,
@@ -34,6 +36,7 @@ impl Default for Config {
             assets_path: "data/assets".to_owned(),
             feed_refresh_time: 600,
             secret_key: "MY-T0P-S3CR3T-K3Y!".to_owned(),
+            token_duration: 7,
             default_folder: "UNSORTED".to_owned(),
         }
     }
