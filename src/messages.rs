@@ -10,6 +10,7 @@ pub(crate) const ERROR_WRONG_TOKEN: &str = "[TOKEN] no matching token";
 pub(crate) const ERROR_CREATE_TOKEN: &str = "[TOKEN] create";
 pub(crate) const ERROR_RENEW_TOKEN: &str = "[TOKEN] renew";
 pub(crate) const ERROR_DELETE_TOKEN: &str = "[TOKEN] delete";
+pub(crate) const ERROR_CLEAN_TOKENS: &str = "[TOKEN] clean";
 pub(crate) const ERROR_LIST_TOKENS: &str = "[TOKEN] list";
 
 // folders
@@ -25,3 +26,7 @@ pub(crate) const ERROR_SUBSCRIBE_FEED: &str = "[FEED] subscribe";
 pub(crate) const ERROR_UNSUBSCRIBE_FEED: &str = "[FEED] unsubscribe";
 pub(crate) const ERROR_DELETE_FEED: &str = "[FEED] delete";
 pub(crate) const ERROR_LIST_FEEDS: &str = "[FEED] list";
+
+// articles
+pub(crate) const ERROR_CLEAN_ARTICLES: &str = "[ARTICLE] clean";
+pub(crate) const ERROR_CLEAN_ARTICLES_ASSETS: &str = "[ARTICLE] clean assets";
