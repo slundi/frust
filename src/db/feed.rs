@@ -1,5 +1,5 @@
 use crate::{utils::{encode_id, decode_id, sha256}};
-use super::{Connection, get_datetime_utc, Feed};
+use super::{Connection, get_datetime_utc, Feed, Account};
 use actix_web::{error, Error};
 use rusqlite::params;
 
@@ -7,7 +7,7 @@ const SQL_CREATE_FEED: &str ="INSERT INTO feed (url, name, account_id) VALUES ($
 const SQL_SUBSCRIBE: &str = "INSERT INTO subscription (account_id, feed_id, folder_id, xpath) VALUES(:account, :feed, :folder) ON CONFLICT DO UPDATE SET xpath = :xpath, folder_id = :folder";
 const SQL_EDIT_FEED: &str = "UPDATE subscription SET url = $1, name =$2 WHERE feed_id = $3 AND account_id = $4";
 const SQL_GET_FEEDS: &str ="SELECT s.id AS subscription_id, folder_id, d.name as folder,
-    feed_id, CASE WHEN s.name IS NULL THEN f.title ELSE s.name END as name, xpath, f.link, description, language, added, updated,
+    feed_id, CASE WHEN s.name IS NULL THEN f.title ELSE s.name END as name, xpath, f.page_link, f.feed_link, description, language, added, updated,
     sum(saved) AS read, COUNT(*) AS total
     FROM subscription s
     INNER JOIN feed f    ON s.feed_id    = f.id
@@ -15,7 +15,7 @@ const SQL_GET_FEEDS: &str ="SELECT s.id AS subscription_id, folder_id, d.name as
     LEFT  join article a ON f.id = s.feed_id
     LEFT  JOIN read r    ON a.id = r.article_id AND s.account_id = r.account_id
     WHERE s.account_id = $1 AND saved = FALSE
-    GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+    GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
     ORDER BY d.name, name";
 const SQL_DELETE_USER_FEED: &str = "DELETE FROM subscription WHERE feed_id = $1 AND account_id = $2";
 /// Remove feeds without subscriptions. Tou need to pass the feed ID you want to delete as SQL parameter
@@ -74,12 +74,13 @@ pub async fn clear_unused_feed(conn: &Connection, feed_hid: String) -> Result<()
 
 /// Get user's feeds
 pub async fn get_feeds(conn: &Connection, account_hid: String, feed_hid: Option<String>) -> Result<Vec<Feed>, Error> {
-    let mut stmt = conn.prepare(SQL_GET_FEEDS).expect("Wrong delete token SQL");
+    let mut stmt = conn.prepare_cached(SQL_GET_FEEDS).expect("Wrong delete token SQL");
     let result = stmt.query_map([decode_id(account_hid)], |r| {
         Ok(Feed {
             hash_id: encode_id(r.get(0).unwrap()),
-            name: r.get(1).unwrap(),
-            url: r.get(2).unwrap(),
+            name: r.get(5).unwrap(),
+            page_url: r.get(6).unwrap(),
+            feed_url: r.get(7).unwrap(),
             updated: get_datetime_utc(r.get(3).unwrap()),
             icon_filename: sha256(r.get(2).unwrap()),
             unread_count: 0,
@@ -95,4 +96,55 @@ pub async fn get_feeds(conn: &Connection, account_hid: String, feed_hid: Option<
         results.push(t.unwrap());
     }
     Ok(results)
+}
+
+/// Get user's feed with folders and generate OPML string
+pub async fn export(conn: &Connection, account: Account) -> Result<String, Error> {
+    let mut stmt = conn.prepare_cached(SQL_GET_FEEDS).expect("Wrong delete token SQL");
+    let result = stmt.query([decode_id(account.hash_id)]);
+    return match result {
+        Ok(mut rows) => {
+            let mut out = String::with_capacity(2097152); // allocate 2 MB
+            out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n\t<title>");
+            out.push_str(&account.username);
+            out.push_str("subscriptions in Frust</title>\n</head>\n<body>\n");
+            let mut current_folder = String::with_capacity(64);
+            let mut first = true;
+            while let Ok(Some(row)) = rows.next() {
+                //handle folders
+                let folder: String = row.get(2).expect("Cannot get folder name");
+                if folder != current_folder {
+                    if first { // if not the first element
+                        out.push_str("\t</outline>");
+                        first = false;
+                        current_folder = folder;
+                    }
+                    out.push_str("\t<outline text=\"");
+                    out.push_str(&current_folder);
+                    out.push_str("\" title=\"");
+                    out.push_str(&current_folder);
+                    out.push_str("\">\n");
+                }
+                //feed line
+                let tmp: String = row.get(4).expect("Cannot get feed title");
+                out.push_str("\t\t<outline type=\"rss\" title=\"");
+                out.push_str(&tmp);
+                out.push_str("\" text=\"");
+                out.push_str(&tmp);
+                out.push_str("\" xmlUrl=\"");
+                let tmp: String = row.get(7).expect("Cannot get feed URL");
+                out.push_str(&tmp);
+                out.push_str("\" htmlUrl=\"");
+                let tmp: String = row.get(6).expect("Cannot get page URL");
+                out.push_str(&tmp);
+                out.push_str("\">\n");
+            }
+            out.push_str("\t</outline>\n</body>\n</opml>");
+            Ok(out)
+        },
+        Err(e) => { // FIXME: QueryReturnedNoRows
+            log::error!("{}: {}", crate::messages::ERROR_LIST_FEEDS, e);
+            Err(error::ErrorInternalServerError("CANNOT_LIST_FEEDS"))
+        },
+    }
 }

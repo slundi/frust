@@ -1,4 +1,4 @@
-use actix_web::{post, get, patch, delete, web, HttpResponse, HttpRequest};
+use actix_web::{post, get, patch, delete, web, HttpResponse, HttpRequest, http::header};
 use serde::Deserialize;
 
 use crate::messages::ERROR_CANNOT_GET_CONNEXION;
@@ -25,7 +25,7 @@ pub(crate) async fn list(pool: web::Data<crate::db::Pool>, req: HttpRequest)  ->
             return HttpResponse::Ok().json(feeds);
         }
     }
-    HttpResponse::BadRequest().json("Cannot get feeds")
+    HttpResponse::BadRequest().json("BAD_REQUEST_LIST_FEEDS")
 }
 
 /// Create a feed for the user.
@@ -46,7 +46,7 @@ pub(crate) async fn post(info: web::Json<FeedData>, pool: web::Data<crate::db::P
             }
         }
     }
-    HttpResponse::BadRequest().json("Cannot create feed")
+    HttpResponse::BadRequest().json("BAD_REQUEST_CREATE_FEED")
 }
 
 /// Edit auser subscription:
@@ -63,11 +63,10 @@ pub(crate) async fn patch(info: web::Json<FeedData>, path: web::Path<String>, po
             return HttpResponse::Ok().finish();
         }
     }
-    HttpResponse::BadRequest().json("Cannot rename feed")
+    HttpResponse::BadRequest().json("BAD_REQUEST_RENAME_FEED")
 }
 
 /// Delete a user's subscription:
-/// 
 #[delete("/{feed_hid}/{what}")]
 pub(crate) async fn delete(path: web::Path<(String, String)>, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
     //let delete_articles: bool = matches!(path.1.as_str(), "with_articles");
@@ -80,8 +79,27 @@ pub(crate) async fn delete(path: web::Path<(String, String)>, pool: web::Data<cr
         //TODO: delete articles if delete_articles
         let result = crate::db::feed::clear_unused_feed(&conn, path.0.clone()).await;
         if result.is_err() {
-            return HttpResponse::BadRequest().json("Cannot delete feed")
+            return HttpResponse::BadRequest().json("BAD_REQUEST_DELETE_FEED")
         }
     }
     HttpResponse::NoContent().finish()
+}
+
+/// Import OPML file for the user
+#[post("/opml")]
+pub(crate) async fn import_opml(bytes: web::Bytes, pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+    HttpResponse::NoContent().finish()
+}
+
+/// Export user's OPML file
+#[get("/opml")]
+pub(crate) async fn export_opml(pool: web::Data<crate::db::Pool>, req: HttpRequest) ->  HttpResponse {
+    if let Some(account) = crate::auth::check_token(&pool, req).await {
+        let conn = pool.get().expect(ERROR_CANNOT_GET_CONNEXION);
+        let result = crate::db::feed::export(&conn, account).await;
+        if let Ok(xml) = result {
+            return HttpResponse::Ok().insert_header(header::ContentType::xml()).body(xml);
+        }
+    }
+    HttpResponse::Forbidden().json("ACCESS_DENIED_FEED_EXPORT_OPML")
 }

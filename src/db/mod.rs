@@ -42,7 +42,8 @@ pub struct Feed {
     pub hash_id: String,
     /// Name of the feed. Value is retrieved from the ATOM/RSS or from the user if he renames it.
     pub name: String,
-    pub url: String,
+    pub page_url: String,
+    pub feed_url: String,
     pub updated: DateTime<Utc>,
     /// Feed icon will be in <ASSETS_PATH>/f/<hash of the url>.png (convert it if needed)
     pub icon_filename: String,

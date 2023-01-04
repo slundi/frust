@@ -87,7 +87,9 @@ async fn main() -> std::io::Result<()> {
                     .service(routes::feed::list)
                     .service(routes::feed::post)
                     .service(routes::feed::patch)
-                    .service(routes::feed::delete),
+                    .service(routes::feed::delete)
+                    .service(routes::feed::import_opml)
+                    .service(routes::feed::export_opml)
             )
     })
     .bind(config.server_addr.clone())?
