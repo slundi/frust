@@ -119,17 +119,13 @@ pub async fn export(conn: &Connection, account: Account) -> Result<String, Error
                         first = false;
                         current_folder = folder;
                     }
-                    out.push_str("\t<outline text=\"");
-                    out.push_str(&current_folder);
-                    out.push_str("\" title=\"");
+                    out.push_str("\t<outline title=\"");
                     out.push_str(&current_folder);
                     out.push_str("\">\n");
                 }
                 //feed line
                 let tmp: String = row.get(4).expect("Cannot get feed title");
                 out.push_str("\t\t<outline type=\"rss\" title=\"");
-                out.push_str(&tmp);
-                out.push_str("\" text=\"");
                 out.push_str(&tmp);
                 out.push_str("\" xmlUrl=\"");
                 let tmp: String = row.get(7).expect("Cannot get feed URL");

@@ -26,6 +26,7 @@ pub(crate) const ERROR_SUBSCRIBE_FEED: &str = "[FEED] subscribe";
 pub(crate) const ERROR_UNSUBSCRIBE_FEED: &str = "[FEED] unsubscribe";
 pub(crate) const ERROR_DELETE_FEED: &str = "[FEED] delete";
 pub(crate) const ERROR_LIST_FEEDS: &str = "[FEED] list";
+pub(crate) const ERROR_IMPORT_FEEDS: &str = "[FEED] import";
 
 // articles
 pub(crate) const ERROR_CLEAN_ARTICLES: &str = "[ARTICLE] clean";

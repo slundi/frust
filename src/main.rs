@@ -17,6 +17,7 @@ mod auth;
 mod db;
 mod config;
 mod messages;
+mod modules;
 mod model;
 mod routes;
 mod scheduler;
