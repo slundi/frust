@@ -1,7 +1,7 @@
 use crate::{utils::{encode_id, decode_id, sha256}};
 use super::{Connection, get_datetime_utc, Feed, Account};
 use actix_web::{error, Error};
-use rusqlite::params;
+use rusqlite::{params, Error::QueryReturnedNoRows};
 
 const SQL_CREATE_FEED: &str ="INSERT INTO feed (url, name, account_id) VALUES ($1, $2, $3) ON CONFLICT (url) DO NOTHING RETURNING id, name";
 const SQL_SUBSCRIBE: &str = "INSERT INTO subscription (account_id, feed_id, folder_id, xpath) VALUES(:account, :feed, :folder) ON CONFLICT DO UPDATE SET xpath = :xpath, folder_id = :folder";
@@ -102,12 +102,12 @@ pub async fn get_feeds(conn: &Connection, account_hid: String, feed_hid: Option<
 pub async fn export(conn: &Connection, account: Account) -> Result<String, Error> {
     let mut stmt = conn.prepare_cached(SQL_GET_FEEDS).expect("Wrong delete token SQL");
     let result = stmt.query([decode_id(account.hash_id)]);
+    let mut out = String::with_capacity(2097152); // allocate 2 MB
+    out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n\t<title>");
+    out.push_str(&account.username);
+    out.push_str("subscriptions in Frust</title>\n</head>\n<body>\n");
     return match result {
         Ok(mut rows) => {
-            let mut out = String::with_capacity(2097152); // allocate 2 MB
-            out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n\t<title>");
-            out.push_str(&account.username);
-            out.push_str("subscriptions in Frust</title>\n</head>\n<body>\n");
             let mut current_folder = String::with_capacity(64);
             let mut first = true;
             while let Ok(Some(row)) = rows.next() {
@@ -142,7 +142,11 @@ pub async fn export(conn: &Connection, account: Account) -> Result<String, Error
             out.push_str("\t</outline>\n</body>\n</opml>");
             Ok(out)
         },
-        Err(e) => { // FIXME: QueryReturnedNoRows
+        Err(e) => {
+            if e == QueryReturnedNoRows {
+                out.push_str("\n</body>\n</opml>");
+                return Ok(out);
+            }
             log::error!("{}: {}", crate::messages::ERROR_LIST_FEEDS, e);
             Err(error::ErrorInternalServerError("CANNOT_LIST_FEEDS"))
         },
