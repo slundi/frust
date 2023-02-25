@@ -40,10 +40,10 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 2) [ ] Check file exists (provided config file and data file)
 3) [ ] Parse config file
    1) [ ] Check for missing mandatory fields
-   2) [ ] Create in-memory configuration with default values
+   2) [x] Create in-memory configuration with default values
    3) [ ] Replace default values
-   4) [ ] Check groups data
-   5) [ ] Check filter data
+   4) [x] Check groups data
+   5) [x] Check filter data
    6) [ ] Match feed into the group if applicable
    7) [ ] Match filters into the group if applicable
    8) [ ] Match filters into the feed if applicable

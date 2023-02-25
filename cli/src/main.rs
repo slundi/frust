@@ -37,6 +37,7 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     // make output directory if not exists, check for permissions
-    config::load_config_file(config_file);
+    let config = config::load_config_file(config_file);
+    std::fs::create_dir_all(config.output).unwrap_or_else(|e| panic!("Unable to create output directory: {}", e));
     ExitCode::SUCCESS
 }

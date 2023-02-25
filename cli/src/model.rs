@@ -94,7 +94,7 @@ pub(crate)struct Article {
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct Filter {
     /// Filter name
-    name: String,
+    pub(crate) name: String,
     /// Text or regex.
     /// 
     /// If `expressions=["Elon Musk", "Tesla"]`, it will search the exact `Elon Musk` then `Tesla`. It will not be `Elon`, `Musk` and `Tesla`.
