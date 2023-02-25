@@ -1,10 +1,5 @@
-[package]
-name = "frust"
-version = "0.1.0"
+[workspace.package]
 authors = ["Sébastien LUNDI <slundi@gmail.com>"]
-edition = "2021"
-description = "Lightweight RSS aggregator"
-readme = "README.md"
 
 [workspace]
 members = ["cli", "web_server"]
