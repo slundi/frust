@@ -34,5 +34,5 @@ Cargo.lock
 
 #custom rules
 static/*.map
-frust.sqlite
-web_server/frust.sqlite
+frust.sqlite3
+web_server/frust.sqlite3
