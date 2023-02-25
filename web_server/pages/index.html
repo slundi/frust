@@ -1,0 +1,303 @@
+<!DOCTYPE HTML>
+<html class="has-navbar-fixed-top">
+<head>
+<meta charset="utf-8" />
+<title>Frust</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="s/main.min.css" />
+<link rel="stylesheet" href="s/mdi.min.css" />
+<script type="text/javascript" src="s/main.min.js" defer></script>
+</head>
+<body>
+<nav class="navbar is-fixed-top is-dark l is-hidden" role="navigation">
+<div class="navbar-brand">
+    <a class="navbar-item" href="https://github.com/slundi/frust/" target="_blank" title="View Frust sources on GitHub"><img src="s/logo.png" width="96" height="28"></a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="nb"> <span aria-hidden="true"></span> <span aria-hidden="true"></span> <span aria-hidden="true"></span> </a>
+</div><div id="nb" class="navbar-menu">
+    <div class="navbar-start">
+        <a class="navbar-item" href="javascript:modal_feed(null)" title="%ADD_FEED%"><i class="mdi mdi-rss"></i></a>
+        <a class="navbar-item" href="javascript:modal_folder(null)" title="%ADD_FOLDER%"><i class="mdi mdi-folder-plus"></i></a>
+        <a class="navbar-item js-modal-trigger" href="#" data-target="mf" title="%MANAGE_GLOBAL_FILTERS%"><i class="mdi mdi-filter-multiple"></i></a>
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link" title="%ACCOUNT%"><i class="mdi mdi-account"></i>&nbsp;<span id="username"></span></a>
+            <div class="navbar-dropdown">
+                <a class="navbar-item js-modal-trigger" href="#" data-target="mt" title="%CUSTOMIZE_UI%"><i class="mdi mdi-palette"></i>&nbsp;%CUSTOMIZE_UI%</a>
+                <a class="navbar-item js-modal-trigger" href="#" data-target="mu" title="%MY_INFORMATION%"><i class="mdi mdi-card-account-details"></i>&nbsp;%MY_INFORMATION%</a>
+                <hr class="navbar-divider" />
+                <a class="navbar-item" href="javascript:logout()" title="%LOGOUT%"><i class="mdi mdi-power"></i>&nbsp;%LOGOUT%</a>
+            </div>
+        </div>
+        <a class="navbar-item" href="javascript:toggle_theme()" title="%TOGGLE_THEME%"><i class="mdi mdi-theme-light-dark"></i></a>
+    </div>
+    <div class="navbar-end" id="navbar-end">
+        <div class="navbar-item"><div class="field has-addons">
+            <div class="control"><input class="input" id="search" placeholder="%SEARCH%"/></div>
+            <div class="control"><a class="button" href="javascript:search()" title="%SEARCH%"><i class="mdi mdi-magnify"></i></a></div>
+            <div class="control"><a class="button js-modal-trigger" data-target="ms" href="#" title="%ADVANCED_SEARCH%"><i class="mdi mdi-magnify-expand"></i></a></div>
+        </div></div>
+        <a class="navbar-item" href="javascript:toggle_sort()" title="%TOGGLE_SORT%"><i class="mdi mdi-sort-ascending"></i></a>
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link" title="%SORT_BY%"><i class="mdi mdi-view-dashboard"></i>&nbsp;</a>
+            <div class="navbar-dropdown is-right">
+                <a class="navbar-item" href="javascript:sort_by_name()"  title="%BY_TITLE%"><i class="mdi mdi-alphabetical-variant"></i>&nbsp;%BY_TITLE%</a>
+                <a class="navbar-item" href="javascript:sort_by_date()" title="%BY_DATE%"><i class="mdi mdi-calendar-month"></i>&nbsp;%BY_DATE%</a>
+            </div>
+        </div>
+        <div class="navbar-item has-dropdown is-hoverable">
+            <a class="navbar-link" title="%GROUP_BY%"><i class="mdi mdi-format-list-group"></i></a>
+            <div class="navbar-dropdown is-right">
+                <a class="navbar-item" href="javascript:group_by_folder()"  title="%BY_FOLDER%"><i class="mdi mdi-folder"></i>&nbsp;%BY_FOLDER%</a>
+                <a class="navbar-item" href="javascript:group_by_date()" title="%BY_DATE%: Today <small>(+date format)</small>, Last 7 days, This month <small>(+ month)</small>, Earlier"><i class="mdi mdi-calendar-month"></i>&nbsp;%BY_DATE%</a>
+                <a class="navbar-item" href="javascript:group_by_feed()" title="%BY_FEED%"><i class="mdi mdi-rss"></i>&nbsp;%BY_FEED%</a>
+            </div>
+        </div>
+    </div>
+</div>
+</nav>
+<div class="container l is-hidden">
+    <div class="menu" id="left">
+        <!-- Top: Frust logo + home link, GitHub, donation, -->
+        <ul class="menu-list" id="folders">
+        </ul>
+    </div>
+    <div id="right">
+        <a href="javascript:filter()" title="Filter">Filter</a>
+        <a href="javascript:sort()" title="Sort by date or title">Sort</a>
+        <a href="javascript:group()" title="Group by folder or date today/yesterday/in a week/later">Group</a>
+        <a href="javascript:disposition()" title="Disposition (title list, icon+title+brief, tiles, ...)">Disposition</a>
+        <div id="articles"></div>
+    </div>
+</div>
+<div class="container is-fullhd a" id="anonymous">
+    <p class="box">Frust is a free lightweight RSS/Atom feeder and aggregator.</p>
+    <div class="columns is-8"><div class="column">
+    <form class="box" action="javascript:login()">
+    <h2 class="is-size-3">%LOG_IN%</h2>
+    <div class="field">
+        <label class="label" for="lu">%USERNAME%</label>
+        <div class="control"><input class="input" placeholder="I-am-a-legend" id="lu" /></div>
+    </div>
+    <div class="field">
+        <label class="label" for="lp">%PASSWORD%</label>
+        <div class="control"><input class="input" type="password" placeholder="************" id="lp" /></div>
+    </div>
+    <button type="submit" class="button is-success"><i class="mdi mdi-login"></i>&nbsp;%SIGN_IN%</button>
+    <p class="help is-danger is-hidden" id="wrong_credentials">%WRONG_USERNAME_OR_PASSWORD%</p>
+    </form>
+    </div><div class="column">
+    <form action="javascript:register()" class="box">
+    <h2 class="is-size-3">%REGISTER%</h2>
+    <div class="field">
+        <label class="label" for="ru">%USERNAME%</label>
+        <div class="control"><input class="input" placeholder="I-am-a-legend" id="ru" /></div>
+        <p class="help is-danger is-hidden" id="ru_exists">%USERNAME_EXISTS%</p>
+    </div>
+    <div class="field">
+        <label class="label" for="rp">%PASSWORD%</label>
+        <div class="control"><input class="input" type="password" placeholder="************" id="rp" /></div>
+        <p class="help is-warning is-hidden" id="rp_weak">%PASSWORD_TOO_WEAK%</p>
+    </div>
+    <div class="field">
+        <label class="label" for="rpc">%PASSWORD_CONFIRMATION%</label>
+        <div class="control"><input class="input" type="password" placeholder="************" id="rpc" /></div>
+        <p class="help is-danger is-hidden" id="rpc_diff">%PASSWORD_DIFFERENT%</p>
+    </div>
+    <button type="submit" class="button is-primary"><i class="mdi mdi-account-plus"></i>&nbsp;%REGISTER%</button>
+    </form>
+</div></div>
+    <div class="box">
+    <h2 class="is-size-3">Features</h2>
+    <div class="columns">
+        <div class="column">
+            <article class="media">
+                <figure class="media-left has-text-success"><i class="mdi mdi-48px mdi-leaf"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%LIGHTWEIGHT%</strong><br/>
+                    Frust was designed to run on an ARM NAS. It is written in a compiled programming language (<a href="https://www.rust-lang.org/" target="_blank">RUST</a>) in order to be fast and does not take a lot of memory. 
+                    It also does not require a database server because it uses <a href="https://www.sqlite.org/" target="_blank">SQLite</a>. Because of SQLite use, Frust is not designed to handle hundreds 
+                    of users but is perfect for a family or a group  of friend.
+                </p></div></div>
+            </article>
+            <article class="media">
+                <figure class="media-left has-text-primary"><i class="mdi mdi-48px mdi-security-network"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%RESPECT_YOUR_PRIVACY%</strong><br/>
+                    There is no tracking; Frust is open source so you can check the <a href="https://github.com/slundi/frust/" target="_blank">sources on 
+                    GitHub <i class="mdi mdi-github"></i></a> and install it on your own server. It does not use cookies but tokens that are in your internal 
+                    browser storage. Tokens are also easier to use in native application.
+                </p></div></div>
+            </article>
+            <article class="media">
+                <figure class="media-left has-text-dark"><i class="mdi mdi-48px mdi-currency-usd-off"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%FREE%</strong><br/>
+                    Frust is free and open source. You can use it the way you want. You can make a donation <i class="mdi mdi-hand-coin"></i> if you want to thank me for my work.
+                </p></div></div>
+            </article>
+        </div>
+        <div class="column">
+            <article class="media">
+                <figure class="media-left has-text-info"><i class="mdi mdi-48px mdi-code-braces"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%OPEN_API%</strong><br/>
+                    Frust provide this web UI but you can implement your own client or app using the auth token to handle users.
+                </p></div></div>
+            </article>
+            <article class="media">
+                <figure class="media-left has-text-warning"><i class="mdi mdi-48px mdi-lightbulb-on"></i></figure>
+                <div class="media-content"><div class="content"><p>
+                    <strong>%USEFUL_FEATURES%</strong><br/>
+                    Frust is trying to provide useful features that should be free:<ul>
+                        <li>Search text in the articles or between dates or other criteria.</li>
+                        <li>Save the article you like or download it in various format (HTML, PDF, ePub).</li>
+                        <li>Filter the content you want or don&#39;t want. You can also use <abbr title="regular expression">regex</abbr> if you are familiar with it.</li>
+                        <li>Sort, group your feeds</li>
+                    </ul>
+                    If you have an idea <i class="mdi mdi-head-lightbulb"></i>, you can ask it on GitHub by opening an <a href="https://github.com/slundi/frust/issues" target="_blank">issue</a>.
+                </p></div></div>
+            </article>
+        </div>
+    </div></div>
+</div>
+<div class="modal" id="mu">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head"><p class="modal-card-title">%USER%</p> <button class="delete" aria-label="close"></button></header>
+    <section class="modal-card-body">
+      <h4 class="is-size-4"><i class="mdi mdi-palette"></i>&nbsp;%CUSTOMIZATION%</h4>
+      <div class="field is-horizontal">
+        <div class="field-label is-normal"><label class="label">%DATE_FORMAT%</label></div>
+        <div class="field-body">
+          <div class="field"><div class="control">
+            <label class="radio"><input type="radio" name="date_format" value="YYYY-mm-dd" /> YYYY-mm-dd (2022-11-15)</label>
+            <!-- TODO: radio? input with available data? -->
+          </div></div>
+        </div>
+      </div>
+      <div class="field is-horizontal">
+        <div class="field-label"><!-- Left empty for spacing --> </div>
+        <div class="field-body"><div class="field">
+            <div class="control"><a href="javascript:save_preferences()" class="button is-primary"><i class="mdi mdi-send"></i>&nbsp;%CHANGE_PASSWORD%</a></div></div>
+        </div>
+      </div>
+      <hr/>
+      <h4 class="is-size-4"><i class="mdi mdi-form-textbox-password"></i>&nbsp;%CHANGE_PASSWORD%</h4>
+      <div class="field is-horizontal">
+        <div class="field-label is-normal"><label class="label">%CURRENT_PASSWORD%</label></div>
+        <div class="field-body">
+          <div class="field"><div class="control"><input type="password" class="input" id="chpwd_current" /></div></div>
+        </div>
+      </div>
+      <div class="field is-horizontal">
+        <div class="field-label is-normal"><label class="label">%NEW_PASSWORD%</label></div>
+        <div class="field-body">
+          <div class="field"><div class="control"><input type="password" class="input" id="chpwd_new" /></div></div>
+        </div>
+      </div>
+      <div class="field is-horizontal">
+        <div class="field-label is-normal"><label class="label">%CONFIRM_NEW_PASSWORD%</label></div>
+        <div class="field-body">
+          <div class="field"><div class="control"><input type="password" class="input" id="chpwd_new2" /></div></div>
+        </div>
+      </div>
+      <div class="field is-horizontal">
+        <div class="field-label"><!-- Left empty for spacing --> </div>
+        <div class="field-body"><div class="field">
+            <div class="control"><a href="javascript:change_password()" class="button is-primary"><i class="mdi mdi-send"></i>&nbsp;%CHANGE_PASSWORD%</a></div></div>
+        </div>
+      </div>
+      <hr/>
+      <h4 class="is-size-4">%DELETE_MY_ACCOUNT%</h4>
+      <a href="javascript:delete_account()" class="button is-danger"><i class="mdi mdi-trash-can"></i>&nbsp;%DELETE_MY_ACCOUNT%</a>
+      <p>%DELETE_ACCOUNT_INFORMATION%</p>
+    </section>
+    <footer class="modal-card-foot">
+    <button class="button">Cancel</button>
+    </footer>
+  </div>
+</div>
+<div class="modal" id="ms">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head"><p class="modal-card-title">%ADVANCED_SEARCH%</p> <button class="delete" aria-label="close"></button></header>
+    <section class="modal-card-body">
+    between dates, choose feed(s), choose folder(s), in read
+    </section>
+    <footer class="modal-card-foot">
+    <button class="button is-success">Save changes</button>
+    <button class="button">Cancel</button>
+    </footer>
+  </div>
+</div>
+<div class="modal" id="mf">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head"><p class="modal-card-title">%GLOBAL_FILTERS%</p> <button class="delete" aria-label="close"></button></header>
+    <section class="modal-card-body">
+    excludes in titles, excludes in content, regex
+    </section>
+    <footer class="modal-card-foot">
+    <button class="button is-success">Save changes</button>
+    <button class="button">Cancel</button>
+    </footer>
+  </div>
+</div>
+<div class="modal" id="mr">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head"><p class="modal-card-title is-hidden" id="mrta">%ADD_FEED%</p><p class="modal-card-title is-hidden" id="mrte">%EDIT_FEED%</p> <button class="delete" aria-label="close"></button></header>
+    <section class="modal-card-body">
+      <input type="hidden" id="feed_hid" value="" />
+      <div class="field">
+        <label class="label" for="feed_url">%FEED_OR_URL%</label>
+        <div class="control"><input id="feed_url" class="input" placeholder="%FEED_OR_PAGE_URL%" /></div>
+        <p class="help is-info">%SYSTEM_WILL_FIND_FEED_URL%</p>
+        <p class="help is-danger is-hidden" id="mr-url">%PARSE_URL%</p>
+      </div>
+      <div class="field">
+        <label class="label" for="feed_folder">%FOLDER%</label>
+        <div class="control"><select id="feed_folder" size="4" style="width:100%"></select></div>
+        <p class="help is-danger is-hidden" id="mr-folder">%FOLDER_NOT_SET%</p>
+      </div>
+      <div class="field">
+        <label class="label" for="feed_name">%NAME_OPTIONAL%</label>
+        <div class="control"><input id="feed_name" class="input" placeholder="%FEED_NAME_OPTIONAL%" /></div>
+        <p class="help is-info">%FEED_NAME_DESCRIPTION%</p>
+      </div>
+      <div class="field">
+        <label class="label" for="feed_xpath">%XPATH_OPTIONAL%</label>
+        <div class="control"><input id="feed_xpath" class="input" placeholder="%FEED_XPATH_OPTIONAL%" /></div>
+        <p class="help is-info">%XPATH_FEED_INSTRUCTIONS%</p>
+        <p class="help is-danger is-hidden" id="mr-xpath">%PARSE_XPATH%</p>
+      </div>
+      <div class="field">
+        <div class="control">
+          <label class="checkbox" for="feed_inject"><input type="checkbox" id="feed_inject"> %FEED_INJECT_ACTION_LINKS_IN_ARTICLES%</label>
+        </div>
+      </div>
+      <p class="help is-danger is-hidden" id="mr-exists">%FEED_ALREADY_SUBSCRIBED%</p>
+      <p class="help is-info is-hidden" id="mr-links"><i class="mdi mdi-36px mdi-spin mdi-loading"></i> %CHECKING_URLS%</p>
+    </section>
+    <footer class="modal-card-foot">
+    <a href="javascript:save_feed()" class="button is-success">Save changes</a>
+    <button class="button cancel">Cancel</button>
+    </footer>
+  </div>
+</div>
+<div class="modal" id="md">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head"><p class="modal-card-title is-hidden" id="mdta">%ADD_FOLDER%</p><p class="modal-card-title is-hidden" id="mdte">%RENAME_FOLDER%</p> <button class="delete" aria-label="close"></button></header>
+    <section class="modal-card-body">
+      <input type="hidden" id="folder_hid" value="" />
+      <input id="folder" class="input" placeholder="%FOLDER_NAME%" />
+      <p class="help is-danger is-hidden" id="md-length">%FOLDER_NAME_LENGTH%</p>
+      <p class="help is-danger is-hidden" id="md-exists">%FOLDER_NAME_EXISTS%</p>
+    </section>
+    <footer class="modal-card-foot">
+    <a href="javascript:save_folder()" class="button is-success">Save changes</a>
+    <button class="button cancel">Cancel</button>
+    </footer>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,56 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Frust</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="s/bulma.min.css" />
+<script>
+window.onload=function(){
+console.log(localStorage.getItem("token"));
+}  
+</script>
+</head>
+<body>
+<h1>Frust</h1>
+<p>Frust is a lightweight RSS/Atom feeder.</p>
+
+<form action="login" method="POST" class="box">
+<h2>Log in</h2>
+<div class="field">
+    <label class="label" for="lu">Username</label>
+    <div class="control"><input class="input" placeholder="I-am-a-legend" name="username" id="lu" /></div>
+</div>
+<div class="field">
+    <label class="label" for="lp">Password</label>
+    <div class="control"><input class="input" type="password" placeholder="************" name="clear_password" id="lp" /></div>
+</div>
+<button type="submit" class="button is-success">Sign in</button>
+</form>
+
+<form action="register" method="POST" class="box">
+<h2>Register</h2>
+<div class="field">
+    <label class="label" for="ru">Username</label>
+    <div class="control"><input class="input" placeholder="I-am-a-legend" name="username" id="ru" /></div>
+</div>
+<div class="field">
+    <label class="label" for="rp">Password</label>
+    <div class="control"><input class="input" type="password" placeholder="************" name="clear_password" id="rp" /></div>
+</div>
+<div class="field">
+    <label class="label" for="rpc">Password</label>
+    <div class="control"><input class="input" type="password" placeholder="************" name="clear_password_2" id="rpc" /></div>
+</div>
+<button type="submit" class="button is-primary">Register</button>
+</post>
+
+<h2>Features</h2>
+<p><ul>
+<li>Atom and RSS support.</li>
+<li>Save the article you like or download it.</li>
+<li>Filter the content you want or don&#39;t want. You can also use <abbr title="regular expression">regex</abbr> if you are familiar with it.</li>
+<li>No tracking, <a href="https://github.com/slundi/frust/" target="_blank">Frust</a> is free and open source. You can host it on your own server</li>
+<li>Frust is light and fast: it is written in RUST and use a SQLite database. It is not designed to support a heavy traffic... but it is a database limitation.</li>
+</ul></p>
+</body></html>

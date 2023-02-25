@@ -1,0 +1,14 @@
+[package]
+name = "cli"
+version = "0.1.0"
+authors = ["Sébastien LUNDI <slundi@gmail.com>"]
+edition = "2021"
+description = "Lightweight RSS aggregator"
+readme = "README.md"
+
+[[bin]]
+name = "frust-cli"
+
+[dependencies]
+
+[dev-dependencies]

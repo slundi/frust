@@ -1,0 +1,43 @@
+[package]
+name = "web_server"
+version = "0.1.0"
+authors = ["Sébastien LUNDI <slundi@gmail.com>"]
+edition = "2021"
+description = "Lightweight RSS aggregator"
+readme = "README.md"
+
+[[bin]]
+name = "frust-ws"
+
+[dependencies]
+lazy_static = "1"
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+config = { version = "0.13", features = ["default"] }
+dotenv = "0.15"
+simple_logger = "4"
+log = "0.4"
+r2d2 = "0.8"
+r2d2_sqlite = "0.21"
+rusqlite = { version = "0.28", features = ["bundled", "chrono"]}
+actix-web = { version = "4", features = ["cookies"] }
+actix-files = "0.6"
+actix = "0.13"
+actix-rt = "2"
+rand = { version = "0.8", features = [ "std_rng" ] }
+static-files = "0.2"
+sha2 = "0.10"
+bcrypt = "0.14"
+passwords = { version = "3" } # , features = ["common-passwor"] (the time for compiling increases dramatically if enabled)
+harsh = "0.2"
+uuid = { version = "1", features = ["v4", "fast-rng"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+opml = "1.1"
+scraper = "0.14"
+feed-rs = "1.2"
+ureq = { version = "2", features = ["brotli", "charset"] }
+url = "2"
+
+[dev-dependencies]
+regex = "1"
