@@ -10,5 +10,12 @@ name = "frust-cli"
 path = "cli/src/main.rs"
 
 [dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+yaml-rust = "0.4"
+linked-hash-map = "0.5"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+slug = "0.1"
+url = "2.3"
+regex = "1"
 
 [dev-dependencies]

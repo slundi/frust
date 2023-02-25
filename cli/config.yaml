@@ -1,0 +1,44 @@
+output: "/var/www/rss"  # path where feeds are generated, be sure to have permissions
+format: "atom"  # generated feed format (rss, atom or json)
+timeout: 10  # OPTIONAL timeout in seconds, default 10 seconds
+min_refresh_time:  600  # OPTIONAL refresh time in seconds, default 10 minutes (600 seconds)
+article_keep_time: 30  # OPTIONAL keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets)
+retrieve_server_media: false  # OPTIONAL default false. Download images `<output>/[<folder>/]<feed>/assets`
+sort: "-date"  # OPTIONAL default sorting. Default is "-date". Minus before the filed indicates a descending order. Available fields are: date, feed
+all:  # OPTIONAL if you want to generate a single feed file with all articles, use this
+    basename: "all"  # OPTINAL default `all`. Generates `<basename>.<extension depending format>` in the output folder
+    sort: "-date"  # OPTIONAL default sorting. Default is "-date". Minus before the filed indicates a descending order. Available fields are: date, feed
+    group_by: null  # OPTIONAL grouping. Default is null for no grouping. But you can group by: date, feed, folder
+    aggregate: false  # OPTIONAL aggregate all feeds into one.
+groups:  # OPTIONAL you can use only feeds
+    - title: "My group name"  # name of the folder. If empty or omitted, no subfolder will be created in the output folder.
+      slug: "my-group"  # name of the file/folder that will be written (avoid spaces and other special chars)
+      sort: "-date"  # OPTIONAL default sorting. See above for details
+      feeds: ["feed-title"]  # List of feed slugs that will be put in this group OR feed.group?
+feeds:
+  - title: "Feed title"
+    slug:  "feed-title"
+    url: "https://my-favourite-website.org/rss"  # feed URL
+    page_url: "https://my-favourite-website.org/"  # OPTIONAL
+    xpath: ""  # OPTIONAL xpath to retrive article content instead of brief in some feeds
+    min_refresh_time:  600  # OPTIONAL refresh time if you want to override the default one for this feed
+    article_keep_time: 30  # OPTIONAL if you want to override the default article keep time
+    retrieve_server_media: true  # OPTIONAL overide default value
+    filters:  # see bellow
+    produces: ["HTML", "PDF"]  # OPTIONAL if we want article to be in various format instead of only be in the RSS feed file
+    group: "my-group"  # OPTIONAL put the feed in a group based on the group slug value
+filters:  # OPTIONAL global filters
+  - includes:  # OPTIONAL include filters
+      mode: "or"  # OPTIONAL default `or`: must match any regex or raw. `and` must match all regex and raw
+      regexes: []  # OPTIONAL list of regexes
+      raw: ["guitar", "E standard"]  # OPTIONAL match exact words/sentences of this list
+      scope: "title"
+  - includes:  # OPTIONAL include filters
+      mode: "or"  # OPTIONAL default `or`: must match any regex or raw. `and` must match all regex and raw
+      regexes: []  # OPTIONAL list of regexes
+      raw: ["Ghost", "Iron Maiden", "Judas Priest" ]  # OPTIONAL match exact words/sentences of this list
+      scope: "brief"
+  - excludes:  # OPTIONAL exclude filters. Any matching result excludes the article
+      regexes: []  # OPTIONAL list of regexes
+      raw: ["trumpet", "drum"]  # OPTIONAL match exact words/sentences of this list
+      scope: "title,brief,content"
