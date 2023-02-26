@@ -19,7 +19,7 @@ I made this app because:
 * Can **group** multiple feeds into one
 * 🖼️ Retrieve article content when possible (images, audio, ...)
 * 🌐 No web server: you do not need to essure you use an available network port or secure it. It generates static files so you just need to serve them in your favorite web server (mine is **nginx**)
-* 🪶 Lightweight: written in Rust, does not run in background so you just need to define a **cron** to run it periodically
+* 🍃 Lightweight: it is written in Rust so it is green (fast and low memory usage), it also does not run in background so you just need to define a **cron** to run it periodically
 * 🕵 No spyware: sources available on [GitHub](https://github.com/slundi/frust), you can check for any bloatware
 * 🔒 You can run it as a non-root user. Just be sure to have permissions to write files in the output folder (mine is `/var/www/rss`)
 
@@ -51,13 +51,13 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 3) [ ] Parse config file
    1) [ ] Check for missing mandatory fields
    2) [x] Create in-memory configuration with default values
-   3) [ ] Replace default values
+   3) [x] Replace default values
    4) [x] Check groups data
    5) [x] Check filter data
-   6) [ ] Match feed into the group if applicable
-   7) [ ] Match filters into the group if applicable
-   8) [ ] Match filters into the feed if applicable
-5) [ ] Create output file structure (`<group slug|_ALL>/<feed slug>-<article generated slug>`, ⚠ filename length)
+   6) [x] Match feed into the group if applicable
+   7) [x] Match filters into the group if applicable
+   8) [x] Match filters into the feed if applicable
+5) [ ] Create output file structure (`<feed slug (host like: korben.info)>/<article generated slug>`, ⚠️ filename length)
 6) [ ] Load data file
 7) [ ] Retrive feeds (multiple in the same time [StackOverflow how to](https://stackoverflow.com/questions/51044467/how-can-i-perform-parallel-asynchronous-http-get-requests-with-reqwest))
 8) [ ] Check if articles are in the data file or not
@@ -66,6 +66,7 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 11) [ ] Exclude already saved articles
 12) [ ] Match remaining retrieved articles with filters
 13) [ ] Generate feed files (feed, group)
+14) [ ] Write data file
 
 ## Ideas / roadmap
 

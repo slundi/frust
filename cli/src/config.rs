@@ -160,6 +160,31 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
             config.filters.insert(xxh3_64(name.as_bytes()), Filter { name, expressions, is_regex, is_case_sensitive });
         }
     }
+    //load global filters
+    // get excludes filters if applicable
+    if let Some(excludes) = map.get(&Yaml::String("excludes".to_string())) {
+        let values = excludes.as_vec().unwrap_or_else(|| panic!("Invalid item in .excludes"));
+        config.excludes = Vec::with_capacity(values.len());
+        for v in values {
+            let name = v.as_str().unwrap_or_else(|| panic!("Invalid data in .excludes"));
+            let h: u64 = xxh3_64(name.as_bytes());
+            if config.filters.contains_key(&h) {
+                config.excludes.push(h);
+            }
+        }
+    }
+    // get includes filters if applicable
+    if let Some(includes) = map.get(&Yaml::String("includes".to_string())) {
+        let values = includes.as_vec().unwrap_or_else(|| panic!("Invalid item in includes"));
+        config.includes = Vec::with_capacity(values.len());
+        for v in values {
+            let name = v.as_str().unwrap_or_else(|| panic!("Invalid data in includes"));
+            let h: u64 = xxh3_64(name.as_bytes());
+            if config.filters.contains_key(&h) {
+                config.includes.push(h);
+            }
+        }
+    }
 }
 
 fn load_feeds(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {

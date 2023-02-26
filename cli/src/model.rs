@@ -19,6 +19,10 @@ pub struct AppConfig {
     pub(crate) groups: HashMap<u64, Group>,
     /// All feeds, the key is a xxh3 of the slug
     pub(crate) feeds: HashMap<u64, Feed>,
+    /// Excludes filters are executed before include filters
+    pub(crate) excludes: Vec<u64>,
+    ///Include filters
+    pub(crate) includes: Vec<u64>,
     // pub(crate) format: "atom"  // generated feed format (rss, atom or json)
     pub(crate) global_config: Config,
 }
@@ -34,6 +38,10 @@ impl Default for AppConfig {
             groups: HashMap::with_capacity(0),
             // will be replaced with a filled One
             feeds: HashMap::with_capacity(0),
+            // will be replaced with a filled One
+            includes: Vec::with_capacity(0),
+            // will be replaced with a filled One
+            excludes: Vec::with_capacity(0),
             global_config: Config::default(),
         }
     }
