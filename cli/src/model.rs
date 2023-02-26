@@ -8,12 +8,39 @@ const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 const DEFAULT_SORTING: &str = "-date";
 
 #[derive(Debug, PartialEq, Clone)]
-pub(crate) struct Config {
+pub struct AppConfig {
     /// Number of maximum simultaneous tasks the app will be running
     pub(crate) workers: usize,
     /// Output folder like `/var/www/rss` where feeds are generated and assets are stored. Be sure to have permissions.
     pub(crate) output: String,
+    /// All filters, the key is a xxh3 of the slug
+    pub(crate) filters: HashMap<u64, Filter>,
+    /// All groups, the key is a xxh3 of the slug
+    pub(crate) groups: HashMap<u64, Group>,
+    /// All feeds, the key is a xxh3 of the slug
+    pub(crate) feeds: HashMap<u64, Feed>,
     // pub(crate) format: "atom"  // generated feed format (rss, atom or json)
+    pub(crate) global_config: Config,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        AppConfig {
+            workers: std::thread::available_parallelism().unwrap().get(), // https://stackoverflow.com/questions/22155130/determine-number-of-cores-using-rust
+            output: String::from(DEFAULT_OUTPUT),
+            // will be replaced with a filled One
+            filters: HashMap::with_capacity(0),
+            // will be replaced with a filled One
+            groups: HashMap::with_capacity(0),
+            // will be replaced with a filled One
+            feeds: HashMap::with_capacity(0),
+            global_config: Config::default(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub(crate) struct Config {
     /// Timeout in seconds when performing HTTP queries, default 10 seconds
     pub(crate) timeout: u8,
     /// Minimal refresh time in seconds for feeds and new articles, default 600 seconds (10 minutes)
@@ -24,25 +51,15 @@ pub(crate) struct Config {
     pub(crate) retrieve_server_media: bool,
     /// Default article sorting. Minus before the filed indicates a descending order. Available fields are: date, feed
     pub(crate) sort: String, //# OPTIONAL default sorting. Default is "-date".
-    /// All filters, the key is a xxh3 of the slug
-    pub(crate) filters: HashMap<u64, Filter>,
-    /// All filters, the key is a xxh3 of the slug
-    pub(crate) groups: HashMap<u64, Group>,
 }
 impl Default for Config {
     fn default() -> Self {
         Config {
-            workers: std::thread::available_parallelism().unwrap().get(), // https://stackoverflow.com/questions/22155130/determine-number-of-cores-using-rust
-            output: String::from(DEFAULT_OUTPUT),
             timeout: DEFAULT_HTTP_TIMEOUT,
             min_refresh_time: DEFAULT_MIN_REFRESH_INTERVAL,
             article_keep_time: DEFAULT_KEEP_TIME,
             retrieve_server_media: DEFAULT_RETRIEVE_SERVER_MEDIA,
             sort: String::from(DEFAULT_SORTING),
-            // will be replaced with a filled One
-            filters: HashMap::with_capacity(0),
-            // will be replaced with a filled One
-            groups: HashMap::with_capacity(0),
         }
     }
 }
@@ -71,7 +88,8 @@ pub(crate) struct Feed {
     pub(crate) page_url: String,
     pub(crate) xpath: String, // Option<String>?
     // pub(crate) produces: ["HTML", "PDF"]
-    // pub(crate) group:
+    /// Identify group by its hash
+    pub(crate) group: Option<u64>,
     /// Excludes filters are executed before include filters
     pub(crate) excludes: Vec<u64>,
     ///Include filters

@@ -13,6 +13,16 @@ I made this app because:
 * I have a lot of web services in my server but in some
 * I use the UI once to add feeds with filters (and make some fixes) so I had the idea to generate static contents instead and serve it with my **nginx** server
 
+## Features
+
+* 🧹 Clean your feeds using (include or exclude) **filters** with word(s), sentences or regex (regular expressions)
+* Can **group** multiple feeds into one
+* 🖼️ Retrieve article content when possible (images, audio, ...)
+* 🌐 No web server: you do not need to essure you use an available network port or secure it. It generates static files so you just need to serve them in your favorite web server (mine is **nginx**)
+* 🪶 Lightweight: written in Rust, does not run in background so you just need to define a **cron** to run it periodically
+* 🕵 No spyware: sources available on [GitHub](https://github.com/slundi/frust), you can check for any bloatware
+* 🔒 You can run it as a non-root user. Just be sure to have permissions to write files in the output folder (mine is `/var/www/rss`)
+
 ## Configuration
 
 Edit the [config.yaml](config.yaml) according to your needs.
