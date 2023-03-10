@@ -47,7 +47,7 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 ## Dev tasks
 
 1) [x] Parse CLI (should be fast with just one argument)
-2) [ ] Check file exists (provided config file and data file)
+2) [x] Check file exists (provided config file and data file)
 3) [ ] Parse config file
    1) [ ] Check for missing mandatory fields
    2) [x] Create in-memory configuration with default values
@@ -57,7 +57,7 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
    6) [x] Match feed into the group if applicable
    7) [x] Match filters into the group if applicable
    8) [x] Match filters into the feed if applicable
-5) [ ] Create output file structure (`<feed slug (host like: korben.info)>/<article generated slug>`, ⚠️ filename length)
+5) [x] Create output file structure (`<output>/<feed slug (host like: korben.info)>/<article generated slug>`, ⚠️ filename length). Need folder if we retrieve media, otherwise a single feed file will be enough (with combined old articles with new ones)
 6) [ ] Load data file
 7) [ ] Retrive feeds (multiple in the same time [StackOverflow how to](https://stackoverflow.com/questions/51044467/how-can-i-perform-parallel-asynchronous-http-get-requests-with-reqwest))
 8) [ ] Check if articles are in the data file or not
