@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 const DEFAULT_OUTPUT: &str = "/var/www/rss";
+const DEFAULT_DB_FILE: &str = "frust.dat";
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;
 const DEFAULT_MIN_REFRESH_INTERVAL: u32 = 600;
 const DEFAULT_KEEP_TIME: u16 = 30;
@@ -13,6 +14,8 @@ pub struct AppConfig {
     pub(crate) workers: usize,
     /// Output folder like `/var/www/rss` where feeds are generated and assets are stored. Be sure to have permissions.
     pub(crate) output: String,
+    /// Where to store database of article
+    pub(crate) database_file: String,
     /// All filters, the key is a xxh3 of the slug
     pub(crate) filters: HashMap<u64, Filter>,
     /// All groups, the key is a xxh3 of the slug
@@ -32,6 +35,7 @@ impl Default for AppConfig {
         AppConfig {
             workers: std::thread::available_parallelism().unwrap().get(), // https://stackoverflow.com/questions/22155130/determine-number-of-cores-using-rust
             output: String::from(DEFAULT_OUTPUT),
+            database_file: String::from(DEFAULT_DB_FILE),
             // will be replaced with a filled One
             filters: HashMap::with_capacity(0),
             // will be replaced with a filled One

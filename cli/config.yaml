@@ -1,5 +1,6 @@
 # Application parameters
 output: "/var/www/rss"  # path where feeds are generated, be sure to have permissions
+database_file: "frust.dat"  # path where article information are saved
 # format: "atom"  # generated feed format (rss, atom or json)
 
 # Global feed configuration, it ius inheritable (in groups and feeds) configuaration
