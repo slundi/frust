@@ -34,9 +34,6 @@ fn load_globals(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
         config.workers =
             usize::try_from(value.as_i64().unwrap()).expect("Invalid data in config file: workers");
     }
-    if let Some(value) = map.get(&Yaml::String("database_file".to_string())) {
-        config.database_file = value.as_str().unwrap().to_string();
-    }
     load_config(&mut config.global_config, map)
 }
 

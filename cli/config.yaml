@@ -1,7 +1,7 @@
 # Application parameters
 output: "/var/www/rss"  # path where feeds are generated, be sure to have permissions
 database_file: "frust.dat"  # path where article information are saved
-# format: "atom"  # generated feed format (rss, atom or json)
+# format: "atom"  # generated feed format (atom or json), rss is deprecated so I don't plan to support it
 
 # Global feed configuration, it ius inheritable (in groups and feeds) configuaration
 timeout: 10  # OPTIONAL timeout in seconds, default 10 seconds

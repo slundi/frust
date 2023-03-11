@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 const DEFAULT_OUTPUT: &str = "/var/www/rss";
-const DEFAULT_DB_FILE: &str = "frust.dat";
+pub(crate) const DEFAULT_HISTORY_FILE: &str = "frust.dat";
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;
 const DEFAULT_MIN_REFRESH_INTERVAL: u32 = 600;
 const DEFAULT_KEEP_TIME: u16 = 30;
@@ -14,8 +15,6 @@ pub struct AppConfig {
     pub(crate) workers: usize,
     /// Output folder like `/var/www/rss` where feeds are generated and assets are stored. Be sure to have permissions.
     pub(crate) output: String,
-    /// Where to store database of article
-    pub(crate) database_file: String,
     /// All filters, the key is a xxh3 of the slug
     pub(crate) filters: HashMap<u64, Filter>,
     /// All groups, the key is a xxh3 of the slug
@@ -35,7 +34,6 @@ impl Default for AppConfig {
         AppConfig {
             workers: std::thread::available_parallelism().unwrap().get(), // https://stackoverflow.com/questions/22155130/determine-number-of-cores-using-rust
             output: String::from(DEFAULT_OUTPUT),
-            database_file: String::from(DEFAULT_DB_FILE),
             // will be replaced with a filled One
             filters: HashMap::with_capacity(0),
             // will be replaced with a filled One
@@ -133,4 +131,45 @@ pub(crate) struct Filter {
     pub(crate) is_regex: bool,
     /// If the search is case sensitive, default false
     pub(crate) is_case_sensitive: bool,
+}
+
+/// Pseudo-database that containt feed metadata and article metadata. It is an HashMap where the key is the xxHash of the slug.
+/// 
+/// What should I use for storage?
+/// * [nom](https://crates.io/crates/nom)?
+/// * [pest](https://crates.io/crates/pest)?
+/// * [bincode](https://crates.io/crates/bincode)? -> may be my choice, need to test
+/// * [zerocopy](https://crates.io/crates/zerocopy)?
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub(crate) struct Storage (pub(crate) HashMap<u64, FeedRecord>);
+
+/// Store feed information to be lightweight in memory (because everything is loaded during process) and small on the drive.
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub(crate) struct FeedRecord {
+    /// Encoded date and time of the last update by Frust (not the feed last modification date!)
+    pub(crate) date: u64,
+    /// xxHash of the last downloaded content
+    pub(crate) hash: u64,
+    pub(crate) slug: String,
+    /// Article meta information. The map key is :
+    /// * the xxHash of the RSS article link (because required for RSS) or RSS GUID link if applicable
+    /// * the xxHash of the ATOM item ID field
+    /// * the xxHash of the JSON item ID field
+    pub(crate) articles: HashMap<u64, ArticleRecord>,
+}
+
+/// Store article information for each feed.
+/// 
+/// Article title and plushed date are not stored because the feed will be loaded in memory and be sorted before writing it to disk.
+/// 
+/// Article content is not stored here because it would duplicate it with generated feeds so we should just append content in the feed file.
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub(crate) struct ArticleRecord {
+    /// Article last modification date, in order to retrieve content if the article has been updated
+    pub(crate) date: u64,
+    /// Article flags (for now, just one):
+    /// * 0x01: ignored (by filters)
+    pub(crate) flags: u8,
+    /// Article slug to find the output files if applicable?
+    pub(crate) slug: String,
 }
