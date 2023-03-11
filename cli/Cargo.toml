@@ -7,7 +7,7 @@ readme = "README.md"
 
 [[bin]]
 name = "frust-cli"
-path = "cli/src/main.rs"
+path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
@@ -19,5 +19,7 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 slug = "0.1"
 url = "2.3"
 regex = "1"
+futures = "0.3"
+reqwest = "0.11"
 
 [dev-dependencies]
