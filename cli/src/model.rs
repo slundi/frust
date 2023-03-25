@@ -4,8 +4,8 @@ use serde::{Serialize, Deserialize};
 const DEFAULT_OUTPUT: &str = "/var/www/rss";
 pub(crate) const DEFAULT_HISTORY_FILE: &str = "frust.dat";
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;
-const DEFAULT_MIN_REFRESH_INTERVAL: u32 = 600;
-const DEFAULT_KEEP_TIME: u16 = 30;
+const DEFAULT_MIN_REFRESH_INTERVAL: i64 = 600;
+const DEFAULT_KEEP_TIME: i64 = 30;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 const DEFAULT_SORTING: &str = "-date";
 
@@ -53,10 +53,10 @@ impl Default for AppConfig {
 pub(crate) struct Config {
     /// Timeout in seconds when performing HTTP queries, default 10 seconds
     pub(crate) timeout: u8,
-    /// Minimal refresh time in seconds for feeds and new articles, default 600 seconds (10 minutes)
-    pub(crate) min_refresh_time: u32,
-    /// Keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets)
-    pub(crate) article_keep_time: u16,
+    /// Minimal refresh time in seconds for feeds and new articles, default 600 seconds (10 minutes). `i64` to be easier to use with chrono.
+    pub(crate) min_refresh_time: i64,
+    /// Keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets).  `i64` to be easier to use with chrono.
+    pub(crate) article_keep_time: i64,
     /// Download images `<output>/[<folder>/]<feed>/assets`. Default is `false`.
     pub(crate) retrieve_server_media: bool,
     /// Default article sorting. Minus before the filed indicates a descending order. Available fields are: date, feed
@@ -147,7 +147,7 @@ pub(crate) struct Storage (pub(crate) HashMap<u64, FeedRecord>);
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub(crate) struct FeedRecord {
     /// Encoded date and time of the last update by Frust (not the feed last modification date!)
-    pub(crate) date: u64,
+    pub(crate) date: i64,
     /// xxHash of the last downloaded content
     pub(crate) hash: u64,
     pub(crate) slug: String,
@@ -158,6 +158,18 @@ pub(crate) struct FeedRecord {
     pub(crate) articles: HashMap<u64, ArticleRecord>,
 }
 
+impl FeedRecord {
+    /// Check if the delay is elapsed with the given date, returns a boolean.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `date`: date to compare
+    /// * `delay`: delay in seconds
+    pub fn is_delay_elapsed(&self, date: i64, delay: i64) -> bool {
+        date - self.date >= delay * 1000
+    }
+}
+
 /// Store article information for each feed.
 /// 
 /// Article title and plushed date are not stored because the feed will be loaded in memory and be sorted before writing it to disk.
@@ -166,10 +178,25 @@ pub(crate) struct FeedRecord {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub(crate) struct ArticleRecord {
     /// Article last modification date, in order to retrieve content if the article has been updated
-    pub(crate) date: u64,
+    pub(crate) date: i64,
     /// Article flags (for now, just one):
     /// * 0x01: ignored (by filters)
     pub(crate) flags: u8,
     /// Article slug to find the output files if applicable?
     pub(crate) slug: String,
+}
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+
+    #[test]
+    fn feed_record_elapsed_time() {
+        let now = chrono::Utc::now().timestamp();
+        let f = FeedRecord { date: now, hash: 0, slug: String::with_capacity(0), articles: HashMap::with_capacity(0) };
+        assert!(f.is_delay_elapsed(now, 0), "It is not exactly the same date");
+        assert!(f.is_delay_elapsed(now + 10500, 10), "Date 10.5s after the feed date with a delay of 10s");
+        assert!(!f.is_delay_elapsed(now + 10500, 20), "Date 10.5s after the feed date with a delay of 20s");
+    }
 }

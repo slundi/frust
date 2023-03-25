@@ -44,12 +44,10 @@ fn load_config(config: &mut Config, map: &LinkedHashMap<Yaml, Yaml>) {
             .expect("Invalid data in config file: retrieve_server_media");
     }
     if let Some(value) = map.get(&Yaml::String("article_keep_time".to_string())) {
-        config.article_keep_time = u16::try_from(value.as_i64().unwrap())
-            .expect("Invalid data in config file: article_keep_time");
+        config.article_keep_time = value.as_i64().unwrap();
     }
     if let Some(value) = map.get(&Yaml::String("min_refresh_time".to_string())) {
-        config.min_refresh_time = u32::try_from(value.as_i64().unwrap())
-            .expect("Invalid data in config file: min_refresh_time");
+        config.min_refresh_time = value.as_i64().unwrap();
     }
     if let Some(value) = map.get(&Yaml::String("timeout".to_string())) {
         config.timeout =
