@@ -11,6 +11,7 @@ use crate::model::DEFAULT_HISTORY_FILE;
 
 pub(crate) mod model;
 pub(crate) mod config;
+pub(crate) mod processing;
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
 fn create_output_structure(config: &AppConfig) {
@@ -75,5 +76,6 @@ async fn main() -> ExitCode {
     std::fs::create_dir_all(config.output.clone()).unwrap_or_else(|e| panic!("Unable to create output directory: {}", e));
     let db = load_database(&config);
     create_output_structure(&config);
+    crate::processing::start(&config, &db).await;
     ExitCode::SUCCESS
 }
