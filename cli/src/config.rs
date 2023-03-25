@@ -243,7 +243,7 @@ fn load_feeds(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
     }
 }
 
-pub(crate) fn load_config_file(config_file: String) -> AppConfig {
+pub(crate) async  fn load_config_file(config_file: String) {
     let result = std::fs::read_to_string(config_file);
     if let Err(e) = result {
         print!("Unable to open config file: {:?}", e);
@@ -255,12 +255,11 @@ pub(crate) fn load_config_file(config_file: String) -> AppConfig {
         std::process::exit(1);
     }
     let loader = result.unwrap();
-    let mut config: AppConfig = AppConfig::default();
+    let mut config = crate::CONFIG.write().await;
     if let Some(map) = loader[0].as_hash() {
         load_globals(&mut config, map);
         load_filters(&mut config, map);
         load_groups(&mut config, map);
         load_feeds(&mut config, map);
     }
-    config
 }
