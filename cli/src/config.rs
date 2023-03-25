@@ -6,7 +6,7 @@ use slug::slugify;
 use xxhash_rust::xxh3::xxh3_64;
 use yaml_rust::Yaml;
 
-use crate::model::{Config, Feed, Filter, Group, AppConfig};
+use crate::model::{Config, Feed, Filter, Group, AppConfig, SCOPE_TITLE, SCOPE_SUMMARY, SCOPE_BODY};
 
 fn get_string_field_from_map(
     map: &LinkedHashMap<Yaml, Yaml>,
@@ -134,6 +134,37 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                         .to_string()
                 })
                 .collect();
+            // handle scopes
+            let value = m.get(&Yaml::String("scopes".to_string()));
+            let mut scopes = 0u8;
+            match value {
+                Some(v) => {
+                    let value = v.as_vec();
+                    if value.is_none() {
+                        print!("Invalid data in config file: filters[{}].scopes", i);
+                        std::process::exit(1);
+                    }
+                    let value = value.unwrap();
+                    let data: Vec<String> = value
+                        .iter()
+                        .map(|exp| {
+                            exp.as_str()
+                                .expect("Invalid filters.scopes string")
+                                .to_string()
+                        })
+                        .collect();
+                    if data.contains(&String::from("title")) {
+                        scopes = SCOPE_TITLE;
+                    }
+                    if data.contains(&String::from("summary")) {
+                        scopes += SCOPE_SUMMARY;
+                    }
+                    if data.contains(&String::from("content")) {
+                        scopes += SCOPE_BODY;
+                    }
+                },
+                None => scopes = SCOPE_TITLE,
+            }
             // process filter is_regex
             let mut is_regex = false;
             if let Some(v) = m.get(&Yaml::String("is_regex".to_string())) {
@@ -155,7 +186,7 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                     }
                 }
             }
-            config.filters.insert(xxh3_64(name.as_bytes()), Filter { name, expressions, is_regex, is_case_sensitive });
+            config.filters.insert(xxh3_64(name.as_bytes()), Filter { name, expressions, is_regex, is_case_sensitive, scopes });
         }
     }
     //load global filters

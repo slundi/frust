@@ -119,6 +119,10 @@ pub(crate)struct Article {
     // pub(crate) content: String, //?in this struct?
 }
 
+pub(crate) const SCOPE_TITLE: u8 = 1;
+pub(crate) const SCOPE_SUMMARY: u8 = 2;
+pub(crate) const SCOPE_BODY: u8 = 4;
+
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct Filter {
     /// Filter name
@@ -131,6 +135,8 @@ pub(crate) struct Filter {
     pub(crate) is_regex: bool,
     /// If the search is case sensitive, default false
     pub(crate) is_case_sensitive: bool,
+    /// Scope of the search: combine with `SCOPE_TITLE`, `SCOPE_SUMMARY` and `SCOPE_BODY` constants
+    pub(crate) scopes: u8,
 }
 
 /// Pseudo-database that containt feed metadata and article metadata. It is an HashMap where the key is the xxHash of the slug.
@@ -188,7 +194,6 @@ pub(crate) struct ArticleRecord {
 
 #[cfg(test)]
 mod tests {
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
     #[test]

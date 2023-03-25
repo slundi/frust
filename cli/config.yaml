@@ -43,7 +43,7 @@ filters:  # OPTIONAL global filters
     expressions: ["guitar", "E standard"]  # match words/sentences of this list or regex if is_regex is `true`
     is_regex: false  # OPTIONAL default `false`. Tells if provided expressions are regex
     is_case_sensitive: false  # OPTIONAL default `false`. Tells if we must match the case.
-    scopes: ["title"]  # OPTIONAL search scope, default `["title"]`. Where the filter can be applied. Available elements are `title`, `brief`?, (article) `content`
+    scopes: ["title"]  # OPTIONAL search scope, default `["title"]`. Where the filter can be applied. Available elements are `title`, `summary`, (article) `content`
   - name: "favorite-bands"
     expressions: ["Ghost", "Iron Maiden", "Judas Priest" ]
     scopes: ["brief"]
