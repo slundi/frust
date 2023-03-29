@@ -1,5 +1,6 @@
+use regex::RegexSet;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 const DEFAULT_OUTPUT: &str = "/var/www/rss";
 pub(crate) const DEFAULT_HISTORY_FILE: &str = "frust.dat";
@@ -9,7 +10,7 @@ const DEFAULT_KEEP_TIME: i64 = 30;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 const DEFAULT_SORTING: &str = "-date";
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct AppConfig {
     /// Number of maximum simultaneous tasks the app will be running
     pub(crate) workers: usize,
@@ -108,7 +109,7 @@ pub(crate) struct Feed {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub(crate)struct Article {
+pub(crate) struct Article {
     /// 32 bits xxHash used to identify articles
     pub(crate) hash: u32,
     /// Date and time information, use chrono: https://stackoverflow.com/questions/72884445/chrono-datetime-from-u64-unix-timestamp-in-rust
@@ -123,31 +124,33 @@ pub(crate) const SCOPE_TITLE: u8 = 1;
 pub(crate) const SCOPE_SUMMARY: u8 = 2;
 pub(crate) const SCOPE_BODY: u8 = 4;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct Filter {
     /// Filter name
     pub(crate) name: String,
     /// Text or regex.
-    /// 
+    ///
     /// If `expressions=["Elon Musk", "Tesla"]`, it will search the exact `Elon Musk` then `Tesla`. It will not be `Elon`, `Musk` and `Tesla`.
-    pub(crate) expressions: Vec<String>,
-    /// If provided expressions are regular expresssions or not
-    pub(crate) is_regex: bool,
+    pub(crate) sentences: Vec<String>,
+    /// list of regex to match
+    pub(crate) regexes: RegexSet,
     /// If the search is case sensitive, default false
     pub(crate) is_case_sensitive: bool,
+    /// if all sentences and regexes must match, default `false
+    pub(crate) must_match_all: bool,
     /// Scope of the search: combine with `SCOPE_TITLE`, `SCOPE_SUMMARY` and `SCOPE_BODY` constants
     pub(crate) scopes: u8,
 }
 
 /// Pseudo-database that containt feed metadata and article metadata. It is an HashMap where the key is the xxHash of the slug.
-/// 
+///
 /// What should I use for storage?
 /// * [nom](https://crates.io/crates/nom)?
 /// * [pest](https://crates.io/crates/pest)?
 /// * [bincode](https://crates.io/crates/bincode)? -> may be my choice, need to test
 /// * [zerocopy](https://crates.io/crates/zerocopy)?
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub(crate) struct Storage (pub(crate) HashMap<u64, FeedRecord>);
+pub(crate) struct Storage(pub(crate) HashMap<u64, FeedRecord>);
 
 /// Store feed information to be lightweight in memory (because everything is loaded during process) and small on the drive.
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -166,9 +169,9 @@ pub(crate) struct FeedRecord {
 
 impl FeedRecord {
     /// Check if the delay is elapsed with the given date, returns a boolean.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `date`: date to compare
     /// * `delay`: delay in seconds
     pub fn is_delay_elapsed(&self, date: i64, delay: i64) -> bool {
@@ -176,10 +179,12 @@ impl FeedRecord {
     }
 }
 
+pub(crate) const FLAG_ARTICLE_IGNORED: u8 = 0x01;
+
 /// Store article information for each feed.
-/// 
+///
 /// Article title and plushed date are not stored because the feed will be loaded in memory and be sorted before writing it to disk.
-/// 
+///
 /// Article content is not stored here because it would duplicate it with generated feeds so we should just append content in the feed file.
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub(crate) struct ArticleRecord {
@@ -199,9 +204,23 @@ mod tests {
     #[test]
     fn feed_record_elapsed_time() {
         let now = chrono::Utc::now().timestamp();
-        let f = FeedRecord { date: now, hash: 0, slug: String::with_capacity(0), articles: HashMap::with_capacity(0) };
-        assert!(f.is_delay_elapsed(now, 0), "It is not exactly the same date");
-        assert!(f.is_delay_elapsed(now + 10500, 10), "Date 10.5s after the feed date with a delay of 10s");
-        assert!(!f.is_delay_elapsed(now + 10500, 20), "Date 10.5s after the feed date with a delay of 20s");
+        let f = FeedRecord {
+            date: now,
+            hash: 0,
+            slug: String::with_capacity(0),
+            articles: HashMap::with_capacity(0),
+        };
+        assert!(
+            f.is_delay_elapsed(now, 0),
+            "It is not exactly the same date"
+        );
+        assert!(
+            f.is_delay_elapsed(now + 10500, 10),
+            "Date 10.5s after the feed date with a delay of 10s"
+        );
+        assert!(
+            !f.is_delay_elapsed(now + 10500, 20),
+            "Date 10.5s after the feed date with a delay of 20s"
+        );
     }
 }

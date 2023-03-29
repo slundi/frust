@@ -40,9 +40,11 @@ feeds:
 # Filter definition
 filters:  # OPTIONAL global filters
   - name: "guitar-standard"
-    expressions: ["guitar", "E standard"]  # match words/sentences of this list or regex if is_regex is `true`
-    is_regex: false  # OPTIONAL default `false`. Tells if provided expressions are regex
+    # sentences or regexes should be defined
+    sentences: ["guitar", "E standard"]  # match words/sentences of this list
+    regexes: []  # regex to match
     is_case_sensitive: false  # OPTIONAL default `false`. Tells if we must match the case.
+    must_match_all: false  # OPTIONAL default `false`: if all defined sentences and regexes should match, default a result is valid when one of the regexes/sentences match
     scopes: ["title"]  # OPTIONAL search scope, default `["title"]`. Where the filter can be applied. Available elements are `title`, `summary`, (article) `content`
   - name: "favorite-bands"
     expressions: ["Ghost", "Iron Maiden", "Judas Priest" ]
