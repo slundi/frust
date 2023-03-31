@@ -7,7 +7,7 @@ use reqwest::Client;
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::{
-    model::{ArticleRecord, SCOPE_BODY, SCOPE_SUMMARY, SCOPE_TITLE},
+    model::{ArticleRecord, SCOPE_BODY, SCOPE_SUMMARY, SCOPE_TITLE, FLAG_ARTICLE_IGNORED, AppConfig},
     CONFIG, DB,
 };
 
@@ -78,15 +78,44 @@ fn text_is_found(
     regex_found && sentence_found
 }
 
+/// Apply filters to article. It returns `true` when a filter has matched or if the filter list is empty.
+fn apply_filters_to_entry(entry: &feed_rs::model::Entry, filters: &Vec<u64>, config: &AppConfig) -> bool{
+    for filter_id in filters {
+        let filter = config.filters.get(filter_id).unwrap();
+        if (filter.scopes & SCOPE_TITLE) == SCOPE_TITLE {
+            if let Some(value) = &entry.title {
+                if text_is_found(value.content.clone(), *filter_id, &config) {
+                    return true;
+                }
+            }
+        }
+        if (filter.scopes & SCOPE_SUMMARY) == SCOPE_SUMMARY {
+            if let Some(value) = &entry.summary {
+                if text_is_found(value.content.clone(), *filter_id, &config) {
+                    return true;
+                }
+            }
+        }
+        if (filter.scopes & SCOPE_BODY) == SCOPE_BODY {
+            if let Some(value) = &entry.content {
+                if text_is_found(value.body.clone().unwrap_or(String::with_capacity(0)), *filter_id, &config) {
+                    return true;
+                }
+            }
+        }
+    }
+    filters.is_empty()
+}
+
 async fn add_new_articles(feed_id: u64, feed: feed_rs::model::Feed) {
     // TODO: process retrieved data:
     // - If applicable, retrieve articles (multiple per source) and its assets if applicable
-    let mut db = DB.write().await;
+    let db = DB.read().await;
     let config = CONFIG.read().await;
     for f in feed.entries {
         // Check if articles are in the data file or not
         let hash = xxh3_64(f.id.as_bytes());
-        let mut fr = db.0.get(&feed_id).unwrap();
+        let fr = db.0.get(&feed_id).unwrap();
         if fr.articles.contains_key(&hash) {
             continue;
         }
@@ -100,37 +129,18 @@ async fn add_new_articles(feed_id: u64, feed: feed_rs::model::Feed) {
         }
         // TODO: Apply filters (do not match content if xpath is specified)
         // TODO: handle blanks (\n, \r, ...)
-        let mut flags = crate::model::FLAG_ARTICLE_IGNORED;
-        for filter_id in &config.includes {
-            let filter = config.filters.get(filter_id).unwrap();
-            if (filter.scopes & SCOPE_TITLE) == SCOPE_TITLE {
-                if let Some(value) = &f.title {
-                    if text_is_found(value.content.clone(), *filter_id, &config) {
-                        flags = 0;
-                        break;
-                    }
-                }
-            }
-            if (filter.scopes & SCOPE_SUMMARY) == SCOPE_SUMMARY {
-                if let Some(value) = &f.summary {
-                    if text_is_found(value.content.clone(), *filter_id, &config) {
-                        flags = 0;
-                        break;
-                    }
-                }
-            }
-            if (filter.scopes & SCOPE_BODY) == SCOPE_BODY {
-                if let Some(value) = &f.content {
-                    if text_is_found(value.body.clone().unwrap_or(String::with_capacity(0)), *filter_id, &config) {
-                        flags = 0;
-                        break;
-                    }
-                }
-            }
+        // apply filters
+        let mut flags = 0u8;
+        if apply_filters_to_entry(&f, &config.excludes, &config) {
+            flags = FLAG_ARTICLE_IGNORED;
+        }
+        if flags != FLAG_ARTICLE_IGNORED && !config.includes.is_empty() && apply_filters_to_entry(&f, &config.includes, &config) {
+            flags = 0;
         }
         // TODO: Generate feed file
         // TODO: insert into "DB"
-        fr.articles.insert(
+        let mut db_w = DB.write().await;
+        db_w.0.get(&feed_id).unwrap().articles.insert(
             hash,
             ArticleRecord {
                 date,
@@ -156,7 +166,7 @@ pub(crate) async fn start() {
                             //read feed data
                             // if same hash from last update, do not process
                             let mut updated = true;
-                            for fr in (DB.read().await).0.values() {
+                            for fr in &(DB.read().await).0 {
                                 if fr.hash == result.0 {
                                     print!("No new article in: {}", &feed.1.url);
                                     updated = true;

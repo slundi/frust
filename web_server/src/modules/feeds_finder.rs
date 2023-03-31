@@ -59,6 +59,7 @@ pub struct FeedEntry {
     title: Option<String>,
 }
 
+#[derive(Debug, PartialEq)]
 struct FeedFinder {
     url: Url,
     raw: String,

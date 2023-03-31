@@ -53,7 +53,7 @@ pub async fn create_feed(
         match feed_result {
             Ok(result) => {
                 feed_id = result;
-                tx.execute(
+                let _ = tx.execute(
                     SQL_SUBSCRIBE,
                     named_params! {
                         "account": decode_id(account_hid),
@@ -220,7 +220,7 @@ pub async fn export(conn: &Connection, account: Account) -> Result<String, Error
     );
     out.push_str(&account.username);
     out.push_str("subscriptions in Frust</title>\n</head>\n<body>\n");
-    return match result {
+    match result {
         Ok(mut rows) => {
             let mut current_folder = String::with_capacity(64);
             let mut first = true;
@@ -261,7 +261,7 @@ pub async fn export(conn: &Connection, account: Account) -> Result<String, Error
             log::error!("{}: {}", crate::messages::ERROR_LIST_FEEDS, e);
             Err(error::ErrorInternalServerError("CANNOT_LIST_FEEDS"))
         }
-    };
+    }
 }
 
 pub fn import(

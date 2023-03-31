@@ -32,7 +32,7 @@ feeds:
     min_refresh_time:  600  # OPTIONAL refresh time if you want to override the default one for this feed
     article_keep_time: 30  # OPTIONAL if you want to override the default article keep time
     retrieve_server_media: true  # OPTIONAL overide default value
-    excludes: ["unwanted-instruments"]  # OPTIONAL see bellow
+    excludes: ["unwanted-instruments"]  # OPTIONAL see bellow. It takes over include filters
     includes: ["favorite-bands"]  # OPTIONAL see bellow
     produces: ["HTML", "PDF"]  # OPTIONAL if we want article to be in various format instead of only be in the RSS feed file
     group: "my-group"  # OPTIONAL put the feed in a group based on the group slug value. If you want a single feed, use the same group for all
