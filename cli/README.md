@@ -47,7 +47,7 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 ## Dev tasks
 
 1) [x] Parse CLI (should be fast with just one argument)
-2) [x] Check file exists (provided config file and data file)
+2) [x] Check if provided config file exists
 3) [x] Parse config file
    1) [x] Check for missing mandatory fields
    2) [x] Create in-memory configuration with default values
@@ -58,16 +58,13 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
    7) [x] Match filters into the group if applicable
    8) [x] Match filters into the feed if applicable
 5) [x] Create output file structure (`<output>/<feed slug (host like: korben.info)>/<article generated slug>`, ⚠️ filename length). Need folder if we retrieve media, otherwise a single feed file will be enough (with combined old articles with new ones)
-6) [x] Load data file
-7) [x] Retrive feeds (multiple in the same time [StackOverflow how to](https://stackoverflow.com/questions/51044467/how-can-i-perform-parallel-asynchronous-http-get-requests-with-reqwest))
-8) [ ] Check if articles are in the data file or not
-9) [ ] Apply filters (do not match content if xpath is specified)
-10) [ ] If applicable, retrieve articles (multiple per source) and its assets if applicable
-11) [ ] Exclude already saved articles
-12) [ ] Clean old articles (more than `article_keep_time` value)
-13) [ ] Match remaining retrieved articles with filters
-14) [ ] Generate feed files (feed, group)
-15) [ ] Write data file
+6) [x] Retrive feeds (multiple in the same time [StackOverflow how to](https://stackoverflow.com/questions/51044467/how-can-i-perform-parallel-asynchronous-http-get-requests-with-reqwest))
+7) [ ] Apply filters (do not match content if xpath is specified)
+8)  [ ] If applicable, retrieve articles (multiple per source) and its assets if applicable
+9)  [ ] Exclude already saved articles
+10) [ ] Clean old articles (more than `article_keep_time` value)
+11) [ ] Match remaining retrieved articles with filters
+12) [ ] Generate feed files (feed, group)
 
 ## Ideas / roadmap
 
@@ -97,3 +94,4 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 - Run as deamon (`-d`): use the crontab, see doc.
 - Generate user in DB? prompt password? Exit without processing? (`-u USERNAME`?): Not needed, we do not use the Frust DB 
 - Generate sample config? `-g path/to/FILENAME`: Not needed, we do not use the Frust DB
+- Using a DB to store ignored articles, last update and hash

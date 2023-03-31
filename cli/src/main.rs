@@ -3,14 +3,11 @@ extern crate lazy_static;
 extern crate slug;
 extern crate yaml_rust;
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::{env, process::ExitCode};
 
-use model::{AppConfig, Storage};
+use model::AppConfig;
 use tokio::sync::RwLock;
-
-use crate::model::DEFAULT_HISTORY_FILE;
 
 pub(crate) mod config;
 pub(crate) mod model;
@@ -18,7 +15,6 @@ pub(crate) mod processing;
 
 lazy_static! {
     static ref CONFIG: RwLock<AppConfig> = RwLock::new(AppConfig::default());
-    static ref DB: RwLock<Storage> = RwLock::new(Storage(HashMap::new()));
 }
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
@@ -35,21 +31,6 @@ async fn create_output_structure() {
         folder.push_str(&f.1.slug);
         std::fs::create_dir_all(folder)
             .unwrap_or_else(|e| panic!("Unable to create feed directory: {} {}", f.1.slug, e));
-    }
-}
-
-/// Load feed history if the file exists. It contains an u64 key and information about last update datetime and last retrieved feed hash.
-async fn load_database() {
-    let mut db = DB.write().await;
-    let config = CONFIG.read().await;
-    let mut database_file =
-        String::with_capacity(config.output.len() + DEFAULT_HISTORY_FILE.len() + 1);
-    database_file.push_str(&config.output);
-    database_file.push('/');
-    database_file.push_str(DEFAULT_HISTORY_FILE);
-    if Path::new(&database_file).exists() {
-        let data = std::fs::read(&database_file).expect("Cannot open database file");
-        db.0 = bincode::deserialize(&data).expect("Unable to read database");
     }
 }
 
@@ -86,7 +67,6 @@ async fn main() -> ExitCode {
     config::load_config_file(config_file).await;
     std::fs::create_dir_all((CONFIG.read().await).output.clone())
         .unwrap_or_else(|e| panic!("Unable to create output directory: {}", e));
-    load_database().await;
     create_output_structure().await;
     crate::processing::start().await;
     ExitCode::SUCCESS

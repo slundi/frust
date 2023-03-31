@@ -1,11 +1,9 @@
 use regex::RegexSet;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 const DEFAULT_OUTPUT: &str = "/var/www/rss";
-pub(crate) const DEFAULT_HISTORY_FILE: &str = "frust.dat";
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;
-const DEFAULT_MIN_REFRESH_INTERVAL: i64 = 600;
+const DEFAULT_MIN_REFRESH_INTERVAL: u64 = 600;
 const DEFAULT_KEEP_TIME: i64 = 30;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 const DEFAULT_SORTING: &str = "-date";
@@ -54,8 +52,8 @@ impl Default for AppConfig {
 pub(crate) struct Config {
     /// Timeout in seconds when performing HTTP queries, default 10 seconds
     pub(crate) timeout: u8,
-    /// Minimal refresh time in seconds for feeds and new articles, default 600 seconds (10 minutes). `i64` to be easier to use with chrono.
-    pub(crate) min_refresh_time: i64,
+    /// Minimal refresh time in seconds for feeds and new articles, default 600 seconds (10 minutes).
+    pub(crate) min_refresh_time: u64,
     /// Keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets).  `i64` to be easier to use with chrono.
     pub(crate) article_keep_time: i64,
     /// Download images `<output>/[<folder>/]<feed>/assets`. Default is `false`.
@@ -106,18 +104,8 @@ pub(crate) struct Feed {
     ///Include filters
     pub(crate) includes: Vec<u64>,
     pub(crate) config: Config,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub(crate) struct Article {
-    /// 32 bits xxHash used to identify articles
-    pub(crate) hash: u32,
-    /// Date and time information, use chrono: https://stackoverflow.com/questions/72884445/chrono-datetime-from-u64-unix-timestamp-in-rust
-    pub(crate) date: i64,
-    pub(crate) flags: u8,
-    pub(crate) slug: String,
-    pub(crate) title: String,
-    // pub(crate) content: String, //?in this struct?
+    /// Output file without extension
+    pub(crate) output_file: String,
 }
 
 pub(crate) const SCOPE_TITLE: u8 = 1;
@@ -140,87 +128,4 @@ pub(crate) struct Filter {
     pub(crate) must_match_all: bool,
     /// Scope of the search: combine with `SCOPE_TITLE`, `SCOPE_SUMMARY` and `SCOPE_BODY` constants
     pub(crate) scopes: u8,
-}
-
-/// Pseudo-database that containt feed metadata and article metadata. It is an HashMap where the key is the xxHash of the slug.
-///
-/// What should I use for storage?
-/// * [nom](https://crates.io/crates/nom)?
-/// * [pest](https://crates.io/crates/pest)?
-/// * [bincode](https://crates.io/crates/bincode)? -> may be my choice, need to test
-/// * [zerocopy](https://crates.io/crates/zerocopy)?
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub(crate) struct Storage(pub(crate) HashMap<u64, FeedRecord>);
-
-/// Store feed information to be lightweight in memory (because everything is loaded during process) and small on the drive.
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub(crate) struct FeedRecord {
-    /// Encoded date and time of the last update by Frust (not the feed last modification date!)
-    pub(crate) date: i64,
-    /// xxHash of the last downloaded content
-    pub(crate) hash: u64,
-    pub(crate) slug: String,
-    /// Article meta information. The map key is :
-    /// * the xxHash of the RSS article link (because required for RSS) or RSS GUID link if applicable
-    /// * the xxHash of the ATOM item ID field
-    /// * the xxHash of the JSON item ID field
-    pub(crate) articles: HashMap<u64, ArticleRecord>,
-}
-
-impl FeedRecord {
-    /// Check if the delay is elapsed with the given date, returns a boolean.
-    ///
-    /// # Arguments
-    ///
-    /// * `date`: date to compare
-    /// * `delay`: delay in seconds
-    pub fn is_delay_elapsed(&self, date: i64, delay: i64) -> bool {
-        date - self.date >= delay * 1000
-    }
-}
-
-pub(crate) const FLAG_ARTICLE_IGNORED: u8 = 0x01;
-
-/// Store article information for each feed.
-///
-/// Article title and plushed date are not stored because the feed will be loaded in memory and be sorted before writing it to disk.
-///
-/// Article content is not stored here because it would duplicate it with generated feeds so we should just append content in the feed file.
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub(crate) struct ArticleRecord {
-    /// Article last modification date, in order to retrieve content if the article has been updated
-    pub(crate) date: i64,
-    /// Article flags (for now, just one):
-    /// * 0x01: ignored (by filters)
-    pub(crate) flags: u8,
-    /// Article slug to find the output files if applicable?
-    pub(crate) slug: String,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn feed_record_elapsed_time() {
-        let now = chrono::Utc::now().timestamp();
-        let f = FeedRecord {
-            date: now,
-            hash: 0,
-            slug: String::with_capacity(0),
-            articles: HashMap::with_capacity(0),
-        };
-        assert!(
-            f.is_delay_elapsed(now, 0),
-            "It is not exactly the same date"
-        );
-        assert!(
-            f.is_delay_elapsed(now + 10500, 10),
-            "Date 10.5s after the feed date with a delay of 10s"
-        );
-        assert!(
-            !f.is_delay_elapsed(now + 10500, 20),
-            "Date 10.5s after the feed date with a delay of 20s"
-        );
-    }
 }

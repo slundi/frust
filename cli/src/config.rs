@@ -50,7 +50,7 @@ fn load_config(config: &mut Config, map: &LinkedHashMap<Yaml, Yaml>) {
         config.article_keep_time = value.as_i64().unwrap();
     }
     if let Some(value) = map.get(&Yaml::String("min_refresh_time".to_string())) {
-        config.min_refresh_time = value.as_i64().unwrap();
+        config.min_refresh_time = u64::try_from(value.as_i64().unwrap()).unwrap();
     }
     if let Some(value) = map.get(&Yaml::String("timeout".to_string())) {
         config.timeout =
@@ -338,6 +338,7 @@ fn load_feeds(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                 excludes: Vec::with_capacity(0),
                 includes: Vec::with_capacity(0),
                 config: c,
+                output_file: String::with_capacity(256),
             };
             // get excludes filters if applicable
             if let Some(excludes) = m.get(&Yaml::String("excludes".to_string())) {
