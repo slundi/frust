@@ -138,27 +138,30 @@ async fn add_new_articles(
     // TODO: process retrieved data:
     // - If applicable, retrieve articles (multiple per source) and its assets if applicable
     let config = CONFIG.read().await;
-    for entry in feed.entries.iter() {
+    let ff = if let Some(ff) = file_feed {ff.entries} else {Vec::with_capacity(0)};
+    let mut rf = retrieved_feed.clone();
+    rf.entries.retain(|entry| {
         let mut should_add = false;
-        if apply_filters_to_entry(&f, &config.excludes, &config) {
+        // check if feed is present in the file and keep it if yes (already filtered)
+        for f in ff.iter() {
+            should_add = true;
+        }
+        // Apply filters (do not match content if xpath is specified)
+        // TODO: handle blanks (\n, \r, ...)
+        if apply_filters_to_entry(entry, &config.excludes, &config) {
             should_add = false;
-            feed.entries.retain(|&x| x != entry);
-            continue;
         }
         if !should_add
             && !config.includes.is_empty()
-            && apply_filters_to_entry(&f, &config.includes, &config)
+            && apply_filters_to_entry(entry, &config.includes, &config)
         {
             should_add = true;
         }
-    }
-    for f in feed.entries {
-        // TODO: Apply filters (do not match content if xpath is specified)
-        // TODO: handle blanks (\n, \r, ...)
-        // apply filters
-
-        // TODO: Generate feed file
-    }
+        // TODO: xpath
+        should_add
+    });
+    // apply filters
+    // TODO: Generate feed file
 }
 
 pub(crate) async fn start() {
