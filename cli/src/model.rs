@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 const DEFAULT_OUTPUT: &str = "/var/www/rss";
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;
-const DEFAULT_MIN_REFRESH_INTERVAL: u64 = 600;
+const DEFAULT_MIN_REFRESH_INTERVAL: i64 = 600;
 const DEFAULT_KEEP_TIME: i64 = 30;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 const DEFAULT_SORTING: &str = "-date";
@@ -53,7 +53,7 @@ pub(crate) struct Config {
     /// Timeout in seconds when performing HTTP queries, default 10 seconds
     pub(crate) timeout: u8,
     /// Minimal refresh time in seconds for feeds and new articles, default 600 seconds (10 minutes).
-    pub(crate) min_refresh_time: u64,
+    pub(crate) min_refresh_time: i64,
     /// Keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets).  `i64` to be easier to use with chrono.
     pub(crate) article_keep_time: i64,
     /// Download images `<output>/[<folder>/]<feed>/assets`. Default is `false`.
@@ -112,10 +112,9 @@ pub(crate) const SCOPE_TITLE: u8 = 1;
 pub(crate) const SCOPE_SUMMARY: u8 = 2;
 pub(crate) const SCOPE_BODY: u8 = 4;
 
+/// Filter structure. The name is not kept because it is only used during filter loading in order to help the user to find errors quickly.
 #[derive(Debug, Clone)]
 pub(crate) struct Filter {
-    /// Filter name
-    pub(crate) name: String,
     /// Text or regex.
     ///
     /// If `expressions=["Elon Musk", "Tesla"]`, it will search the exact `Elon Musk` then `Tesla`. It will not be `Elon`, `Musk` and `Tesla`.

@@ -1,5 +1,6 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::collections::HashMap;
 
+use chrono::prelude::*;
 use feed_rs::parser;
 use futures::{stream, StreamExt};
 use reqwest::Client;
@@ -9,15 +10,18 @@ use crate::{
     CONFIG,
 };
 
-fn is_time_elapsed(current_time: SystemTime, time: SystemTime, delay: u64) -> bool {
-    time.duration_since(current_time).unwrap().as_secs() >= delay
+fn is_time_elapsed(
+    current_time: DateTime<Utc>,
+    time: DateTime<Utc>,
+    delay: i64,
+) -> bool {
+    time.signed_duration_since(current_time).num_seconds() >= delay
 }
 
 /// Get upgradable feeds: when the delay between the last updated time and now is elapsed
 async fn get_upgradable_feeds() -> HashMap<u64, crate::model::Feed> {
     let config = CONFIG.read().await;
     // TODO: get date on the feed file
-    let now = SystemTime::now();
     // filter feeds that does not need to be updated with the min_refresh_time
     let mut result: HashMap<u64, crate::model::Feed> = HashMap::with_capacity(config.feeds.len());
     for f in &config.feeds {
@@ -33,7 +37,9 @@ async fn get_upgradable_feeds() -> HashMap<u64, crate::model::Feed> {
                 .expect("Cannot get feed metadata")
                 .modified()
             {
-                if !is_time_elapsed(now, date, f.1.config.min_refresh_time) {
+                let local: DateTime<Local> = date.into();
+                let dt = Utc.from_local_datetime(&local.naive_local()).single().unwrap();
+                if !is_time_elapsed(*crate::NOW, dt, f.1.config.min_refresh_time) {
                     continue;
                 }
             }
@@ -138,13 +144,28 @@ async fn add_new_articles(
     // TODO: process retrieved data:
     // - If applicable, retrieve articles (multiple per source) and its assets if applicable
     let config = CONFIG.read().await;
-    let ff = if let Some(ff) = file_feed {ff.entries} else {Vec::with_capacity(0)};
+    let ff = if let Some(ff) = file_feed {
+        ff.entries
+    } else {
+        Vec::with_capacity(0)
+    };
     let mut rf = retrieved_feed.clone();
     rf.entries.retain(|entry| {
         let mut should_add = false;
+        // check if entry should be kept (storage time)
+        if let Some(date) = entry.updated {
+            if is_time_elapsed(
+                *crate::NOW,
+                date,
+                config.feeds.get(&feed_id).unwrap().config.article_keep_time * 86400,
+            ) {}
+        }
         // check if feed is present in the file and keep it if yes (already filtered)
         for f in ff.iter() {
-            should_add = true;
+            if entry.id == f.id {
+                should_add = true;
+                break;
+            }
         }
         // Apply filters (do not match content if xpath is specified)
         // TODO: handle blanks (\n, \r, ...)
@@ -209,25 +230,25 @@ pub(crate) async fn start() {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
 
     #[test]
     fn elapsed_time() {
-        let now = SystemTime::now();
+        let now = chrono::offset::Utc::now();
         assert!(
             is_time_elapsed(now, now, 0),
-            "It is not exactly the same date"
+            "1/3 It is not exactly the same date"
         );
-        let t = now.checked_add(Duration::new(10, 500000000)).unwrap();
+        let t = now
+            .checked_add_signed(chrono::Duration::milliseconds(10500))
+            .unwrap();
         assert!(
             is_time_elapsed(now, t, 10),
-            "Date 10.5s after the feed date with a delay of 10s"
+            "2/3 Date 10.5s after the feed date with a delay of 10s"
         );
         assert!(
             !is_time_elapsed(now, t, 20),
-            "Date 10.5s after the feed date with a delay of 20s"
+            "3/3 Date 10.5s after the feed date with a delay of 20s"
         );
     }
 }

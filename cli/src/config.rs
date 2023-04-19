@@ -50,7 +50,7 @@ fn load_config(config: &mut Config, map: &LinkedHashMap<Yaml, Yaml>) {
         config.article_keep_time = value.as_i64().unwrap();
     }
     if let Some(value) = map.get(&Yaml::String("min_refresh_time".to_string())) {
-        config.min_refresh_time = u64::try_from(value.as_i64().unwrap()).unwrap();
+        config.min_refresh_time = value.as_i64().unwrap();
     }
     if let Some(value) = map.get(&Yaml::String("timeout".to_string())) {
         config.timeout =
@@ -149,25 +149,23 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
             if let Some(v) = m.get(&Yaml::String("is_case_sensitive".to_string())) {
                 is_case_sensitive = v
                     .as_bool()
-                    .expect("Invalid filters.is_case_sensitive boolean");
+                    .unwrap_or_else(|| panic!("Invalid filters.is_case_sensitive boolean for filter {}", name));
             }
             // process filter sentences
             let value = m.get(&Yaml::String("sentences".to_string()));
             if value.is_none() {
-                print!("Field missing in config file: filters[{}].sentences", i);
-                std::process::exit(1);
+                panic!("Field missing in config file: filters[{}].sentences in filter {}", i, name);
             }
             let value = value.unwrap().as_vec();
             if value.is_none() {
-                print!("Invalid data in config file: filters[{}].sentences", i);
-                std::process::exit(1);
+                panic!("Invalid data in config file: filters[{}].sentences in filter {}", i, name);
             }
             let value = value.unwrap();
             let sentences: Vec<String> = value
                 .iter()
                 .map(|exp| {
                     let sentence = exp.as_str()
-                        .expect("Invalid filters.sentences string")
+                        .unwrap_or_else(|| panic!("Invalid filters.sentences string for filter {}", name))
                         .to_string();
                     if is_case_sensitive {sentence} else { sentence.to_lowercase() }
                 })
@@ -179,15 +177,14 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                 Some(v) => {
                     let value = v.as_vec();
                     if value.is_none() {
-                        print!("Invalid data in config file: filters[{}].scopes", i);
-                        std::process::exit(1);
+                        panic!("Invalid data in config file: filters[{}].scopes in filter {}", i, name);
                     }
                     let value = value.unwrap();
                     let data: Vec<String> = value
                         .iter()
                         .map(|exp| {
                             exp.as_str()
-                                .expect("Invalid filters.scopes string")
+                            .unwrap_or_else(|| panic!("Invalid filters.scopes string for filter {}", name))
                                 .to_string()
                         })
                         .collect();
@@ -206,25 +203,23 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
             // process filter is_regex
             let mut must_match_all = false;
             if let Some(v) = m.get(&Yaml::String("must_match_all".to_string())) {
-                must_match_all = v.as_bool().expect("Invalid filters.is_regex boolean");
+                must_match_all = v.as_bool().unwrap_or_else(|| panic!("Invalid filters.is_regex boolean for filter {}", name));
             }
             // process filter regexes
             let value = m.get(&Yaml::String("regexes".to_string()));
             if value.is_none() {
-                print!("Field missing in config file: filters[{}].regexes", i);
-                std::process::exit(1);
+                panic!("Field missing in config file: filters[{}].regexes in filter {}", i, name);
             }
             let value = value.unwrap().as_vec();
             if value.is_none() {
-                print!("Invalid data in config file: filters[{}].regexes", i);
-                std::process::exit(1);
+                panic!("Invalid data in config file: filters[{}].regexes in filter {}", i, name);
             }
             let value = value.unwrap();
             let expressions: Vec<String> = value
                 .iter()
                 .map(|exp| {
                     exp.as_str()
-                        .expect("Invalid filters.regexes string")
+                        .unwrap_or_else(|| panic!("Invalid filters.regexes string for filter {}", name))
                         .to_string()
                 })
                 .collect();
@@ -233,11 +228,10 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                 .ignore_whitespace(true)
                 .unicode(true)
                 .build()
-                .expect("Cannot build one of the regex");
+                .unwrap_or_else(|e| panic!("Cannot build one regex for filter {}: {:?}", name, e));
             config.filters.insert(
                 h,
                 Filter {
-                    name,
                     sentences,
                     regexes: rs,
                     must_match_all,

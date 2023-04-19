@@ -15,6 +15,7 @@ pub(crate) mod processing;
 
 lazy_static! {
     static ref CONFIG: RwLock<AppConfig> = RwLock::new(AppConfig::default());
+    static ref NOW: chrono::DateTime<chrono::Utc> = chrono::offset::Utc::now();
 }
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
