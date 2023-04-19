@@ -136,6 +136,23 @@ fn apply_filters_to_entry(
     filters.is_empty()
 }
 
+/// Merge Feeds in "base" with the given entries. If the ID are the same, the entry is skipped.
+fn merge_feeds_by_id(base: &mut feed_rs::model::Feed, entries: Vec<feed_rs::model::Entry>) {
+    let mut ids: Vec<String> = Vec::with_capacity(base.entries.len());
+    for entry in base.entries.iter() {
+        ids.push(entry.id.clone());
+    }
+    for entry in entries.iter() {
+        if !ids.contains(&entry.id) {
+            base.entries.push(entry.clone());
+        }
+    }
+}
+
+const FLAG_ELAPSED: u8 = 1;
+const FLAG_EXCLUDED: u8 = 2;
+const FLAG_INCLUDED: u8 = 4;
+
 async fn add_new_articles(
     feed_id: u64,
     file_feed: Option<feed_rs::model::Feed>,
@@ -150,36 +167,33 @@ async fn add_new_articles(
         Vec::with_capacity(0)
     };
     let mut rf = retrieved_feed.clone();
+    // check if feed is present in the file and keep it if yes (already filtered)
+    merge_feeds_by_id(&mut rf, ff);
     rf.entries.retain(|entry| {
-        let mut should_add = false;
+        let mut should_add = 0u8;
         // check if entry should be kept (storage time)
         if let Some(date) = entry.updated {
             if is_time_elapsed(
                 *crate::NOW,
                 date,
                 config.feeds.get(&feed_id).unwrap().config.article_keep_time * 86400,
-            ) {}
-        }
-        // check if feed is present in the file and keep it if yes (already filtered)
-        for f in ff.iter() {
-            if entry.id == f.id {
-                should_add = true;
-                break;
+            ) {
+                should_add = FLAG_ELAPSED;
             }
         }
         // Apply filters (do not match content if xpath is specified)
         // TODO: handle blanks (\n, \r, ...)
         if apply_filters_to_entry(entry, &config.excludes, &config) {
-            should_add = false;
+            should_add |= FLAG_EXCLUDED;
         }
-        if !should_add
+        if should_add != (FLAG_ELAPSED|FLAG_EXCLUDED)
             && !config.includes.is_empty()
             && apply_filters_to_entry(entry, &config.includes, &config)
         {
-            should_add = true;
+            should_add |= FLAG_INCLUDED;
         }
         // TODO: xpath
-        should_add
+        should_add & (FLAG_ELAPSED|FLAG_EXCLUDED) == 0
     });
     // apply filters
     // TODO: Generate feed file
