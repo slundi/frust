@@ -95,7 +95,7 @@ pub(crate) struct Feed {
     pub(crate) slug: String,
     pub(crate) url: String,
     pub(crate) page_url: String,
-    pub(crate) xpath: String, // Option<String>?
+    pub(crate) selector: String, // Option<String>?
     // pub(crate) produces: ["HTML", "PDF"]
     /// Identify group by its hash
     pub(crate) group: Option<u64>,

@@ -59,7 +59,7 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
    8) [x] Match filters into the feed if applicable
 5) [x] Create output file structure (`<output>/<feed slug (host like: korben.info)>/<article generated slug>`, ⚠️ filename length). Need folder if we retrieve media, otherwise a single feed file will be enough (with combined old articles with new ones)
 6) [x] Retrive feeds (multiple in the same time [StackOverflow how to](https://stackoverflow.com/questions/51044467/how-can-i-perform-parallel-asynchronous-http-get-requests-with-reqwest))
-7) [ ] Apply filters (do not match content if xpath is specified)
+7) [ ] Apply filters (do not match content if `selector` is specified)
 8)  [ ] If applicable, retrieve articles (multiple per source) and its assets if applicable
 9)  [ ] Exclude already saved articles
 10) [ ] Clean old articles (more than `article_keep_time` value)

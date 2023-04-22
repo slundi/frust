@@ -305,7 +305,10 @@ fn load_feeds(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                 .host_str()
                 .unwrap_or_else(|| panic!("Invalid host in feeds[{}].url", i))
                 .to_string();
-            let xpath = get_string_field_from_map(m, "xpath".to_string(), false, None);
+            let selector = get_string_field_from_map(m, "selector".to_string(), false, None);
+            if !selector.is_empty() {
+                scraper::Selector::parse(&selector).unwrap_or_else(|e| panic!("Invalid selector in feeds[{}].selector: {:?}", i, e));
+            }
             // get the group if applicable and load
             let mut group: Option<u64> = None;
             let g = get_string_field_from_map(m, "group".to_string(), false, None);
@@ -326,7 +329,7 @@ fn load_feeds(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                 title,
                 url,
                 slug,
-                xpath,
+                selector,
                 page_url: String::with_capacity(128),
                 group,
                 excludes: Vec::with_capacity(0),

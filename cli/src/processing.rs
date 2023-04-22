@@ -136,7 +136,7 @@ fn apply_filters_to_entry(
     filters.is_empty()
 }
 
-/// Merge Feeds in "base" with the given entries. If the ID are the same, the entry is skipped.
+/// Merge Feeds in `base` with the given `entries`. If the ID are the same, the entry is skipped.
 fn merge_feeds_by_id(base: &mut feed_rs::model::Feed, entries: Vec<feed_rs::model::Entry>) {
     let mut ids: Vec<String> = Vec::with_capacity(base.entries.len());
     for entry in base.entries.iter() {
@@ -147,6 +147,23 @@ fn merge_feeds_by_id(base: &mut feed_rs::model::Feed, entries: Vec<feed_rs::mode
             base.entries.push(entry.clone());
         }
     }
+}
+
+async fn get_link_data(client: &Client, url: &str, selector: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Your async code here
+    match client.get(url).send().await {
+        Ok(response) => {
+            match response.text().await {
+                Ok(data) => {
+                    let document = scraper::Html::parse_document(&data);
+                    let selector = scraper::Selector::parse(selector).unwrap();
+                },
+                Err(e) => println!("Cannot get response text for selector: {} \t {:?}", url, e),
+            }
+        },
+        Err(e) => println!("Cannot open link for selector: {} \t {:?}", url, e),
+    };
+    Ok(())
 }
 
 const FLAG_ELAPSED: u8 = 1;
@@ -161,14 +178,12 @@ async fn add_new_articles(
     // TODO: process retrieved data:
     // - If applicable, retrieve articles (multiple per source) and its assets if applicable
     let config = CONFIG.read().await;
-    let ff = if let Some(ff) = file_feed {
-        ff.entries
-    } else {
-        Vec::with_capacity(0)
-    };
+    let client = Client::new();
     let mut rf = retrieved_feed.clone();
+    if let Some(ff) = file_feed {
+        merge_feeds_by_id(&mut rf, ff.entries);
+    }
     // check if feed is present in the file and keep it if yes (already filtered)
-    merge_feeds_by_id(&mut rf, ff);
     rf.entries.retain(|entry| {
         let mut should_add = 0u8;
         // check if entry should be kept (storage time)
@@ -181,7 +196,7 @@ async fn add_new_articles(
                 should_add = FLAG_ELAPSED;
             }
         }
-        // Apply filters (do not match content if xpath is specified)
+        // Apply filters (do not match content if CSS selector is specified)
         // TODO: handle blanks (\n, \r, ...)
         if apply_filters_to_entry(entry, &config.excludes, &config) {
             should_add |= FLAG_EXCLUDED;
@@ -192,7 +207,14 @@ async fn add_new_articles(
         {
             should_add |= FLAG_INCLUDED;
         }
-        // TODO: xpath
+        // TODO: selector
+        if !config.feeds.get(&feed_id).unwrap().selector.is_empty() && !entry.links.is_empty() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            match rt.block_on(get_link_data(&client, &entry.links[0].href, &config.feeds.get(&feed_id).unwrap().selector)) {
+                Ok(_) => todo!(),
+                Err(_) => todo!(),
+            };
+        }
         should_add & (FLAG_ELAPSED|FLAG_EXCLUDED) == 0
     });
     // apply filters
