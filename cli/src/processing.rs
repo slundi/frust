@@ -149,21 +149,25 @@ fn merge_feeds_by_id(base: &mut feed_rs::model::Feed, entries: Vec<feed_rs::mode
     }
 }
 
-async fn get_link_data(client: &Client, url: &str, selector: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Your async code here
+async fn get_link_data(client: &Client, url: &str, selector: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // TODO: replace println with a better error handling mechanism
     match client.get(url).send().await {
         Ok(response) => {
             match response.text().await {
                 Ok(data) => {
                     let document = scraper::Html::parse_document(&data);
-                    let selector = scraper::Selector::parse(selector).unwrap();
+                    let css_selector = scraper::Selector::parse(selector).unwrap();
+                    match document.select(&css_selector).next() {
+                        Some(element) => return Ok(element.html()),
+                        _ => println!("No content found for selector: {}", selector),
+                    }
                 },
                 Err(e) => println!("Cannot get response text for selector: {} \t {:?}", url, e),
             }
         },
         Err(e) => println!("Cannot open link for selector: {} \t {:?}", url, e),
     };
-    Ok(())
+    Ok(String::with_capacity(0))
 }
 
 const FLAG_ELAPSED: u8 = 1;
