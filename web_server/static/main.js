@@ -306,12 +306,12 @@ let feed_modal = document.getElementById("mr");
 let feed_hid = document.getElementById("feed_hid");
 let feed_url = document.getElementById("feed_url");
 let feed_name = document.getElementById("feed_name");
-let feed_xpath = document.getElementById("feed_xpath");
+let feed_selector = document.getElementById("feed_selector");
 let feed_folder = document.getElementById("feed_folder"); // folder hash ID
 let feed_inject = document.getElementById("feed_inject");
 let feed_msg_url = document.getElementById("mr-url");
 let feed_msg_folder = document.getElementById("mr-folder");
-let feed_msg_xpath = document.getElementById("mr-xpath");
+let feed_msg_selector = document.getElementById("mr-selector");
 let feed_msg_exists = document.getElementById("mr-exists");
 let feed_msg_checking = document.getElementById("mr-links");
 let feed_title_add = document.getElementById("mrta");
@@ -344,7 +344,7 @@ function modal_feed(hid) {
 function save_feed() {
   feed_msg_url.classList.add("is-hidden");
   feed_msg_folder.classList.add("is-hidden");
-  feed_msg_xpath.classList.add("is-hidden");
+  feed_msg_selector.classList.add("is-hidden");
   feed_msg_exists.classList.add("is-hidden");
   feed_msg_checking.classList.add("is-hidden");
   if (!is_valid_http_url(feed_url.value)) {
@@ -356,7 +356,7 @@ function save_feed() {
     return;
   }
   var data = {"url": feed_url.value, "folder": feed_folder.value,
-    "name": feed_name.value, "xpath": feed_xpath.value, "inject": feed_inject.checked
+    "name": feed_name.value, "selector": feed_selector.value, "inject": feed_inject.checked
   };
   //TODO: POST/PATCH feed, handle error messages or empty fields if OK
   feed_msg_checking.classList.remove("is-hidden");
@@ -385,7 +385,7 @@ function save_feed() {
   feed_modal.classList.remove("is-active");
   feed_hid.value = "";
   feed_url.value = "";
-  feed_xpath.value = "";
+  feed_selector.value = "";
   feed_folder.selectedIndex = -1;
   feed_name = "";
   feed_inject.checked = true;
@@ -396,7 +396,11 @@ function display_feeds() {
 
 function sort_by_name(a, b) {
   let na = a.name.toLowerCase(), nb = b.name.toLowerCase();
-  if(na < nb) return -1;
-  if(na > nb) return 1;
+  if (na < nb) {
+    return -1;
+  }
+  if (na > nb) {
+    return 1;
+  }
   return 0;
 }

@@ -65,7 +65,7 @@ Icon will be save on drive
 | **account_id** | `INTEGER` | Foreign key to account with CASCADE |
 | **feed_id** | `INTEGER` | Foreign key to feed with CASCADE |
 | **folder_id** | `INTEGER` | Optional foreign key to folder with CASCADE |
-| **xpath** | `VARCHAR(256)` | Optional field to retrive feed content using HTML xpath |
+| **selector** | `VARCHAR(256)` | Optional field to retrive feed content using HTML CSS selector |
 | **added** | `DATETIME` | When the feed was added to the account |
 
 ## Article

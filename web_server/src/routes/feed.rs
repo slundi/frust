@@ -41,10 +41,10 @@ pub(crate) async fn post(info: web::Json<FeedData>, pool: web::Data<crate::db::P
         let data: FeedData = info.into_inner();
         let result = crate::db::feed::create_feed(&mut conn, account.hash_id.clone(), &data).await;
         if let Ok(hash_id) = result {
-            let result = crate::db::feed::subscribe(&conn, account.hash_id, hash_id.clone(), data.folder.clone(), data.xpath.clone()).await;
+            let result = crate::db::feed::subscribe(&conn, account.hash_id, hash_id.clone(), data.folder.clone(), data.selector.clone()).await;
             if result.is_ok() {
                 crate::modules::feed::get_links(data.url.clone());
-                //TODO: get feed and articles (if xpath), returns hash ID, found feed URL, found page URL, found page name if applicable, xpath checked if applicable
+                //TODO: get feed and articles (if selector), returns hash ID, found feed URL, found page URL, found page name if applicable, selector checked if applicable
                 return HttpResponse::Created().json(hash_id);
             }
         }
@@ -53,7 +53,7 @@ pub(crate) async fn post(info: web::Json<FeedData>, pool: web::Data<crate::db::P
 }
 
 /// Edit auser subscription:
-/// - update `subscription.name` and `subscription.xpath`
+/// - update `subscription.name` and `subscription.selector`
 /// - update URL using `subscription.feed_id` with:
 ///   - existing feed.id if the URL already exists
 ///   - new feed.id if the URL is not found in the DB -> get feed informations and articles

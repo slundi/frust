@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS subscription (
 	feed_id INTEGER NOT NULL,
 	folder_id INTEGER,
 	name VARCHAR(255) COLLATE NOCASE, -- feed name if the user rename it
-	xpath VARCHAR(255),
+	selector VARCHAR(255),
 	added DATETIME NOT NULL DEFAULT(DATETIME('now')),
 	inject BOOLEAN NOT NULL DEFAULT(TRUE),
 	UNIQUE(account_id, feed_id),

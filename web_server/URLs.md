@@ -35,7 +35,7 @@ List URLs/endpoints.
 
 * GET `/<user UUID>/feeds/` list all user feeds, possible parameters: search text, show only saved
 * POST `/<user UUID>/feeds/` Add a new feed
-* PATCH `/<user UUID>/feeds/` Edit feed URL, Xpath, folder, ...
+* PATCH `/<user UUID>/feeds/` Edit feed URL, selector, folder, ...
 * DELETE `/<user UUID>/feeds/` delete a feed
 * GET `/<user UUID>/feeds/<feed id>/` show only this feed full contents
 * GET `/<user UUID>/feeds/<feed id>/<article id>/export` export to HTML, markdown, PDF

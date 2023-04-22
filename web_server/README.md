@@ -19,7 +19,7 @@ If you want a PostgreSQL and make the project bigger, feel free to suggest a PR.
 * Set filter to remove irrelevant feeds
 * Save feed
 * Folders
-* Xpath option to get article content and not brief
+* Selector option to get article content and not brief
 
 ## Configuration
 

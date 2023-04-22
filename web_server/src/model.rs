@@ -44,7 +44,7 @@ pub struct FeedData {
     pub name: String,
     /// Folder hash ID
     pub folder: String,
-    pub xpath: String,
+    pub selector: String,
     pub inject: bool,
 }
 

@@ -8,11 +8,11 @@ use rusqlite::{named_params, params, Error::QueryReturnedNoRows};
 use std::collections::HashMap;
 
 const SQL_CREATE_FEED: &str ="INSERT INTO feed (feed_link, title) VALUES ($1, $2) ON CONFLICT (feed_link) DO NOTHING RETURNING id, title";
-const SQL_SUBSCRIBE: &str = "INSERT INTO subscription (account_id, feed_id, folder_id, xpath, inject) VALUES(:account, :feed, :folder, :xpath, :inject) ON CONFLICT DO UPDATE SET xpath = :xpath, folder_id = :folder, inject = :inject";
+const SQL_SUBSCRIBE: &str = "INSERT INTO subscription (account_id, feed_id, folder_id, selector, inject) VALUES(:account, :feed, :folder, :selector, :inject) ON CONFLICT DO UPDATE SET selector = :selector, folder_id = :folder, inject = :inject";
 const SQL_EDIT_FEED: &str =
     "UPDATE subscription SET feed_link = $1, name =$2 WHERE feed_id = $3 AND account_id = $4";
 const SQL_GET_FEED: &str = "SELECT s.id AS subscription_id, folder_id, d.name as folder,
-        feed_id, CASE WHEN s.name IS NULL THEN f.title ELSE s.name END as name, xpath, f.page_link, f.feed_link, description, language, added, updated, inject,
+        feed_id, CASE WHEN s.name IS NULL THEN f.title ELSE s.name END as name, selector, f.page_link, f.feed_link, description, language, added, updated, inject,
         sum(saved) AS read, COUNT(*) AS total
     FROM subscription s 
     INNER JOIN feed f    ON s.feed_id    = f.id
@@ -22,7 +22,7 @@ const SQL_GET_FEED: &str = "SELECT s.id AS subscription_id, folder_id, d.name as
     WHERE s.account_id = $1 AND s.feed_id = $2 AND saved = FALSE
     GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13";
 const SQL_GET_FEEDS: &str ="SELECT s.id AS subscription_id, folder_id, d.name as folder,
-        feed_id, CASE WHEN s.name IS NULL THEN f.title ELSE s.name END as name, xpath, f.page_link, f.feed_link, description, language, added, updated, inject,
+        feed_id, CASE WHEN s.name IS NULL THEN f.title ELSE s.name END as name, selector, f.page_link, f.feed_link, description, language, added, updated, inject,
         sum(saved) AS read, COUNT(*) AS total
     FROM subscription s
     INNER JOIN feed f    ON s.feed_id    = f.id
@@ -59,7 +59,7 @@ pub async fn create_feed(
                         "account": decode_id(account_hid),
                         "feed": feed_id,
                         "folder": decode_id(data.folder.clone()),
-                        "xpath": data.xpath,
+                        "selector": data.selector,
                         "inject": data.inject,
                     },
                 )
@@ -84,14 +84,14 @@ pub async fn subscribe(
     account_hid: String,
     feed_hid: String,
     folder_hid: String,
-    xpath: String,
+    selector: String,
 ) -> Result<(), Error> {
     let mut stmt = conn.prepare(SQL_SUBSCRIBE).expect("Wrong subscribe SQL");
     let result = stmt.execute(params![
         decode_id(account_hid),
         decode_id(feed_hid),
         decode_id(folder_hid),
-        &xpath
+        &selector
     ]);
     if let Ok(count) = result {
         if count == 1 {
