@@ -1,5 +1,30 @@
-[workspace.package]
-authors = ["Sébastien LUNDI <slundi@gmail.com>"]
+[package]
+name = "frust"
+authors = ["Sébastien LUNDI <slundi@ikmail.com>"]
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight RSS aggregator"
+readme = "README.md"
 
-[workspace]
-members = ["cli", "web_server"]
+[[bin]]
+name = "frust-cli"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+lazy_static = "1.4"
+yaml-rust = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+linked-hash-map = "0.5"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+slug = "0.1"
+url = "2.3"
+regex = "1"
+futures = "0.3"
+reqwest = "0.11"
+feed-rs = "1.3"
+chrono = "0.4"
+scraper = "0.15"
+
+[dev-dependencies]
