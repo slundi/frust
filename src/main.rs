@@ -1,21 +1,25 @@
 #[macro_use]
-extern crate lazy_static;
 extern crate slug;
 extern crate yaml_rust;
 
+use async_log::span;
 use std::path::Path;
 use std::{env, process::ExitCode};
 
 use model::AppConfig;
-use tokio::sync::RwLock;
+use tokio::sync::{OnceCell, RwLock};
 
 pub(crate) mod config;
 pub(crate) mod model;
 pub(crate) mod processing;
 
-lazy_static! {
-    static ref CONFIG: RwLock<AppConfig> = RwLock::new(AppConfig::default());
-    static ref NOW: chrono::DateTime<chrono::Utc> = chrono::offset::Utc::now();
+static CONFIG: OnceCell<AppConfig> = OnceCell::new();
+
+fn setup_logger() {
+    let logger = femme::pretty::Logger::new();
+    async_log::Logger::wrap(logger, || 12)
+        .start(log::LevelFilter::Info)
+        .unwrap();
 }
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
@@ -36,17 +40,18 @@ async fn create_output_structure() {
 }
 
 fn print_usage() {
-    println!("Usage:    frust-cli path/to/config.yaml");
+    println!("Usage:    frust path/to/config.yaml");
     println!("       If the config.yaml is in the working directory, the argument is not needed.");
 }
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    setup_logger();
     // parse CLI
-    println!("frust-CLI v0.1.0, more at https://github.com/slundi/frust");
+    log::info!("frust-CLI v0.1.0, more at https://github.com/slundi/frust");
     let args: Vec<String> = env::args().collect();
     if args.len() > 2 {
-        println!("Too many arguments.");
+        log::error!("Too many arguments.");
         print_usage();
         return ExitCode::FAILURE;
     }
@@ -56,7 +61,7 @@ async fn main() -> ExitCode {
         config_file = args[1].clone();
     }
     if !Path::new(&config_file).exists() {
-        println!(
+        log::error!(
             "Config file not found: {} in {}",
             config_file,
             env::current_dir().unwrap().display()

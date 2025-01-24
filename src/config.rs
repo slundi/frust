@@ -46,12 +46,6 @@ fn load_config(config: &mut Config, map: &LinkedHashMap<Yaml, Yaml>) {
             .as_bool()
             .expect("Invalid data in config file: retrieve_server_media");
     }
-    if let Some(value) = map.get(&Yaml::String("article_keep_time".to_string())) {
-        config.article_keep_time = value.as_i64().unwrap();
-    }
-    if let Some(value) = map.get(&Yaml::String("min_refresh_time".to_string())) {
-        config.min_refresh_time = value.as_i64().unwrap();
-    }
     if let Some(value) = map.get(&Yaml::String("timeout".to_string())) {
         config.timeout =
             u8::try_from(value.as_i64().unwrap()).expect("Invalid data in config file: timeout");
@@ -65,14 +59,7 @@ fn load_groups(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
             .expect("Invalid field in config file: groups");
         config.groups = HashMap::with_capacity(provided.len());
         for (i, g) in provided.iter().enumerate() {
-            let mut obj = Group {
-                title: String::with_capacity(32),
-                slug: String::with_capacity(8),
-                feeds: Vec::new(),
-                excludes: Vec::new(),
-                includes: Vec::new(),
-                config: config.global_config.clone(),
-            };
+            let mut obj: Group = Group::default();
             let m = g
                 .as_hash()
                 .unwrap_or_else(|| panic!("Invalid item in groups[{}]", i));
@@ -130,6 +117,7 @@ fn load_groups(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
 
 fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
     if let Some(filters) = map.get(&Yaml::String("filters".to_string())) {
+        let mut filter: Filter = Filter::default();
         let values = filters
             .as_vec()
             .expect("Invalid field in config file: filters");
@@ -145,100 +133,108 @@ fn load_filters(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
             );
             let h = xxh3_64(name.as_bytes());
             // process is_case_sensitive
-            let mut is_case_sensitive = false;
             if let Some(v) = m.get(&Yaml::String("is_case_sensitive".to_string())) {
-                is_case_sensitive = v
-                    .as_bool()
-                    .unwrap_or_else(|| panic!("Invalid filters.is_case_sensitive boolean for filter {}", name));
+                filter.is_case_sensitive = v.as_bool().unwrap_or_else(|| {
+                    panic!(
+                        "Invalid filters.is_case_sensitive boolean for filter {}",
+                        name
+                    )
+                });
             }
             // process filter sentences
-            let value = m.get(&Yaml::String("sentences".to_string()));
+            let value = m.get(&Yaml::String("expressions".to_string()));
             if value.is_none() {
-                panic!("Field missing in config file: filters[{}].sentences in filter {}", i, name);
+                panic!(
+                    "Field missing in config file: filters[{}].expressions in filter {}",
+                    i, name
+                );
             }
             let value = value.unwrap().as_vec();
             if value.is_none() {
-                panic!("Invalid data in config file: filters[{}].sentences in filter {}", i, name);
+                panic!(
+                    "Invalid data in config file: filters[{}].expressions in filter {}",
+                    i, name
+                );
             }
             let value = value.unwrap();
-            let sentences: Vec<String> = value
+            filter.expressions = value
                 .iter()
                 .map(|exp| {
-                    let sentence = exp.as_str()
-                        .unwrap_or_else(|| panic!("Invalid filters.sentences string for filter {}", name))
+                    let sentence = exp
+                        .as_str()
+                        .unwrap_or_else(|| {
+                            panic!("Invalid filters.sentences string for filter {}", name)
+                        })
                         .to_string();
-                    if is_case_sensitive {sentence} else { sentence.to_lowercase() }
+                    if is_case_sensitive {
+                        sentence
+                    } else {
+                        sentence.to_lowercase()
+                    }
                 })
                 .collect();
-            // handle scopes
-            let value = m.get(&Yaml::String("scopes".to_string()));
-            let mut scopes = 0u8;
-            match value {
-                Some(v) => {
-                    let value = v.as_vec();
-                    if value.is_none() {
-                        panic!("Invalid data in config file: filters[{}].scopes in filter {}", i, name);
-                    }
-                    let value = value.unwrap();
-                    let data: Vec<String> = value
-                        .iter()
-                        .map(|exp| {
-                            exp.as_str()
-                            .unwrap_or_else(|| panic!("Invalid filters.scopes string for filter {}", name))
-                                .to_string()
-                        })
-                        .collect();
-                    if data.contains(&String::from("title")) {
-                        scopes = SCOPE_TITLE;
-                    }
-                    if data.contains(&String::from("summary")) {
-                        scopes += SCOPE_SUMMARY;
-                    }
-                    if data.contains(&String::from("content")) {
-                        scopes += SCOPE_BODY;
-                    }
-                }
-                None => scopes = SCOPE_TITLE,
+            let value = m.get(&Yaml::Boolean("is_regex".to_string()));
+            if let Some(v) = value {
+                filter.is_regex = v.as_bool().unwrap_or_default();
             }
+            // handle scopes
+            let value = m.get(&Yaml::Boolean("filter_in_title".to_string()));
+            if let Some(v) = value {
+                filter_in_title = v.as_bool().unwrap_or_default();
+            }
+            let value = m.get(&Yaml::Boolean("filter_in_summary".to_string()));
+            if let Some(v) = value {
+                filter_in_title = v.as_bool().unwrap_or_default();
+            }
+            let value = m.get(&Yaml::Boolean("filter_in_content".to_string()));
+            if let Some(v) = value {
+                filter_in_title = v.as_bool().unwrap_or_default();
+            }
+
             // process filter is_regex
             let mut must_match_all = false;
             if let Some(v) = m.get(&Yaml::String("must_match_all".to_string())) {
-                must_match_all = v.as_bool().unwrap_or_else(|| panic!("Invalid filters.is_regex boolean for filter {}", name));
+                must_match_all = v.as_bool().unwrap_or_else(|| {
+                    panic!("Invalid filters.is_regex boolean for filter {}", name)
+                });
             }
             // process filter regexes
             let value = m.get(&Yaml::String("regexes".to_string()));
             if value.is_none() {
-                panic!("Field missing in config file: filters[{}].regexes in filter {}", i, name);
+                panic!(
+                    "Field missing in config file: filters[{}].regexes in filter {}",
+                    i, name
+                );
             }
             let value = value.unwrap().as_vec();
             if value.is_none() {
-                panic!("Invalid data in config file: filters[{}].regexes in filter {}", i, name);
+                panic!(
+                    "Invalid data in config file: filters[{}].regexes in filter {}",
+                    i, name
+                );
             }
             let value = value.unwrap();
             let expressions: Vec<String> = value
                 .iter()
                 .map(|exp| {
                     exp.as_str()
-                        .unwrap_or_else(|| panic!("Invalid filters.regexes string for filter {}", name))
+                        .unwrap_or_else(|| {
+                            panic!("Invalid filters.regexes string for filter {}", name)
+                        })
                         .to_string()
                 })
                 .collect();
-            let rs = RegexSetBuilder::new(expressions)
-                .case_insensitive(!is_case_sensitive)
-                .ignore_whitespace(true)
-                .unicode(true)
-                .build()
-                .unwrap_or_else(|e| panic!("Cannot build one regex for filter {}: {:?}", name, e));
-            config.filters.insert(
-                h,
-                Filter {
-                    sentences,
-                    regexes: rs,
-                    must_match_all,
-                    is_case_sensitive,
-                    scopes,
-                },
-            );
+            if filter.is_regex {
+                filter.regexes = RegexSetBuilder::new(expressions)
+                    .case_insensitive(!is_case_sensitive)
+                    .ignore_whitespace(true)
+                    .unicode(true)
+                    .build()
+                    .unwrap_or_else(|e| {
+                        panic!("Cannot build one regex for filter {}: {:?}", name, e)
+                    });
+                config.filters.insert(h, filter);
+            }
         }
     }
     //load global filters
@@ -307,7 +303,9 @@ fn load_feeds(config: &mut AppConfig, map: &LinkedHashMap<Yaml, Yaml>) {
                 .to_string();
             let selector = get_string_field_from_map(m, "selector".to_string(), false, None);
             if !selector.is_empty() {
-                scraper::Selector::parse(&selector).unwrap_or_else(|e| panic!("Invalid selector in feeds[{}].selector: {:?}", i, e));
+                scraper::Selector::parse(&selector).unwrap_or_else(|e| {
+                    panic!("Invalid selector in feeds[{}].selector: {:?}", i, e)
+                });
             }
             // get the group if applicable and load
             let mut group: Option<u64> = None;

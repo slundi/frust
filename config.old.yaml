@@ -1,0 +1,53 @@
+# Application parameters
+output: "/var/www/rss"  # path where feeds are generated, be sure to have permissions
+database_file: "frust.dat"  # path where article information are saved
+# format: "atom"  # generated feed format (atom or json), rss is deprecated so I don't plan to support it
+
+# Global feed configuration, it ius inheritable (in groups and feeds) configuaration
+timeout: 10  # OPTIONAL timeout in seconds, default 10 seconds
+min_refresh_time:  600  # OPTIONAL refresh time in seconds, default 10 minutes (600 seconds)
+article_keep_time: 30  # OPTIONAL keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets)
+retrieve_server_media: false  # OPTIONAL default false. Download images `<output>/[<folder>/]<feed>/assets`
+sort: "-date"  # OPTIONAL default sorting. Default is "-date". Minus before the filed indicates a descending order. Available fields are: date, feed
+
+
+all:  # OPTIONAL if you want to generate a single feed file with all articles, use this
+    basename: "all"  # OPTINAL default `all`. Generates `<basename>.<extension depending format>` in the output folder
+    sort: "-date"  # OPTIONAL default sorting. Default is "-date". Minus before the filed indicates a descending order. Available fields are: date, feed
+    group_by: null  # OPTIONAL grouping. Default is null for no grouping. But you can group by: date, feed, folder
+    aggregate: false  # OPTIONAL aggregate all feeds into one.
+
+# Group definition
+groups:  # OPTIONAL you can use only feeds
+    - title: "My group name"  # name of the folder. If empty or omitted, no subfolder will be created in the output folder.
+      slug: "my-group"  # name of the file/folder that will be written (avoid spaces and other special chars)
+      sort: "-date"  # OPTIONAL default sorting. See above for details
+
+# Feed definition
+feeds:
+  - title: "Feed title"
+    url: "https://my-favourite-website.org/rss"  # feed URL
+    page_url: "https://my-favourite-website.org/"  # OPTIONAL will be matched when feed is read, useless when the feed is in a group
+    xpath: ""  # OPTIONAL xpath to retrive article content instead of brief in some feeds
+    min_refresh_time:  600  # OPTIONAL refresh time if you want to override the default one for this feed
+    article_keep_time: 30  # OPTIONAL if you want to override the default article keep time
+    retrieve_server_media: true  # OPTIONAL overide default value
+    excludes: ["unwanted-instruments"]  # OPTIONAL see bellow. It takes over include filters
+    includes: ["favorite-bands"]  # OPTIONAL see bellow
+    produces: ["HTML", "PDF"]  # OPTIONAL if we want article to be in various format instead of only be in the RSS feed file
+    group: "my-group"  # OPTIONAL put the feed in a group based on the group slug value. If you want a single feed, use the same group for all
+
+# Filter definition
+filters:  # OPTIONAL global filters
+  - name: "guitar-standard"
+    # sentences or regexes should be defined
+    sentences: ["guitar", "E standard"]  # match words/sentences of this list
+    regexes: []  # regex to match
+    is_case_sensitive: false  # OPTIONAL default `false`. Tells if we must match the case.
+    must_match_all: false  # OPTIONAL default `false`: if all defined sentences and regexes should match, default a result is valid when one of the regexes/sentences match
+    scopes: ["title"]  # OPTIONAL search scope, default `["title"]`. Where the filter can be applied. Available elements are `title`, `summary`, (article) `content`
+  - name: "favorite-bands"
+    expressions: ["Ghost", "Iron Maiden", "Judas Priest" ]
+    scopes: ["brief"]
+  - name: "unwanted-instruments"
+    expressions: ["trumpet", "drum"]

@@ -59,10 +59,10 @@ async fn get_response_feed(
             match parser::parse(content.as_ref()) {
                 // load feed data
                 Ok(feed) => return Some(feed),
-                Err(e) => println!("Unable to parse feed from: {}     {}", url, e),
+                Err(e) => log::error!("Unable to parse feed from: {}     {}", url, e),
             }
         }
-        Err(e) => println!("Unable to read response from feed: {}     {}", url, e),
+        Err(e) => log::error!("Unable to read response from feed: {}     {}", url, e),
     };
     None
 }
@@ -159,13 +159,13 @@ async fn get_link_data(client: &Client, url: &str, selector: &str) -> Result<Str
                     let css_selector = scraper::Selector::parse(selector).unwrap();
                     match document.select(&css_selector).next() {
                         Some(element) => return Ok(element.html()),
-                        _ => println!("No content found for selector: {}", selector),
+                        _ => log::error!("No content found for selector: {}", selector),
                     }
                 },
-                Err(e) => println!("Cannot get response text for selector: {} \t {:?}", url, e),
+                Err(e) => log::error!("Cannot get response text for selector: {} \t {:?}", url, e),
             }
         },
-        Err(e) => println!("Cannot open link for selector: {} \t {:?}", url, e),
+        Err(e) => log::warn!("Cannot open link for selector: {} \t {:?}", url, e),
     };
     Ok(String::with_capacity(0))
 }
@@ -253,7 +253,7 @@ pub(crate) async fn start() {
                             add_new_articles(feed.0, stored, result).await;
                         }
                     }
-                    Err(e) => println!("Unable to get feed from: {}     {}", &feed.1.url, e),
+                    Err(e) => log::error!("Unable to get feed from: {}     {}", &feed.1.url, e),
                 }
             }
         })
@@ -262,7 +262,7 @@ pub(crate) async fn start() {
     //     .for_each(|b| async {
     //         match b {
     //             Ok(b) => println!("Got {} bytes", b.len()),
-    //             Err(e) => eprintln!("Got an error: {}", e),
+    //             Err(e) => log::error!("Got an error: {}", e),
     //         }
     //     })
     //     .await;

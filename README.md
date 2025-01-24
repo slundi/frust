@@ -83,6 +83,7 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
     - [ ] PDF
     - [ ] ePUB?
   - [ ] Share links
+  - [ ] Shiori, pocket links
 - [ ] OPML Import (`-i`?): generate the config file
 - [ ] OPML export (`-e`?)
 - [ ] Language flag

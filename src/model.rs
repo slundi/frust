@@ -1,12 +1,8 @@
 use regex::RegexSet;
 use std::collections::HashMap;
 
-const DEFAULT_OUTPUT: &str = "/var/www/rss";
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;
-const DEFAULT_MIN_REFRESH_INTERVAL: i64 = 600;
-const DEFAULT_KEEP_TIME: i64 = 30;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
-const DEFAULT_SORTING: &str = "-date";
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -52,23 +48,15 @@ impl Default for AppConfig {
 pub(crate) struct Config {
     /// Timeout in seconds when performing HTTP queries, default 10 seconds
     pub(crate) timeout: u8,
-    /// Minimal refresh time in seconds for feeds and new articles, default 600 seconds (10 minutes).
-    pub(crate) min_refresh_time: i64,
-    /// Keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets).  `i64` to be easier to use with chrono.
-    pub(crate) article_keep_time: i64,
     /// Download images `<output>/[<folder>/]<feed>/assets`. Default is `false`.
     pub(crate) retrieve_server_media: bool,
     /// Default article sorting. Minus before the filed indicates a descending order. Available fields are: date, feed
-    pub(crate) sort: String, //# OPTIONAL default sorting. Default is "-date".
 }
 impl Default for Config {
     fn default() -> Self {
         Config {
             timeout: DEFAULT_HTTP_TIMEOUT,
-            min_refresh_time: DEFAULT_MIN_REFRESH_INTERVAL,
-            article_keep_time: DEFAULT_KEEP_TIME,
             retrieve_server_media: DEFAULT_RETRIEVE_SERVER_MEDIA,
-            sort: String::from(DEFAULT_SORTING),
         }
     }
 }
@@ -78,14 +66,27 @@ impl Default for Config {
 pub(crate) struct Group {
     pub(crate) title: String,
     pub(crate) slug: String,
-    // pub(crate) sort: "-date"
     /// List of feed slugs
     pub(crate) feeds: Vec<String>,
-    /// Excludes filters are executed before include filters
-    pub(crate) excludes: Vec<u64>,
-    ///Include filters
-    pub(crate) includes: Vec<u64>,
-    pub(crate) config: Config,
+    /// Applied filter, from the first in the list to the last
+    pub(crate) filters: Vec<u64>,
+    /// Set it if you want to aggregate the feeds in the group
+    pub(crate) output: Option<String>,
+    /// Article retention in days
+    pub(crate) retention: Option<u16>,
+}
+
+impl Default for Group {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            slug: String::new(),
+            feeds: Vec::new(),
+            filters: Vec::new(),
+            output: None,
+            retention: None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -118,13 +119,31 @@ pub(crate) struct Filter {
     /// Text or regex.
     ///
     /// If `expressions=["Elon Musk", "Tesla"]`, it will search the exact `Elon Musk` then `Tesla`. It will not be `Elon`, `Musk` and `Tesla`.
-    pub(crate) sentences: Vec<String>,
-    /// list of regex to match
+    pub(crate) expressions: Vec<String>,
     pub(crate) regexes: RegexSet,
+    /// list of regex to match
+    pub(crate) is_regex: bool,
     /// If the search is case sensitive, default false
     pub(crate) is_case_sensitive: bool,
     /// if all sentences and regexes must match, default `false
     pub(crate) must_match_all: bool,
-    /// Scope of the search: combine with `SCOPE_TITLE`, `SCOPE_SUMMARY` and `SCOPE_BODY` constants
-    pub(crate) scopes: u8,
+    // scopes
+    pub(crate) filter_in_title: bool,
+    pub(crate) filter_in_summary: bool,
+    pub(crate) filter_in_content: bool,
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Self {
+            expressions: Vec::new(),
+            is_regex: false,
+            is_case_sensitive: false,
+            must_match_all: false,
+            filter_in_title: true,
+            filter_in_summary: true,
+            filter_in_content: true,
+            regexes: RegexSet::empty(),
+        }
+    }
 }
