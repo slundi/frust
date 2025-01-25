@@ -1,62 +1,39 @@
-use regex::RegexSet;
 use std::collections::HashMap;
 
-const DEFAULT_HTTP_TIMEOUT: u8 = 10;
-const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
+use regex::RegexSet;
+
+use crate::{DEFAULT_HTTP_TIMEOUT, DEFAULT_RETRIEVE_SERVER_MEDIA};
 
 #[derive(Debug, Clone)]
-pub struct AppConfig {
-    /// Number of maximum simultaneous tasks the app will be running
-    pub(crate) workers: usize,
-    /// Output folder like `/var/www/rss` where feeds are generated and assets are stored. Be sure to have permissions.
+pub(crate) struct App {
     pub(crate) output: String,
-    /// All filters, the key is a xxh3 of the slug
+    pub(crate) timeout: u8,
+    pub(crate) retrieve_media_server: bool,
+    /// min refresh time in second
+    pub(crate) min_refresh_time: i64,
+    // https://stackoverflow.com/questions/22155130/
+    pub(crate) workers: usize,
+    pub(crate) now: chrono::DateTime<chrono::Utc>,
+    /// List of filters, the u64 key is a XXH3 of the slug
     pub(crate) filters: HashMap<u64, Filter>,
     /// All groups, the key is a xxh3 of the slug
     pub(crate) groups: HashMap<u64, Group>,
     /// All feeds, the key is a xxh3 of the slug
     pub(crate) feeds: HashMap<u64, Feed>,
-    /// Excludes filters are executed before include filters
-    pub(crate) excludes: Vec<u64>,
-    ///Include filters
-    pub(crate) includes: Vec<u64>,
-    // pub(crate) format: "atom"  // generated feed format (rss, atom or json)
-    pub(crate) global_config: Config,
 }
 
-impl Default for AppConfig {
+impl Default for App {
     fn default() -> Self {
-        AppConfig {
-            workers: std::thread::available_parallelism().unwrap().get(), // https://stackoverflow.com/questions/22155130/determine-number-of-cores-using-rust
-            output: String::from(DEFAULT_OUTPUT),
-            // will be replaced with a filled One
-            filters: HashMap::with_capacity(0),
-            // will be replaced with a filled One
-            groups: HashMap::with_capacity(0),
-            // will be replaced with a filled One
-            feeds: HashMap::with_capacity(0),
-            // will be replaced with a filled One
-            includes: Vec::with_capacity(0),
-            // will be replaced with a filled One
-            excludes: Vec::with_capacity(0),
-            global_config: Config::default(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub(crate) struct Config {
-    /// Timeout in seconds when performing HTTP queries, default 10 seconds
-    pub(crate) timeout: u8,
-    /// Download images `<output>/[<folder>/]<feed>/assets`. Default is `false`.
-    pub(crate) retrieve_server_media: bool,
-    /// Default article sorting. Minus before the filed indicates a descending order. Available fields are: date, feed
-}
-impl Default for Config {
-    fn default() -> Self {
-        Config {
+        Self {
+            output: std::env::current_dir().unwrap().display().to_string(),
+            retrieve_media_server: DEFAULT_RETRIEVE_SERVER_MEDIA,
             timeout: DEFAULT_HTTP_TIMEOUT,
-            retrieve_server_media: DEFAULT_RETRIEVE_SERVER_MEDIA,
+            min_refresh_time: 600,
+            workers: std::thread::available_parallelism().unwrap().get(),
+            now: chrono::offset::Utc::now(),
+            filters: HashMap::with_capacity(0),
+            groups: HashMap::with_capacity(0),
+            feeds: HashMap::with_capacity(0),
         }
     }
 }
@@ -100,22 +77,16 @@ pub(crate) struct Feed {
     // pub(crate) produces: ["HTML", "PDF"]
     /// Identify group by its hash
     pub(crate) group: Option<u64>,
-    /// Excludes filters are executed before include filters
-    pub(crate) excludes: Vec<u64>,
-    ///Include filters
-    pub(crate) includes: Vec<u64>,
-    pub(crate) config: Config,
+    /// Applied filter, from the first in the list to the last
+    pub(crate) filters: Vec<u64>,
     /// Output file without extension
     pub(crate) output_file: String,
 }
 
-pub(crate) const SCOPE_TITLE: u8 = 1;
-pub(crate) const SCOPE_SUMMARY: u8 = 2;
-pub(crate) const SCOPE_BODY: u8 = 4;
-
 /// Filter structure. The name is not kept because it is only used during filter loading in order to help the user to find errors quickly.
 #[derive(Debug, Clone)]
 pub(crate) struct Filter {
+    pub(crate) slug: String,
     /// Text or regex.
     ///
     /// If `expressions=["Elon Musk", "Tesla"]`, it will search the exact `Elon Musk` then `Tesla`. It will not be `Elon`, `Musk` and `Tesla`.
@@ -136,6 +107,7 @@ pub(crate) struct Filter {
 impl Default for Filter {
     fn default() -> Self {
         Self {
+            slug: String::new(),
             expressions: Vec::new(),
             is_regex: false,
             is_case_sensitive: false,

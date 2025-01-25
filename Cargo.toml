@@ -3,14 +3,23 @@ name = "frust"
 authors = ["Sébastien LUNDI <slundi@ikmail.com>"]
 version = "0.1.0"
 edition = "2021"
-description = "Lightweight RSS aggregator"
+description = "CLI RSS aggregator"
 readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://codeberg.org/slundi/frust"
+categories = ["command-line-utilities", "data-structures"]
+keywords = ["cli", "rss", "atom", "feed", "aggregator", "feeds"]
+publish = true
 
 [dependencies]
 tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "sync"] }
 yaml-rust = "0.4"
 log = "0.4"
-femme = "2.2"
+simple_logger = { version = "5.0", features = [
+    "colors",
+    "timestamps",
+    "stderr",
+] }
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
 linked-hash-map = "0.5"

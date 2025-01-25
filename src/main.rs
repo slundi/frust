@@ -1,41 +1,30 @@
-#[macro_use]
 extern crate slug;
 extern crate yaml_rust;
 
-use async_log::span;
 use std::path::Path;
 use std::{env, process::ExitCode};
 
-use model::AppConfig;
-use tokio::sync::{OnceCell, RwLock};
+use std::{collections::HashMap, convert::TryFrom};
 
 pub(crate) mod config;
 pub(crate) mod model;
 pub(crate) mod processing;
 
-static CONFIG: OnceCell<AppConfig> = OnceCell::new();
-
-fn setup_logger() {
-    let logger = femme::pretty::Logger::new();
-    async_log::Logger::wrap(logger, || 12)
-        .start(log::LevelFilter::Info)
-        .unwrap();
-}
+const DEFAULT_HTTP_TIMEOUT: u8 = 10;
+const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
-async fn create_output_structure() {
-    let config = CONFIG.read().await;
-    for f in &config.feeds {
+fn create_output_structure(output: String, retrieve: bool, feeds: &HashMap<u64, crate::model::Feed>) {
+    for f in feeds.into_iter() {
         // does not require a folder if we do not save media, we will just keep an XML feed with combined old articles with new ones
-        if !f.1.config.retrieve_server_media {
+        if !retrieve {
             continue;
         }
-        let mut folder = String::with_capacity(config.output.len() + f.1.slug.len() + 1);
-        folder.push_str(&config.output);
+        let mut folder = String::with_capacity(output.len() + f.1.slug.len() + 1);
+        folder.push_str(&output);
         folder.push('/');
         folder.push_str(&f.1.slug);
-        std::fs::create_dir_all(folder)
-            .unwrap_or_else(|e| panic!("Unable to create feed directory: {} {}", f.1.slug, e));
+        std::fs::create_dir_all(folder).unwrap();
     }
 }
 
@@ -46,9 +35,10 @@ fn print_usage() {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    setup_logger();
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info);
     // parse CLI
-    log::info!("frust-CLI v0.1.0, more at https://github.com/slundi/frust");
+    // log::info!("frust-CLI v0.1.0, more at https://codeberg.org/slundi/frust");
+    // TODO: use a lib to parse cli
     let args: Vec<String> = env::args().collect();
     if args.len() > 2 {
         log::error!("Too many arguments.");
@@ -69,11 +59,16 @@ async fn main() -> ExitCode {
         print_usage();
         return ExitCode::FAILURE;
     }
+
     // make output directory if not exists, check for permissions
-    config::load_config_file(config_file).await;
-    std::fs::create_dir_all((CONFIG.read().await).output.clone())
-        .unwrap_or_else(|e| panic!("Unable to create output directory: {}", e));
-    create_output_structure().await;
-    crate::processing::start().await;
-    ExitCode::SUCCESS
+    let mut exit_code = ExitCode::SUCCESS;
+    // load globals
+    let app = crate::config::load_config_file(config_file);
+    std::fs::create_dir_all(&app.output.clone()).unwrap_or_else(|e| {
+        log::error!("Unable to create output directory: {}", e);
+        exit_code = ExitCode::FAILURE;
+    });
+    create_output_structure(app.output.clone(), app.retrieve_media_server, &app.feeds);
+    crate::processing::start(&app).await;
+    exit_code
 }

@@ -5,29 +5,21 @@ use feed_rs::parser;
 use futures::{stream, StreamExt};
 use reqwest::Client;
 
-use crate::{
-    model::{AppConfig, SCOPE_BODY, SCOPE_SUMMARY, SCOPE_TITLE},
-    CONFIG,
-};
+use crate::model::{App, Feed, Filter};
 
-fn is_time_elapsed(
-    current_time: DateTime<Utc>,
-    time: DateTime<Utc>,
-    delay: i64,
-) -> bool {
+fn is_time_elapsed(current_time: &DateTime<Utc>, time: DateTime<Utc>, delay: i64) -> bool {
     time.signed_duration_since(current_time).num_seconds() >= delay
 }
 
 /// Get upgradable feeds: when the delay between the last updated time and now is elapsed
-async fn get_upgradable_feeds() -> HashMap<u64, crate::model::Feed> {
-    let config = CONFIG.read().await;
+async fn get_upgradable_feeds(app: &App) -> HashMap<u64, crate::model::Feed> {
     // TODO: get date on the feed file
     // filter feeds that does not need to be updated with the min_refresh_time
-    let mut result: HashMap<u64, crate::model::Feed> = HashMap::with_capacity(config.feeds.len());
-    for f in &config.feeds {
+    let mut result: HashMap<u64, crate::model::Feed> = HashMap::with_capacity(app.feeds.len());
+    for f in app.feeds.clone().into_iter() {
         let mut feed = f.1.clone();
         // build output file path
-        feed.output_file.push_str(&config.output);
+        feed.output_file.push_str(&app.output.clone());
         feed.output_file.push(std::path::MAIN_SEPARATOR);
         feed.output_file.push_str(&f.1.slug);
         feed.output_file.push_str(".json");
@@ -38,13 +30,16 @@ async fn get_upgradable_feeds() -> HashMap<u64, crate::model::Feed> {
                 .modified()
             {
                 let local: DateTime<Local> = date.into();
-                let dt = Utc.from_local_datetime(&local.naive_local()).single().unwrap();
-                if !is_time_elapsed(*crate::NOW, dt, f.1.config.min_refresh_time) {
+                let dt = Utc
+                    .from_local_datetime(&local.naive_local())
+                    .single()
+                    .unwrap();
+                if !is_time_elapsed(&app.now, dt, app.min_refresh_time) {
                     continue;
                 }
             }
         }
-        result.insert(*f.0, feed);
+        result.insert(f.0, feed);
     }
     result
 }
@@ -67,8 +62,8 @@ async fn get_response_feed(
     None
 }
 
-fn text_is_found(text: String, filter_id: u64, config: &crate::model::AppConfig) -> bool {
-    let filter = config.filters.get(&filter_id).unwrap();
+fn text_is_found(text: String, filter_id: u64, filters: &HashMap<u64, Filter>) -> bool {
+    let filter = filters.get(&filter_id).unwrap();
     // regex search
     let regex_found = if filter.regexes.is_empty() {
         true
@@ -78,22 +73,22 @@ fn text_is_found(text: String, filter_id: u64, config: &crate::model::AppConfig)
             || (!filter.must_match_all && matches.matched_any())
     };
     // sentence/word search
-    let sentence_found = if filter.sentences.is_empty() {
+    let sentence_found = if filter.expressions.is_empty() {
         true
     } else {
-        // if case insensitive, sentences are in lower case (loaded in [config.rs](config.rs))
+        // if case insensitive, expressions are in lower case (loaded in [config.rs](config.rs))
         let content = if filter.is_case_sensitive {
             text
         } else {
             text.to_lowercase()
         };
         let mut count_found = 0usize;
-        for exp in &filter.sentences {
+        for exp in &filter.expressions {
             if content.contains(exp) {
                 count_found += 1;
             }
         }
-        (filter.must_match_all && filter.sentences.len() == count_found)
+        (filter.must_match_all && filter.expressions.len() == count_found)
             || (!filter.must_match_all && count_found > 0)
     };
     regex_found && sentence_found
@@ -102,38 +97,38 @@ fn text_is_found(text: String, filter_id: u64, config: &crate::model::AppConfig)
 /// Apply filters to article. It returns `true` when a filter has matched or if the filter list is empty.
 fn apply_filters_to_entry(
     entry: &feed_rs::model::Entry,
-    filters: &Vec<u64>,
-    config: &AppConfig,
+    applied_filters: &Vec<u64>,
+    filters: &HashMap<u64, Filter>,
 ) -> bool {
-    for filter_id in filters {
-        let filter = config.filters.get(filter_id).unwrap();
-        if (filter.scopes & SCOPE_TITLE) == SCOPE_TITLE {
+    for filter_id in applied_filters {
+        let filter = filters.get(filter_id).unwrap();
+        if filter.filter_in_title {
             if let Some(value) = &entry.title {
-                if text_is_found(value.content.clone(), *filter_id, config) {
+                if text_is_found(value.content.clone(), *filter_id, filters) {
                     return true;
                 }
             }
         }
-        if (filter.scopes & SCOPE_SUMMARY) == SCOPE_SUMMARY {
+        if filter.filter_in_summary {
             if let Some(value) = &entry.summary {
-                if text_is_found(value.content.clone(), *filter_id, config) {
+                if text_is_found(value.content.clone(), *filter_id, filters) {
                     return true;
                 }
             }
         }
-        if (filter.scopes & SCOPE_BODY) == SCOPE_BODY {
+        if filter.filter_in_content {
             if let Some(value) = &entry.content {
                 if text_is_found(
                     value.body.clone().unwrap_or(String::with_capacity(0)),
                     *filter_id,
-                    config,
+                    filters,
                 ) {
                     return true;
                 }
             }
         }
     }
-    filters.is_empty()
+    applied_filters.is_empty()
 }
 
 /// Merge Feeds in `base` with the given `entries`. If the ID are the same, the entry is skipped.
@@ -149,39 +144,37 @@ fn merge_feeds_by_id(base: &mut feed_rs::model::Feed, entries: Vec<feed_rs::mode
     }
 }
 
-async fn get_link_data(client: &Client, url: &str, selector: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn get_link_data(
+    client: &Client,
+    url: &str,
+    selector: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // TODO: replace println with a better error handling mechanism
     match client.get(url).send().await {
-        Ok(response) => {
-            match response.text().await {
-                Ok(data) => {
-                    let document = scraper::Html::parse_document(&data);
-                    let css_selector = scraper::Selector::parse(selector).unwrap();
-                    match document.select(&css_selector).next() {
-                        Some(element) => return Ok(element.html()),
-                        _ => log::error!("No content found for selector: {}", selector),
-                    }
-                },
-                Err(e) => log::error!("Cannot get response text for selector: {} \t {:?}", url, e),
+        Ok(response) => match response.text().await {
+            Ok(data) => {
+                let document = scraper::Html::parse_document(&data);
+                let css_selector = scraper::Selector::parse(selector).unwrap();
+                match document.select(&css_selector).next() {
+                    Some(element) => return Ok(element.html()),
+                    _ => log::error!("No content found for selector: {}", selector),
+                }
             }
+            Err(e) => log::error!("Cannot get response text for selector: {} \t {:?}", url, e),
         },
         Err(e) => log::warn!("Cannot open link for selector: {} \t {:?}", url, e),
     };
     Ok(String::with_capacity(0))
 }
 
-const FLAG_ELAPSED: u8 = 1;
-const FLAG_EXCLUDED: u8 = 2;
-const FLAG_INCLUDED: u8 = 4;
-
 async fn add_new_articles(
     feed_id: u64,
     file_feed: Option<feed_rs::model::Feed>,
     retrieved_feed: feed_rs::model::Feed,
+    feeds: &HashMap<u64, Feed>,
 ) {
     // TODO: process retrieved data:
     // - If applicable, retrieve articles (multiple per source) and its assets if applicable
-    let config = CONFIG.read().await;
     let client = Client::new();
     let mut rf = retrieved_feed.clone();
     if let Some(ff) = file_feed {
@@ -191,44 +184,49 @@ async fn add_new_articles(
     rf.entries.retain(|entry| {
         let mut should_add = 0u8;
         // check if entry should be kept (storage time)
-        if let Some(date) = entry.updated {
-            if is_time_elapsed(
-                *crate::NOW,
-                date,
-                config.feeds.get(&feed_id).unwrap().config.article_keep_time * 86400,
-            ) {
-                should_add = FLAG_ELAPSED;
-            }
-        }
+        // if let Some(date) = entry.updated {
+        //     if is_time_elapsed(
+        //         *crate::NOW,
+        //         date,
+        //         feeds.get(&feed_id).unwrap().config.article_keep_time * 86400,
+        //     ) {
+        //         should_add = FLAG_ELAPSED;
+        //     }
+        // }
         // Apply filters (do not match content if CSS selector is specified)
         // TODO: handle blanks (\n, \r, ...)
-        if apply_filters_to_entry(entry, &config.excludes, &config) {
-            should_add |= FLAG_EXCLUDED;
-        }
-        if should_add != (FLAG_ELAPSED|FLAG_EXCLUDED)
-            && !config.includes.is_empty()
-            && apply_filters_to_entry(entry, &config.includes, &config)
-        {
-            should_add |= FLAG_INCLUDED;
-        }
+        // if apply_filters_to_entry(entry, &config.excludes, &config) {
+        //     should_add |= FLAG_EXCLUDED;
+        // }
+        // if should_add != (FLAG_ELAPSED | FLAG_EXCLUDED)
+        //     && !config.includes.is_empty()
+        //     && apply_filters_to_entry(entry, &config.includes, &config)
+        // {
+        //     should_add |= FLAG_INCLUDED;
+        // }
         // TODO: selector
-        if !config.feeds.get(&feed_id).unwrap().selector.is_empty() && !entry.links.is_empty() {
+        if !feeds.get(&feed_id).unwrap().selector.is_empty() && !entry.links.is_empty() {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(get_link_data(&client, &entry.links[0].href, &config.feeds.get(&feed_id).unwrap().selector)) {
+            match rt.block_on(get_link_data(
+                &client,
+                &entry.links[0].href,
+                &feeds.get(&feed_id).unwrap().selector,
+            )) {
                 Ok(_) => todo!(),
                 Err(_) => todo!(),
             };
         }
-        should_add & (FLAG_ELAPSED|FLAG_EXCLUDED) == 0
+        // should_add & (FLAG_ELAPSED | FLAG_EXCLUDED) == 0
+        true
     });
     // apply filters
     // TODO: Generate feed file
 }
 
-pub(crate) async fn start() {
+pub(crate) async fn start(app: &App) {
     let client = Client::new();
 
-    let _bodies = stream::iter(get_upgradable_feeds().await)
+    let _bodies = stream::iter(get_upgradable_feeds(&app).await)
         .map(|feed| {
             let client = &client;
             async move {
@@ -250,14 +248,14 @@ pub(crate) async fn start() {
                             } else {
                                 None
                             };
-                            add_new_articles(feed.0, stored, result).await;
+                            add_new_articles(feed.0, stored, result, &app.feeds).await;
                         }
                     }
                     Err(e) => log::error!("Unable to get feed from: {}     {}", &feed.1.url, e),
                 }
             }
         })
-        .buffer_unordered((CONFIG.read().await).workers);
+        .buffer_unordered(app.workers);
     // bodies
     //     .for_each(|b| async {
     //         match b {
@@ -276,18 +274,18 @@ mod tests {
     fn elapsed_time() {
         let now = chrono::offset::Utc::now();
         assert!(
-            is_time_elapsed(now, now, 0),
+            is_time_elapsed(&now, now, 0),
             "1/3 It is not exactly the same date"
         );
         let t = now
             .checked_add_signed(chrono::Duration::milliseconds(10500))
             .unwrap();
         assert!(
-            is_time_elapsed(now, t, 10),
+            is_time_elapsed(&now, t, 10),
             "2/3 Date 10.5s after the feed date with a delay of 10s"
         );
         assert!(
-            !is_time_elapsed(now, t, 20),
+            !is_time_elapsed(&now, t, 20),
             "3/3 Date 10.5s after the feed date with a delay of 20s"
         );
     }
