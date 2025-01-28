@@ -329,12 +329,12 @@ impl App {
 pub(crate) fn load_config_file(config_file: String) -> App {
     let result = std::fs::read_to_string(config_file);
     if let Err(e) = result {
-        log::error!("Unable to open config file: {:?}", e);
+        tracing::error!("Unable to open config file: {:?}", e);
         std::process::exit(1);
     }
     let result = yaml_rust::YamlLoader::load_from_str(&result.unwrap());
     if let Err(e) = result {
-        log::error!("Unable to parse config file: {:?}", e);
+        tracing::error!("Unable to parse config file: {:?}", e);
         std::process::exit(1);
     }
     let loader = result.unwrap();

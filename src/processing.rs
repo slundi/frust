@@ -54,10 +54,10 @@ async fn get_response_feed(
             match parser::parse(content.as_ref()) {
                 // load feed data
                 Ok(feed) => return Some(feed),
-                Err(e) => log::error!("Unable to parse feed from: {}     {}", url, e),
+                Err(e) => tracing::error!("Unable to parse feed from: {}     {}", url, e),
             }
         }
-        Err(e) => log::error!("Unable to read response from feed: {}     {}", url, e),
+        Err(e) => tracing::error!("Unable to read response from feed: {}     {}", url, e),
     };
     None
 }
@@ -157,12 +157,12 @@ async fn get_link_data(
                 let css_selector = scraper::Selector::parse(selector).unwrap();
                 match document.select(&css_selector).next() {
                     Some(element) => return Ok(element.html()),
-                    _ => log::error!("No content found for selector: {}", selector),
+                    _ => tracing::error!("No content found for selector: {}", selector),
                 }
             }
-            Err(e) => log::error!("Cannot get response text for selector: {} \t {:?}", url, e),
+            Err(e) => tracing::error!("Cannot get response text for selector: {} \t {:?}", url, e),
         },
-        Err(e) => log::warn!("Cannot open link for selector: {} \t {:?}", url, e),
+        Err(e) => tracing::warn!("Cannot open link for selector: {} \t {:?}", url, e),
     };
     Ok(String::with_capacity(0))
 }
@@ -251,7 +251,7 @@ pub(crate) async fn start(app: &App) {
                             add_new_articles(feed.0, stored, result, &app.feeds).await;
                         }
                     }
-                    Err(e) => log::error!("Unable to get feed from: {}     {}", &feed.1.url, e),
+                    Err(e) => tracing::error!("Unable to get feed from: {}     {}", &feed.1.url, e),
                 }
             }
         })
@@ -260,7 +260,7 @@ pub(crate) async fn start(app: &App) {
     //     .for_each(|b| async {
     //         match b {
     //             Ok(b) => println!("Got {} bytes", b.len()),
-    //             Err(e) => log::error!("Got an error: {}", e),
+    //             Err(e) => tracing::error!("Got an error: {}", e),
     //         }
     //     })
     //     .await;

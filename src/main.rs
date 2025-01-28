@@ -4,7 +4,7 @@ extern crate yaml_rust;
 use std::path::Path;
 use std::{env, process::ExitCode};
 
-use std::{collections::HashMap, convert::TryFrom};
+use std::collections::HashMap;
 
 pub(crate) mod config;
 pub(crate) mod model;
@@ -14,7 +14,11 @@ const DEFAULT_HTTP_TIMEOUT: u8 = 10;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
-fn create_output_structure(output: String, retrieve: bool, feeds: &HashMap<u64, crate::model::Feed>) {
+fn create_output_structure(
+    output: String,
+    retrieve: bool,
+    feeds: &HashMap<u64, crate::model::Feed>,
+) {
     for f in feeds.into_iter() {
         // does not require a folder if we do not save media, we will just keep an XML feed with combined old articles with new ones
         if !retrieve {
@@ -35,13 +39,17 @@ fn print_usage() {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info);
+    let subscriber = tracing_subscriber::fmt()
+        .with_level(true)
+        .with_max_level(tracing::level_filters::LevelFilter::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     // parse CLI
-    // log::info!("frust-CLI v0.1.0, more at https://codeberg.org/slundi/frust");
+    // tracing::info!("frust-CLI v0.1.0, more at https://codeberg.org/slundi/frust");
     // TODO: use a lib to parse cli
     let args: Vec<String> = env::args().collect();
     if args.len() > 2 {
-        log::error!("Too many arguments.");
+        tracing::error!("Too many arguments.");
         print_usage();
         return ExitCode::FAILURE;
     }
@@ -50,8 +58,9 @@ async fn main() -> ExitCode {
     if args.len() == 2 {
         config_file = args[1].clone();
     }
+    tracing::info!("Config file: {}", config_file);
     if !Path::new(&config_file).exists() {
-        log::error!(
+        tracing::error!(
             "Config file not found: {} in {}",
             config_file,
             env::current_dir().unwrap().display()
@@ -65,7 +74,7 @@ async fn main() -> ExitCode {
     // load globals
     let app = crate::config::load_config_file(config_file);
     std::fs::create_dir_all(&app.output.clone()).unwrap_or_else(|e| {
-        log::error!("Unable to create output directory: {}", e);
+        tracing::error!("Unable to create output directory: {}", e);
         exit_code = ExitCode::FAILURE;
     });
     create_output_structure(app.output.clone(), app.retrieve_media_server, &app.feeds);
