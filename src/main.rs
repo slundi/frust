@@ -58,12 +58,14 @@ async fn main() -> ExitCode {
     if args.len() == 2 {
         config_file = args[1].clone();
     }
+    let pwd = env::current_dir().unwrap().display().to_string();
+    tracing::info!("Working directory: {}", pwd);
     tracing::info!("Config file: {}", config_file);
     if !Path::new(&config_file).exists() {
         tracing::error!(
             "Config file not found: {} in {}",
             config_file,
-            env::current_dir().unwrap().display()
+            pwd
         );
         print_usage();
         return ExitCode::FAILURE;

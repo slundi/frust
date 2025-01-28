@@ -18,11 +18,10 @@ fn get_string_field_from_map(
         return value.as_str().unwrap().to_string();
     }
     if required {
-        print!(
+        panic!(
             "Field missing in config file: {}",
             yaml_path.unwrap_or_else(|| "UNKNOWN".to_string())
         );
-        std::process::exit(1);
     }
     String::with_capacity(0)
 }
@@ -65,9 +64,9 @@ impl App {
                 // process filter name
                 let slug = get_string_field_from_map(
                     m,
-                    "name".to_string(),
+                    "slug".to_string(),
                     true,
-                    Some(format!("filters[{}].name", i)),
+                    Some(format!("filters[{}].slug", i)),
                 );
                 let h = xxh3_64(slug.as_bytes());
                 // process is_case_sensitive
@@ -141,32 +140,32 @@ impl App {
                         panic!("Invalid filters.is_regex boolean for filter {}", slug)
                     });
                 }
-                // process filter regexes
-                let value = m.get(&Yaml::String("regexes".to_string()));
-                if value.is_none() {
-                    panic!(
-                        "Field missing in config file: filters[{}].regexes in filter {}",
-                        i, slug
-                    );
-                }
-                let value = value.unwrap().as_vec();
-                if value.is_none() {
-                    panic!(
-                        "Invalid data in config file: filters[{}].regexes in filter {}",
-                        i, slug
-                    );
-                }
-                let value = value.unwrap();
-                let expressions: Vec<String> = value
-                    .iter()
-                    .map(|exp| {
-                        exp.as_str()
-                            .unwrap_or_else(|| {
-                                panic!("Invalid filters.regexes string for filter {}", slug)
-                            })
-                            .to_string()
-                    })
-                    .collect();
+                // process filter regexes: will be generated from expressions and is_regex flag
+                // let value = m.get(&Yaml::String("regexes".to_string()));
+                // if value.is_none() {
+                //     panic!(
+                //         "Field missing in config file: filters[{}].regexes in filter {}",
+                //         i, slug
+                //     );
+                // }
+                // let value = value.unwrap().as_vec();
+                // if value.is_none() {
+                //     panic!(
+                //         "Invalid data in config file: filters[{}].regexes in filter {}",
+                //         i, slug
+                //     );
+                // }
+                // let value = value.unwrap();
+                // let expressions: Vec<String> = value
+                //     .iter()
+                //     .map(|exp| {
+                //         exp.as_str()
+                //             .unwrap_or_else(|| {
+                //                 panic!("Invalid filters.regexes string for filter {}", slug)
+                //             })
+                //             .to_string()
+                //     })
+                //     .collect();
                 let mut regexes = RegexSet::empty();
                 if is_regex {
                     regexes = RegexSetBuilder::new(expressions.clone())
@@ -194,6 +193,7 @@ impl App {
                 );
             }
         }
+        tracing::info!("Loaded filters: {}", self.filters.len());
         self.clone()
     }
 
@@ -240,6 +240,7 @@ impl App {
                     .insert(xxh3_64(slugify(obj.slug.clone()).as_bytes()), obj);
             }
         }
+        tracing::info!("Loaded groups: {}", self.groups.len());
         self.clone()
     }
 
@@ -322,6 +323,7 @@ impl App {
                     .insert(xxh3_64(slugify(obj.slug.clone()).as_bytes()), obj);
             }
         }
+        tracing::info!("Loaded feeds: {}", self.feeds.len());
         self.clone()
     }
 }
