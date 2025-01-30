@@ -226,7 +226,7 @@ async fn add_new_articles(
 pub(crate) async fn start(app: &App) {
     let client = Client::new();
 
-    let _bodies = stream::iter(get_upgradable_feeds(&app).await)
+    let _bodies = stream::iter(get_upgradable_feeds(app).await)
         .map(|feed| {
             let client = &client;
             async move {

@@ -39,7 +39,7 @@ impl Default for App {
 }
 
 /// A group allows you to produce a unique feed by aggregating the enumerated ones.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub(crate) struct Group {
     pub(crate) title: String,
     pub(crate) slug: String,
@@ -53,30 +53,18 @@ pub(crate) struct Group {
     pub(crate) retention: Option<u16>,
 }
 
-impl Default for Group {
-    fn default() -> Self {
-        Self {
-            title: String::new(),
-            slug: String::new(),
-            feeds: Vec::new(),
-            filters: Vec::new(),
-            output: None,
-            retention: None,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct Feed {
     pub(crate) title: String,
+    pub(crate) group_code: u64,
     /// Unique and URL usable string to identify the feed
     pub(crate) slug: String,
     pub(crate) url: String,
     pub(crate) page_url: String,
     pub(crate) selector: String, // Option<String>?
     // pub(crate) produces: ["HTML", "PDF"]
-    /// Identify group by its hash
-    pub(crate) group: Option<u64>,
+    // /// Identify group by its hash
+    // pub(crate) group: Option<u64>,
     /// Applied filter, from the first in the list to the last
     pub(crate) filters: Vec<u64>,
     /// Output file without extension

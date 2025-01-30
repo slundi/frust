@@ -19,7 +19,7 @@ fn create_output_structure(
     retrieve: bool,
     feeds: &HashMap<u64, crate::model::Feed>,
 ) {
-    for f in feeds.into_iter() {
+    for f in feeds.iter() {
         // does not require a folder if we do not save media, we will just keep an XML feed with combined old articles with new ones
         if !retrieve {
             continue;
@@ -75,7 +75,7 @@ async fn main() -> ExitCode {
     let mut exit_code = ExitCode::SUCCESS;
     // load globals
     let app = crate::config::load_config_file(config_file);
-    std::fs::create_dir_all(&app.output.clone()).unwrap_or_else(|e| {
+    std::fs::create_dir_all(app.output.clone()).unwrap_or_else(|e| {
         tracing::error!("Unable to create output directory: {}", e);
         exit_code = ExitCode::FAILURE;
     });
