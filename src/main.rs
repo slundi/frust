@@ -42,6 +42,7 @@ async fn main() -> ExitCode {
     let subscriber = tracing_subscriber::fmt()
         .with_level(true)
         .with_max_level(tracing::level_filters::LevelFilter::INFO)
+        .with_target(false)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     // parse CLI

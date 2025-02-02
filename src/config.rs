@@ -27,7 +27,7 @@ fn get_string_field_from_map(
 }
 
 impl App {
-    fn load_globals(&mut self, map: &LinkedHashMap<Yaml, Yaml>) -> App {
+    fn load_globals(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
         // load output folder
         let output =
             get_string_field_from_map(map, "output".to_string(), false, Some("output".to_string()));
@@ -50,10 +50,9 @@ impl App {
             self.timeout = u8::try_from(value.as_i64().unwrap())
                 .expect("Invalid data in config file: timeout");
         }
-        self.clone()
     }
 
-    fn load_filters(&mut self, map: &LinkedHashMap<Yaml, Yaml>) -> App {
+    fn load_filters(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
         if let Some(filters) = map.get(&Yaml::String("filters".to_string())) {
             let values = filters
                 .as_vec()
@@ -194,10 +193,9 @@ impl App {
             }
         }
         tracing::info!("Loaded filters: {}", self.filters.len());
-        self.clone()
     }
 
-    fn load_groups(&mut self, map: &LinkedHashMap<Yaml, Yaml>) -> App {
+    fn load_groups(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
         if let Some(groups) = map.get(&Yaml::String("groups".to_string())) {
             let provided = groups
                 .as_vec()
@@ -238,19 +236,19 @@ impl App {
                 }
                 let code = xxh3_64(slugify(obj.slug.clone()).as_bytes());
                 self.groups.insert(code, obj);
-                self.load_feeds(m, code);
+                // FIXME: no feed in app.feeds
+                let _ = self.load_feeds(m, code);
             }
         }
         tracing::info!("Loaded groups: {}", self.groups.len());
-        self.clone()
     }
 
-    fn load_feeds(&mut self, map: &LinkedHashMap<Yaml, Yaml>, group_code: u64) -> App {
+    fn load_feeds(&mut self, map: &LinkedHashMap<Yaml, Yaml>, group_code: u64) {
         if let Some(feeds) = map.get(&Yaml::String("feeds".to_string())) {
             let provided = feeds
                 .as_vec()
                 .expect("Invalid field in config file: groups");
-            self.feeds = HashMap::with_capacity(provided.len());
+            // self.feeds = HashMap::with_capacity(provided.len());
             // tracing::debug!("{} feeds to load", provided.len());
             for (i, f) in provided.iter().enumerate() {
                 let m = f
@@ -327,7 +325,6 @@ impl App {
             }
         }
         tracing::info!("Loaded feeds: {} (group: {})", self.feeds.len(), self.groups.get(&group_code).unwrap().slug);
-        self.clone()
     }
 }
 
@@ -343,9 +340,11 @@ pub(crate) fn load_config_file(config_file: String) -> App {
         std::process::exit(1);
     }
     let loader = result.unwrap();
-    let app = &mut App::default();
+    let mut app = App::default();
     if let Some(map) = loader[0].as_hash() {
-        app.load_globals(map).load_filters(map).load_groups(map);
+        app.load_globals(map);
+        app.load_filters(map);
+        app.load_groups(map);
     }
     app.clone()
 }

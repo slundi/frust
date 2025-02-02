@@ -3,45 +3,12 @@ use std::collections::HashMap;
 use chrono::prelude::*;
 use feed_rs::parser;
 use futures::{stream, StreamExt};
-use reqwest::Client;
+use reqwest::{Client, ClientBuilder};
 
 use crate::model::{App, Feed, Filter};
 
 fn is_time_elapsed(current_time: &DateTime<Utc>, time: DateTime<Utc>, delay: i64) -> bool {
     time.signed_duration_since(current_time).num_seconds() >= delay
-}
-
-/// Get upgradable feeds: when the delay between the last updated time and now is elapsed
-async fn get_upgradable_feeds(app: &App) -> HashMap<u64, crate::model::Feed> {
-    // TODO: get date on the feed file
-    // filter feeds that does not need to be updated with the min_refresh_time
-    let mut result: HashMap<u64, crate::model::Feed> = HashMap::with_capacity(app.feeds.len());
-    for f in app.feeds.clone().into_iter() {
-        let mut feed = f.1.clone();
-        // build output file path
-        feed.output_file.push_str(&app.output.clone());
-        feed.output_file.push(std::path::MAIN_SEPARATOR);
-        feed.output_file.push_str(&f.1.slug);
-        feed.output_file.push_str(".json");
-        // check if the file exists and if we can get the modification date
-        if std::path::Path::new(&f.1.output_file).is_file() {
-            if let Ok(date) = std::fs::metadata(&f.1.output_file)
-                .expect("Cannot get feed metadata")
-                .modified()
-            {
-                let local: DateTime<Local> = date.into();
-                let dt = Utc
-                    .from_local_datetime(&local.naive_local())
-                    .single()
-                    .unwrap();
-                if !is_time_elapsed(&app.now, dt, app.min_refresh_time) {
-                    continue;
-                }
-            }
-        }
-        result.insert(f.0, feed);
-    }
-    result
 }
 
 async fn get_response_feed(
@@ -226,9 +193,18 @@ async fn add_new_articles(
 pub(crate) async fn start(app: &App) {
     let client = Client::new();
 
-    let _bodies = stream::iter(get_upgradable_feeds(app).await)
+    tracing::info!("Using {} workers", app.workers);
+    tracing::info!("Feeds {}", app.feeds.len());
+    // for feed in app.feeds.clone() {
+    //     tracing::info!("Processing feed {}", feed.1.title);
+    //     tokio::spawn(async move {
+    //         tracing::info!("Processing feed {}", feed.1.title);
+    //     });
+    // }
+    let bodies = stream::iter(app.feeds.clone())
         .map(|feed| {
             let client = &client;
+            tracing::info!("Processing feed {}", feed.1.title);
             async move {
                 match client.get(&feed.1.url).send().await {
                     //perform the HTTP query
@@ -256,14 +232,16 @@ pub(crate) async fn start(app: &App) {
             }
         })
         .buffer_unordered(app.workers);
-    // bodies
-    //     .for_each(|b| async {
-    //         match b {
-    //             Ok(b) => println!("Got {} bytes", b.len()),
-    //             Err(e) => tracing::error!("Got an error: {}", e),
-    //         }
-    //     })
-    //     .await;
+    bodies
+        .for_each(|b| async move {
+            tracing::info!("ok: {:?}", b);
+            // match b {
+            //     // Ok(b) => tracing::info!("Got {} bytes", b.len()),
+            //     Ok(()) => tracing::info!("ok"),
+            //     Err(e) => tracing::error!("Got an error: {}", e),
+            // }
+        })
+        .await;
 }
 
 #[cfg(test)]

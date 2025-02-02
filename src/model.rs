@@ -33,7 +33,7 @@ impl Default for App {
             now: chrono::offset::Utc::now(),
             filters: HashMap::with_capacity(0),
             groups: HashMap::with_capacity(0),
-            feeds: HashMap::with_capacity(0),
+            feeds: HashMap::new(),
         }
     }
 }
