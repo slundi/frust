@@ -320,11 +320,22 @@ impl App {
                         }
                     }
                 }
-                self.feeds
-                    .insert(xxh3_64(slugify(obj.slug.clone()).as_bytes()), obj);
+                let code = xxh3_64(slugify(obj.slug.clone()).as_bytes());
+                if self.has_output(group_code, code) {
+                    self.feeds.insert(code, obj);
+                } else {
+                    tracing::warn!(
+                        "Feed {} is never saved (no output in group or in the feed)",
+                        obj.title
+                    );
+                }
             }
         }
-        tracing::info!("Loaded feeds: {} (group: {})", self.feeds.len(), self.groups.get(&group_code).unwrap().slug);
+        tracing::info!(
+            "Loaded feeds: {} (group: {})",
+            self.feeds.len(),
+            self.groups.get(&group_code).unwrap().slug
+        );
     }
 }
 

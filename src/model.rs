@@ -38,6 +38,13 @@ impl Default for App {
     }
 }
 
+impl App {
+    pub fn has_output(&self, group_code: u64, feed_code: u64) -> bool {
+        self.groups.get(&group_code).unwrap().output.is_some()
+            || !self.feeds.get(&feed_code).unwrap().output_file.is_empty()
+    }
+}
+
 /// A group allows you to produce a unique feed by aggregating the enumerated ones.
 #[derive(Debug, Default, PartialEq, Clone)]
 pub(crate) struct Group {
