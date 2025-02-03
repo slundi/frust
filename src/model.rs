@@ -40,8 +40,8 @@ impl Default for App {
 
 impl App {
     pub fn has_output(&self, group_code: u64, feed_code: u64) -> bool {
-        self.groups.get(&group_code).unwrap().output.is_some()
-            || !self.feeds.get(&feed_code).unwrap().output_file.is_empty()
+        !self.groups.get(&group_code).unwrap().output.is_empty()
+            || !self.feeds.get(&feed_code).unwrap().output.is_empty()
     }
 }
 
@@ -54,8 +54,8 @@ pub(crate) struct Group {
     pub(crate) feeds: Vec<String>,
     /// Applied filter, from the first in the list to the last
     pub(crate) filters: Vec<u64>,
-    /// Set it if you want to aggregate the feeds in the group
-    pub(crate) output: Option<String>,
+    /// Set this output file path if you want to aggregate the feeds in the group
+    pub(crate) output: String,
     /// Article retention in days
     pub(crate) retention: Option<u16>,
 }
@@ -74,8 +74,8 @@ pub(crate) struct Feed {
     // pub(crate) group: Option<u64>,
     /// Applied filter, from the first in the list to the last
     pub(crate) filters: Vec<u64>,
-    /// Output file without extension
-    pub(crate) output_file: String,
+    /// Output file
+    pub(crate) output: String,
 }
 
 /// Filter structure. The name is not kept because it is only used during filter loading in order to help the user to find errors quickly.

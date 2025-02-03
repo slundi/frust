@@ -218,6 +218,12 @@ impl App {
                     true,
                     Some(format!("groups[{}].slug", i)),
                 );
+                obj.output = get_string_field_from_map(
+                    m,
+                    "output".to_string(),
+                    false,
+                    Some(format!("groups[{}].output", i)),
+                );
                 // get filters if applicable
                 if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
                     let values = filters
@@ -266,6 +272,12 @@ impl App {
                     true,
                     Some(format!("feeds[{}].url", i)),
                 );
+                let output = get_string_field_from_map(
+                    m,
+                    "output".to_string(),
+                    false,
+                    Some(format!("feeds[{}].output", i)),
+                );
                 // parse URL (so check it) and get slug
                 let parsed_url = url::Url::parse(&url)
                     .unwrap_or_else(|e| panic!("Invalid data in feeds[{}].url: {}", i, e));
@@ -302,7 +314,7 @@ impl App {
                     page_url: String::with_capacity(128),
                     // group,
                     filters: Vec::with_capacity(0),
-                    output_file: String::with_capacity(256),
+                    output,
                 };
                 // get filters if applicable
                 if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {

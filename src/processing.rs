@@ -212,10 +212,10 @@ pub(crate) async fn start(app: &App) {
                         //read the response
                         if let Some(result) = get_response_feed(resp, &feed.1.url).await {
                             //read feed data
-                            let stored = if std::path::Path::new(&feed.1.output_file).is_file() {
+                            let stored = if std::path::Path::new(&feed.1.output).is_file() {
                                 Some(
                                     feed_rs::parser::parse(
-                                        std::fs::read_to_string(&feed.1.output_file)
+                                        std::fs::read_to_string(&feed.1.output)
                                             .unwrap()
                                             .as_bytes(),
                                     )
