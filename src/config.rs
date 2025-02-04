@@ -242,8 +242,7 @@ impl App {
                 }
                 let code = xxh3_64(slugify(obj.slug.clone()).as_bytes());
                 self.groups.insert(code, obj);
-                // FIXME: no feed in app.feeds
-                let _ = self.load_feeds(m, code);
+                self.load_feeds(m, code);
             }
         }
         tracing::info!("Loaded groups: {}", self.groups.len());

@@ -15,18 +15,20 @@ async fn get_response_feed(
     response: reqwest::Response,
     url: &String,
 ) -> Option<feed_rs::model::Feed> {
+    let parser = parser::Builder::new().sanitize_content(true).build();
+    let mut result: Option<feed_rs::model::Feed> = None;
     match response.bytes().await {
         // read the response
         Ok(content) => {
-            match parser::parse(content.as_ref()) {
+            match parser.parse(content.as_ref()) {
                 // load feed data
-                Ok(feed) => return Some(feed),
+                Ok(feed) => result = Some(feed),
                 Err(e) => tracing::error!("Unable to parse feed from: {}     {}", url, e),
             }
         }
         Err(e) => tracing::error!("Unable to read response from feed: {}     {}", url, e),
     };
-    None
+    result
 }
 
 fn text_is_found(text: String, filter_id: u64, filters: &HashMap<u64, Filter>) -> bool {
@@ -149,17 +151,17 @@ async fn add_new_articles(
     }
     // check if feed is present in the file and keep it if yes (already filtered)
     rf.entries.retain(|entry| {
-        let mut should_add = 0u8;
+        let mut should_add = true;
         // check if entry should be kept (storage time)
-        // if let Some(date) = entry.updated {
-        //     if is_time_elapsed(
-        //         *crate::NOW,
-        //         date,
-        //         feeds.get(&feed_id).unwrap().config.article_keep_time * 86400,
-        //     ) {
-        //         should_add = FLAG_ELAPSED;
-        //     }
-        // }
+        if let Some(date) = entry.updated {
+            if is_time_elapsed(
+                *crate::NOW,
+                date,
+                feeds.get(&feed_id).unwrap().config.article_keep_time * 86400,
+            ) {
+                should_add = false;
+            }
+        }
         // Apply filters (do not match content if CSS selector is specified)
         // TODO: handle blanks (\n, \r, ...)
         // if apply_filters_to_entry(entry, &config.excludes, &config) {
@@ -183,8 +185,7 @@ async fn add_new_articles(
                 Err(_) => todo!(),
             };
         }
-        // should_add & (FLAG_ELAPSED | FLAG_EXCLUDED) == 0
-        true
+        should_add
     });
     // apply filters
     // TODO: Generate feed file
@@ -195,12 +196,6 @@ pub(crate) async fn start(app: &App) {
 
     tracing::info!("Using {} workers", app.workers);
     tracing::info!("Feeds {}", app.feeds.len());
-    // for feed in app.feeds.clone() {
-    //     tracing::info!("Processing feed {}", feed.1.title);
-    //     tokio::spawn(async move {
-    //         tracing::info!("Processing feed {}", feed.1.title);
-    //     });
-    // }
     let bodies = stream::iter(app.feeds.clone())
         .map(|feed| {
             let client = &client;
@@ -209,15 +204,15 @@ pub(crate) async fn start(app: &App) {
                 match client.get(&feed.1.url).send().await {
                     //perform the HTTP query
                     Ok(resp) => {
+                        tracing::info!("Feed downloaded from: {}", feed.1.url);
                         //read the response
                         if let Some(result) = get_response_feed(resp, &feed.1.url).await {
+                            tracing::info!("result: {:?}", result);
                             //read feed data
                             let stored = if std::path::Path::new(&feed.1.output).is_file() {
                                 Some(
                                     feed_rs::parser::parse(
-                                        std::fs::read_to_string(&feed.1.output)
-                                            .unwrap()
-                                            .as_bytes(),
+                                        std::fs::read_to_string(&feed.1.output).unwrap().as_bytes(),
                                     )
                                     .unwrap(),
                                 )

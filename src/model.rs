@@ -43,6 +43,14 @@ impl App {
         !self.groups.get(&group_code).unwrap().output.is_empty()
             || !self.feeds.get(&feed_code).unwrap().output.is_empty()
     }
+
+    pub fn get_output(&self, group_code: u64, feed_code: u64) -> String {
+        let out = self.feeds.get(&feed_code).unwrap().output.clone();
+        if !out.is_empty() {
+            return out
+        }
+        self.groups.get(&group_code).unwrap().output.clone()
+    }
 }
 
 /// A group allows you to produce a unique feed by aggregating the enumerated ones.

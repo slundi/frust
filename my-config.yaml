@@ -1,0 +1,105 @@
+filters:
+- slug: "guitar-standard"
+  # sentences or regexes should be defined
+  expressions: ["guitar", "E standard"]  # match words/sentences of this list
+  is_regex: false
+  is_case_sensitive: false  # OPTIONAL default `false`. Tells if we must match the case.
+  is_include: false  # if the article must match the filter, default it is false to exclude
+  must_match_all: false  # OPTIONAL default `false`: if all defined sentences and regexes should match, default a result is valid when one of the regexes/sentences match
+  filter_in_title: true  # default true
+  filter_in_summary: true  # default true
+  filter_in_content: false  # default false
+- slug: "favorite-bands"
+  expressions: ["Ghost", "Iron Maiden", "Judas Priest" ]
+- slug: "unwanted-instruments"
+  expressions: ["trumpet", "drum"]
+
+groups:
+- title: Divers
+  slug: divers
+  output: divers.atom
+  filters: []
+  # retention: 60  # retention in days
+  feeds:
+  - title: "Lindsey Stirling"
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCZvo8TZtUZkLgiH3rJsj-Ow
+    page_url: https://www.youtube.com/channel/UCyC_4jvPzLiSkJkLIkA7B8g
+  - title: "Nantes Philharmonie"
+    url: https://philhar.com/feed/
+    page_url: https://philhar.com
+- title: Guitare
+  slug: guitar
+  output: guitar.atom
+  filters: []
+  feeds:
+  - title: HGuitar
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCBB-BBT82SkJj1Jny3PfGAw
+    page_url: https://www.youtube.com/channel/UCBB-BBT82SkJj1Jny3PfGAw
+    retention: 60
+    filters: []
+  - title: Bernth
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCZvo8TZtUZkLgiH3rJsj-Ow
+    page_url: https://www.youtube.com/channel/UCZvo8TZtUZkLgiH3rJsj-Ow
+    retention: 120
+    filters: []
+- title: Informatique
+  slug: it
+  output: it.atom
+  retention: 120
+  filters: []
+  feeds:
+  - title: Developpez.com
+    url: https://www.developpez.com/index/rss
+    page_url: http://www.developpez.com
+    retention: 120
+    filters: []
+  - title: Full Circle Magazine FR
+    url: https://www.fullcirclemag.fr/?feed/atom
+    page_url: https://www.fullcirclemag.fr/
+    retention: 120
+    filters: []
+  - title: Korben
+    url: http://feeds.feedburner.com/KorbensBlog-UpgradeYourMind
+    page_url: https://korben.info
+    retention: 120
+    filters: []
+  - title: LinuxFr.org
+    url: https://linuxfr.org/news.atom
+    page_url: https://linuxfr.org
+    retention: 120
+    filters: []
+  - title: This Week in Rust
+    url: https://this-week-in-rust.org/atom.xml
+    page_url: https://this-week-in-rust.org/
+    retention: 120
+    filters: []
+- title: Maison
+  slug: maison
+  output: maison.atom
+  feeds:
+  - title: "Ikea Hackers"
+    url: "http://feeds.feedburner.com/Ikeahacker"  # feed URL
+    page_url: "https://ikeahackers.net/"  # OPTIONAL will be matched when feed is read, useless when the feed is in a group
+    # xpath: ""  # OPTIONAL xpath to retrive article content instead of brief in some feeds
+    retention: 60  # retention in days
+    # retrieve_server_media: true  # OPTIONAL overide default value
+    filters: []  # applied filters, order is important
+  - title: Blog Habitat Durable
+    url: https://www.blog-habitat-durable.com/feed/
+    page_url: https://www.blog-habitat-durable.com/
+    retention: 120
+    filters: []
+- title: manga
+  slug: manga
+  output: manga.atom
+  feeds:
+  - title: Danmachi (Is it wrong to pick ...)
+    url: http://fanfox.net/rss/dungeon_ni_deai_o_motomeru_no_wa_machigatte_iru_darou_ka.xml
+    page_url: http://fanfox.net/
+    retention: 120
+    filters: []
+  - title: Danmachi Oratoria
+    url: http://fanfox.net/rss/dungeon_ni_deai_o_motomeru_no_wa_machigatte_iru_darou_ka_gaiden_sword_oratoria.xml
+    page_url: http://fanfox.net/
+    retention: 120
+    filters: []
