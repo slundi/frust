@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::prelude::*;
 use feed_rs::parser;
 use futures::{stream, StreamExt};
-use reqwest::{Client, ClientBuilder};
+use reqwest::{header, Client};
 
 use crate::{
     model::{App, Feed, Filter},
@@ -12,6 +12,26 @@ use crate::{
 
 fn is_time_elapsed(current_time: &DateTime<Utc>, time: DateTime<Utc>, delay: i64) -> bool {
     time.signed_duration_since(current_time).num_seconds() >= delay
+}
+
+/// Check if the time elapsed since the last check is greater than the required interval
+fn is_refresh_required(
+    last_check: &Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+    interval: i64,
+) -> bool {
+    match last_check {
+        Some(time) => now.signed_duration_since(*time).num_seconds() >= interval,
+        None => true, // Never checked before
+    }
+}
+
+/// Check if an article date is older than the retention policy
+fn is_article_expired(entry_date: DateTime<Utc>, now: DateTime<Utc>, retention_days: u16) -> bool {
+    if retention_days == 0 {
+        return false;
+    }
+    now.signed_duration_since(entry_date).num_days() >= retention_days as i64
 }
 
 async fn get_response_feed(
@@ -194,59 +214,214 @@ async fn add_new_articles(
     // TODO: Generate feed file
 }
 
+/// Main processing entry point
 pub(crate) async fn start(app: &App) {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(app.timeout as u64))
+        .user_agent("frust/0.1.0")
+        .build()
+        .expect("Failed to build HTTP client");
 
-    tracing::info!("Using {} workers", app.workers);
-    tracing::info!("Groups {}", app.groups.len());
-    // process by group
-    let bodies = stream::iter(app.groups.clone())
-        .map(|group| {
-            let client = &client;
+    let now = *START_TIME.get().expect("START_TIME not initialized");
+
+    // Create a flat list of feeds to process across all groups
+    let mut feeds_to_process = Vec::new();
+    for group in app.groups.values() {
+        for (feed_id, feed) in &group.feeds {
+            feeds_to_process.push((*feed_id, feed.clone()));
+        }
+    }
+
+    tracing::info!(
+        "Starting processing {} feeds with {} workers",
+        feeds_to_process.len(),
+        app.workers
+    );
+
+    let bodies = stream::iter(feeds_to_process)
+        .map(|(feed_id, feed)| {
+            let client = client.clone();
+            let filters = &app.filters;
+            let min_refresh = app.min_refresh_time;
+
             async move {
-                for feed in group.1.feeds.iter() {
-                    tracing::info!("Processing feed {}", feed.1.title);
-                    match client.get(&feed.1.url).send().await {
-                        //perform the HTTP query
-                        Ok(resp) => {
-                            tracing::info!("Feed downloaded from: {}", feed.1.url);
-                            //read the response
-                            if let Some(result) = get_response_feed(resp, &feed.1.url).await {
-                                tracing::info!("result: {:?}", result);
-                                //read feed data
-                                let stored = if std::path::Path::new(&feed.1.output).is_file() {
-                                    Some(
-                                        feed_rs::parser::parse(
-                                            std::fs::read_to_string(&feed.1.output)
-                                                .unwrap()
-                                                .as_bytes(),
-                                        )
-                                        .unwrap(),
-                                    )
-                                } else {
-                                    None
-                                };
-                                add_new_articles(*feed.0, stored, result, &group.1.feeds).await;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("Unable to get feed from: {}     {}", &feed.1.url, e)
-                        }
-                    }
+                // 1. Smart Polling check (Interval)
+                if !is_refresh_required(&feed.last_check, now, min_refresh) {
+                    return Ok(());
                 }
+
+                // 2. HTTP Request with Conditional Headers
+                let mut req = client.get(&feed.url);
+                if let Some(ref etag) = feed.last_etag {
+                    req = req.header(header::IF_NONE_MATCH, etag.to_rfc2822());
+                }
+                if let Some(last_mod) = feed.last_modified {
+                    req = req.header(header::IF_MODIFIED_SINCE, last_mod.to_rfc2822());
+                }
+
+                let response = req.send().await?;
+
+                // 3. Handle 304 Not Modified
+                if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+                    tracing::info!("Feed {} not modified (304)", feed.title);
+                    return Ok(());
+                }
+
+                // 4. Extract new Cache Metadata
+                let new_etag = response
+                    .headers()
+                    .get(header::ETAG)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string());
+
+                let new_last_mod = response
+                    .headers()
+                    .get(header::LAST_MODIFIED)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
+                    .map(|dt| dt.with_timezone(&Utc));
+
+                // 5. Parse Content
+                let bytes = response.bytes().await?;
+                let mut fetched_feed = parser::Builder::new()
+                    .sanitize_content(true)
+                    .build()
+                    .parse(bytes.as_ref())
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+                // 6. Apply Filters and Retention
+                apply_filters_and_retention(&mut fetched_feed, &feed, filters, now);
+
+                // 7. Save output
+                save_feed_to_disk(&fetched_feed, &feed.output).await?;
+
+                // TODO: Here you should persist new_etag, new_last_mod and 'now' as last_check
+                // back to your database/config state.
+
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             }
         })
         .buffer_unordered(app.workers);
+
     bodies
-        .for_each(|b| async move {
-            tracing::info!("ok: {:?}", b);
-            // match b {
-            //     // Ok(b) => tracing::info!("Got {} bytes", b.len()),
-            //     Ok(()) => tracing::info!("ok"),
-            //     Err(e) => tracing::error!("Got an error: {}", e),
-            // }
+        .for_each(|res| async move {
+            if let Err(e) = res {
+                tracing::error!("Worker error: {}", e);
+            }
         })
         .await;
+}
+
+/// Filter entries based on retention policy and RegexSet filters
+fn apply_filters_and_retention(
+    fetched_feed: &mut feed_rs::model::Feed,
+    feed_config: &Feed,
+    global_filters: &HashMap<u64, Filter>,
+    now: DateTime<Utc>,
+) {
+    fetched_feed.entries.retain(|entry| {
+        // A. Retention Check
+        let entry_date = entry.updated.or(entry.published).unwrap_or(now);
+        if is_article_expired(entry_date, now, feed_config.retention) {
+            return false;
+        }
+
+        // B. Filter Check
+        // Inherited filters (Group + Feed) are already in feed_config.filters hashes
+        for filter_id in &feed_config.filters {
+            if let Some(filter) = global_filters.get(filter_id) {
+                let mut is_match = false;
+
+                // Check title scope
+                if filter.filter_in_title {
+                    if let Some(title) = &entry.title {
+                        if check_text_match(&title.content, filter) {
+                            is_match = true;
+                        }
+                    }
+                }
+
+                // Check summary scope
+                if !is_match && filter.filter_in_summary {
+                    if let Some(summary) = &entry.summary {
+                        if check_text_match(&summary.content, filter) {
+                            is_match = true;
+                        }
+                    }
+                }
+
+                // Check content scope
+                if !is_match && filter.filter_in_content {
+                    while let Some(content) = &entry.content {
+                        if let Some(body) = &content.body {
+                            if check_text_match(body, filter) {
+                                is_match = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Filter logic: 'keep' means only keep if it matches, otherwise exclude if it matches
+                if filter.keep {
+                    if !is_match {
+                        return false;
+                    } // Must match to be kept
+                } else if is_match {
+                    return false;
+                } // Must not match to be kept
+            }
+        }
+        true
+    });
+}
+
+/// Logic to check if a string matches the filter (RegexSet or plain text)
+fn check_text_match(text: &str, filter: &Filter) -> bool {
+    if filter.is_regex {
+        let matches = filter.regexes.matches(text);
+        if filter.must_match_all {
+            matches.len() == filter.regexes.len()
+        } else {
+            matches.matched_any()
+        }
+    } else {
+        // Case insensitive search (if not specified otherwise)
+        let (haystack, needles) = if filter.is_case_sensitive {
+            (text.to_string(), filter.expressions.clone())
+        } else {
+            (
+                text.to_lowercase(),
+                filter
+                    .expressions
+                    .iter()
+                    .map(|e| e.to_lowercase())
+                    .collect(),
+            )
+        };
+
+        let match_count = needles.iter().filter(|&e| haystack.contains(e)).count();
+        if filter.must_match_all {
+            match_count == needles.len()
+        } else {
+            match_count > 0
+        }
+    }
+}
+
+/// Save the filtered feed to the specified output file
+async fn save_feed_to_disk(feed: &feed_rs::model::Feed, path: &str) -> Result<(), std::io::Error> {
+    // Note: To save as XML, I'll need to convert feed_rs model back to RSS/Atom
+    // using crates like 'rss' or 'atom_syndication'.
+    // For now, we trace the action.
+    tracing::debug!(
+        "Writing {} filtered entries to {}",
+        feed.entries.len(),
+        path
+    );
+
+    // TODO: Implementation placeholder for serialization logic
+    Ok(())
 }
 
 #[cfg(test)]

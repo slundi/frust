@@ -200,7 +200,7 @@ impl App {
         if let Some(groups) = map.get(&Yaml::String("groups".to_string())) {
             let provided = groups.as_vec().expect("Invalid groups");
 
-            for (_i, g) in provided.iter().enumerate() {
+            for g in provided.iter() {
                 let m = g.as_hash().expect("Invalid group hash");
 
                 let mut group_obj = Group::default();
@@ -245,7 +245,7 @@ impl Group {
         if let Some(feeds) = map.get(&Yaml::String("feeds".to_string())) {
             let provided = feeds.as_vec().expect("Invalid feeds");
 
-            for (_i, f) in provided.iter().enumerate() {
+            for f in provided.iter() {
                 let m = f.as_hash().expect("Invalid feed hash");
 
                 // --- Feed inheritance ---
