@@ -9,6 +9,7 @@ filters:
   filter_in_title: true  # default true
   filter_in_summary: true  # default true
   filter_in_content: false  # default false
+  keep: false  # `true` to only keep article matching otherwise `false` to exclude
 - slug: "favorite-bands"
   expressions: ["Ghost", "Iron Maiden", "Judas Priest" ]
 - slug: "unwanted-instruments"

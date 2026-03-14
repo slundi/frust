@@ -2,9 +2,12 @@ extern crate slug;
 extern crate yaml_rust;
 
 use std::path::Path;
+use std::sync::OnceLock;
 use std::{env, process::ExitCode};
 
-use std::collections::HashMap;
+use chrono::{DateTime, Utc};
+
+use crate::model::App;
 
 pub(crate) mod config;
 pub(crate) mod model;
@@ -12,23 +15,23 @@ pub(crate) mod processing;
 
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
+static START_TIME: OnceLock<DateTime<Utc>> = OnceLock::new();
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
-fn create_output_structure(
-    output: String,
-    retrieve: bool,
-    feeds: &HashMap<u64, crate::model::Feed>,
-) {
-    for f in feeds.iter() {
+fn create_output_structure(app: &App) {
+    for g in app.groups.iter() {
         // does not require a folder if we do not save media, we will just keep an XML feed with combined old articles with new ones
-        if !retrieve {
+        if !app.retrieve_media_server {
             continue;
         }
-        let mut folder = String::with_capacity(output.len() + f.1.slug.len() + 1);
-        folder.push_str(&output);
-        folder.push('/');
-        folder.push_str(&f.1.slug);
-        std::fs::create_dir_all(folder).unwrap();
+        for f in g.1.feeds.iter() {
+            let mut folder =
+                String::with_capacity(app.output.len() + g.1.slug.len() + f.1.slug.len() + 2);
+            folder.push_str(&app.output);
+            folder.push('/');
+            folder.push_str(&f.1.slug);
+            std::fs::create_dir_all(folder).unwrap();
+        }
     }
 }
 
@@ -63,11 +66,7 @@ async fn main() -> ExitCode {
     tracing::info!("Working directory: {}", pwd);
     tracing::info!("Config file: {}", config_file);
     if !Path::new(&config_file).exists() {
-        tracing::error!(
-            "Config file not found: {} in {}",
-            config_file,
-            pwd
-        );
+        tracing::error!("Config file not found: {} in {}", config_file, pwd);
         print_usage();
         return ExitCode::FAILURE;
     }
@@ -76,11 +75,12 @@ async fn main() -> ExitCode {
     let mut exit_code = ExitCode::SUCCESS;
     // load globals
     let app = crate::config::load_config_file(config_file);
+    START_TIME.set(Utc::now()).unwrap();
     std::fs::create_dir_all(app.output.clone()).unwrap_or_else(|e| {
         tracing::error!("Unable to create output directory: {}", e);
         exit_code = ExitCode::FAILURE;
     });
-    create_output_structure(app.output.clone(), app.retrieve_media_server, &app.feeds);
+    create_output_structure(&app);
     crate::processing::start(&app).await;
     exit_code
 }

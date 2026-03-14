@@ -188,6 +188,7 @@ impl App {
                         filter_in_title,
                         filter_in_summary,
                         filter_in_content,
+                        keep: false,
                     },
                 );
             }
@@ -197,156 +198,108 @@ impl App {
 
     fn load_groups(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
         if let Some(groups) = map.get(&Yaml::String("groups".to_string())) {
-            let provided = groups
-                .as_vec()
-                .expect("Invalid field in config file: groups");
-            self.groups = HashMap::with_capacity(provided.len());
-            for (i, g) in provided.iter().enumerate() {
-                let mut obj: Group = Group::default();
-                let m = g
-                    .as_hash()
-                    .unwrap_or_else(|| panic!("Invalid item in groups[{}]", i));
-                obj.title = get_string_field_from_map(
-                    m,
-                    "title".to_string(),
-                    true,
-                    Some(format!("groups[{}].title", i)),
-                );
-                obj.slug = get_string_field_from_map(
-                    m,
-                    "slug".to_string(),
-                    true,
-                    Some(format!("groups[{}].slug", i)),
-                );
-                obj.output = get_string_field_from_map(
-                    m,
-                    "output".to_string(),
-                    false,
-                    Some(format!("groups[{}].output", i)),
-                );
-                // get filters if applicable
-                if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
-                    let values = filters
-                        .as_vec()
-                        .unwrap_or_else(|| panic!("Invalid item in groups[{}].filters", i));
-                    obj.filters = Vec::with_capacity(values.len());
-                    for v in values {
-                        let name = v
-                            .as_str()
-                            .unwrap_or_else(|| panic!("Invalid data in groups[{}].filters", i));
-                        let h: u64 = xxh3_64(name.as_bytes());
-                        if self.filters.contains_key(&h) {
-                            obj.filters.push(h);
-                        }
-                    }
-                }
-                let code = xxh3_64(slugify(obj.slug.clone()).as_bytes());
-                self.groups.insert(code, obj);
-                self.load_feeds(m, code);
-            }
-        }
-        tracing::info!("Loaded groups: {}", self.groups.len());
-    }
+            let provided = groups.as_vec().expect("Invalid groups");
 
-    fn load_feeds(&mut self, map: &LinkedHashMap<Yaml, Yaml>, group_code: u64) {
-        if let Some(feeds) = map.get(&Yaml::String("feeds".to_string())) {
-            let provided = feeds
-                .as_vec()
-                .expect("Invalid field in config file: groups");
-            // self.feeds = HashMap::with_capacity(provided.len());
-            // tracing::debug!("{} feeds to load", provided.len());
-            for (i, f) in provided.iter().enumerate() {
-                let m = f
-                    .as_hash()
-                    .unwrap_or_else(|| panic!("Invalid item in groups[{}]", i));
-                let title = get_string_field_from_map(
-                    m,
-                    "title".to_string(),
-                    true,
-                    Some(format!("feeds[{}].title", i)),
-                );
-                let url = get_string_field_from_map(
-                    m,
-                    "url".to_string(),
-                    true,
-                    Some(format!("feeds[{}].url", i)),
-                );
-                let output = get_string_field_from_map(
-                    m,
-                    "output".to_string(),
-                    false,
-                    Some(format!("feeds[{}].output", i)),
-                );
-                // parse URL (so check it) and get slug
-                let parsed_url = url::Url::parse(&url)
-                    .unwrap_or_else(|e| panic!("Invalid data in feeds[{}].url: {}", i, e));
-                let slug = parsed_url
-                    .host_str()
-                    .unwrap_or_else(|| panic!("Invalid host in feeds[{}].url", i))
-                    .to_string();
-                let selector = get_string_field_from_map(m, "selector".to_string(), false, None);
-                if !selector.is_empty() {
-                    scraper::Selector::parse(&selector).unwrap_or_else(|e| {
-                        panic!("Invalid selector in feeds[{}].selector: {:?}", i, e)
-                    });
+            for (_i, g) in provided.iter().enumerate() {
+                let m = g.as_hash().expect("Invalid group hash");
+
+                let mut group_obj = Group::default();
+                group_obj.slug = get_string_field_from_map(m, "slug".to_string(), true, None);
+
+                // --- Group inheritance ---
+                // if group does not have output, it takes it from the App (global
+                group_obj.output = get_string_field_from_map(m, "output".to_string(), false, None);
+                if group_obj.output.is_empty() {
+                    group_obj.output = self.output.clone();
                 }
-                // get the group if applicable and load
-                // let mut group: Option<u64> = None;
-                // let g = get_string_field_from_map(m, "group".to_string(), false, None);
-                // let mut c = AppConfig::default();
-                // if !g.is_empty() {
-                //     let gh = xxh3_64(g.as_bytes());
-                //     if let Some(g) = config.groups.get(&gh) {
-                //         c = g.config.clone();
-                //         group = Some(gh);
-                //     } else {
-                //         panic!("Invalid group slung in: feeds[{}].group", i);
-                //     }
-                // }
-                // TODO: produces: ["HTML", "PDF"]  # OPTIONAL if we want article to be in various format instead of only be in the RSS feed file
-                let mut obj = Feed {
-                    title,
-                    group_code,
-                    url,
-                    slug,
-                    selector,
-                    page_url: String::with_capacity(128),
-                    // group,
-                    filters: Vec::with_capacity(0),
-                    output,
-                };
-                // get filters if applicable
+
+                // Group retention or global if missing
+                group_obj.retention = m
+                    .get(&Yaml::String("retention".to_string()))
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as u16)
+                    .unwrap_or(self.retention);
+
+                // Load group filters
                 if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
-                    let values = filters
-                        .as_vec()
-                        .unwrap_or_else(|| panic!("Invalid item in feeds[{}].filters", i));
-                    obj.filters = Vec::with_capacity(values.len());
-                    for v in values {
-                        let name = v
-                            .as_str()
-                            .unwrap_or_else(|| panic!("Invalid data in feeds[{}].filters", i));
-                        let h: u64 = xxh3_64(name.as_bytes());
-                        if self.filters.contains_key(&h) {
-                            obj.filters.push(h);
+                    for f_val in filters.as_vec().unwrap_or(&vec![]) {
+                        if let Some(name) = f_val.as_str() {
+                            group_obj.filters.push(xxh3_64(name.as_bytes()));
                         }
                     }
                 }
-                let code = xxh3_64(slugify(obj.slug.clone()).as_bytes());
-                if self.has_output(group_code, code) {
-                    self.feeds.insert(code, obj);
-                } else {
-                    tracing::warn!(
-                        "Feed {} is never saved (no output in group or in the feed)",
-                        obj.title
-                    );
-                }
+
+                let group_code = xxh3_64(slugify(&group_obj.slug).as_bytes());
+                self.groups.insert(group_code, group_obj.clone());
+
+                // Give group object for feeds that are inheriting it
+                group_obj.load_feeds(m);
             }
+            tracing::info!("Loaded groups: {}", self.groups.len());
         }
-        tracing::info!(
-            "Loaded feeds: {} (group: {})",
-            self.feeds.len(),
-            self.groups.get(&group_code).unwrap().slug
-        );
+    }
+}
+
+impl Group {
+    fn load_feeds(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
+        if let Some(feeds) = map.get(&Yaml::String("feeds".to_string())) {
+            let provided = feeds.as_vec().expect("Invalid feeds");
+
+            for (_i, f) in provided.iter().enumerate() {
+                let m = f.as_hash().expect("Invalid feed hash");
+
+                // --- Feed inheritance ---
+                let mut feed_obj = Feed {
+                    title: get_string_field_from_map(m, "title".to_string(), true, None),
+                    url: get_string_field_from_map(m, "url".to_string(), true, None),
+                    slug: String::new(), // will be computed later
+                    output: get_string_field_from_map(m, "output".to_string(), false, None),
+                    retention: m
+                        .get(&Yaml::String("retention".to_string()))
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as u16)
+                        .unwrap_or(self.retention), // inherited from group
+                    filters: self.filters.clone(), // starts with group filters
+                    content_mode: crate::model::ContentMode::Default,
+                    selector: Some(get_string_field_from_map(
+                        m,
+                        "selector".to_string(),
+                        false,
+                        None,
+                    )),
+                    page_url: String::new(),
+                    last_etag: None,
+                    last_modified: None,
+                    last_check: None,
+                };
+
+                // If feed does not have output, use the one from the group
+                // that may have taken it from global
+                if feed_obj.output.is_empty() {
+                    feed_obj.output = self.output.clone();
+                }
+
+                // Add feed filters to the one inherited from the group
+                if let Some(f_list) = m.get(&Yaml::String("filters".to_string())) {
+                    for f_val in f_list.as_vec().unwrap_or(&vec![]) {
+                        if let Some(name) = f_val.as_str() {
+                            let h = xxh3_64(name.as_bytes());
+                            if !feed_obj.filters.contains(&h) {
+                                feed_obj.filters.push(h);
+                            }
+                        }
+                    }
+                }
+
+                // Compute slug and insertion
+                let parsed_url = url::Url::parse(&feed_obj.url).expect("Invalid URL");
+                feed_obj.slug = slugify(parsed_url.host_str().unwrap_or("no-host"));
+
+                let feed_code = xxh3_64(feed_obj.slug.as_bytes());
+                self.feeds.insert(feed_code, feed_obj);
+            }
+            tracing::info!("Loaded feeds: {} (group: {})", self.feeds.len(), self.slug);
+        }
     }
 }
 

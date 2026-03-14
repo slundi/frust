@@ -6,7 +6,7 @@ database_file: "frust.dat"  # path where article information are saved
 # Global feed configuration, it ius inheritable (in groups and feeds) configuaration
 timeout: 10  # OPTIONAL timeout in seconds, default 10 seconds
 min_refresh_time:  600  # OPTIONAL refresh time in seconds, default 10 minutes (600 seconds)
-article_keep_time: 30  # OPTIONAL keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets)
+retention: 30  # OPTIONAL keep time in days, default 30 days. After 30 days, it will remove it from the feed, and also from the output path (assets)
 retrieve_server_media: false  # OPTIONAL default false. Download images `<output>/[<folder>/]<feed>/assets`
 sort: "-date"  # OPTIONAL default sorting. Default is "-date". Minus before the filed indicates a descending order. Available fields are: date, feed
 
@@ -30,7 +30,7 @@ feeds:
     page_url: "https://my-favourite-website.org/"  # OPTIONAL will be matched when feed is read, useless when the feed is in a group
     xpath: ""  # OPTIONAL xpath to retrive article content instead of brief in some feeds
     min_refresh_time:  600  # OPTIONAL refresh time if you want to override the default one for this feed
-    article_keep_time: 30  # OPTIONAL if you want to override the default article keep time
+    retention: 30  # OPTIONAL if you want to override the default article keep time
     retrieve_server_media: true  # OPTIONAL overide default value
     excludes: ["unwanted-instruments"]  # OPTIONAL see bellow. It takes over include filters
     includes: ["favorite-bands"]  # OPTIONAL see bellow

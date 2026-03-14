@@ -5,7 +5,10 @@ use feed_rs::parser;
 use futures::{stream, StreamExt};
 use reqwest::{Client, ClientBuilder};
 
-use crate::model::{App, Feed, Filter};
+use crate::{
+    model::{App, Feed, Filter},
+    START_TIME,
+};
 
 fn is_time_elapsed(current_time: &DateTime<Utc>, time: DateTime<Utc>, delay: i64) -> bool {
     time.signed_duration_since(current_time).num_seconds() >= delay
@@ -155,9 +158,9 @@ async fn add_new_articles(
         // check if entry should be kept (storage time)
         if let Some(date) = entry.updated {
             if is_time_elapsed(
-                *crate::NOW,
+                START_TIME.get().unwrap(),
                 date,
-                feeds.get(&feed_id).unwrap().config.article_keep_time * 86400,
+                feeds.get(&feed_id).unwrap().retention as i64 * 86400,
             ) {
                 should_add = false;
             }
@@ -174,17 +177,17 @@ async fn add_new_articles(
         //     should_add |= FLAG_INCLUDED;
         // }
         // TODO: selector
-        if !feeds.get(&feed_id).unwrap().selector.is_empty() && !entry.links.is_empty() {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(get_link_data(
-                &client,
-                &entry.links[0].href,
-                &feeds.get(&feed_id).unwrap().selector,
-            )) {
-                Ok(_) => todo!(),
-                Err(_) => todo!(),
-            };
-        }
+        // if !feeds.get(&feed_id).unwrap().selector.is_empty() && !entry.links.is_empty() {
+        //     let rt = tokio::runtime::Runtime::new().unwrap();
+        //     match rt.block_on(get_link_data(
+        //         &client,
+        //         &entry.links[0].href,
+        //         &feeds.get(&feed_id).unwrap().selector,
+        //     )) {
+        //         Ok(_) => todo!(),
+        //         Err(_) => todo!(),
+        //     };
+        // }
         should_add
     });
     // apply filters
@@ -195,34 +198,41 @@ pub(crate) async fn start(app: &App) {
     let client = Client::new();
 
     tracing::info!("Using {} workers", app.workers);
-    tracing::info!("Feeds {}", app.feeds.len());
-    let bodies = stream::iter(app.feeds.clone())
-        .map(|feed| {
+    tracing::info!("Groups {}", app.groups.len());
+    // process by group
+    let bodies = stream::iter(app.groups.clone())
+        .map(|group| {
             let client = &client;
-            tracing::info!("Processing feed {}", feed.1.title);
             async move {
-                match client.get(&feed.1.url).send().await {
-                    //perform the HTTP query
-                    Ok(resp) => {
-                        tracing::info!("Feed downloaded from: {}", feed.1.url);
-                        //read the response
-                        if let Some(result) = get_response_feed(resp, &feed.1.url).await {
-                            tracing::info!("result: {:?}", result);
-                            //read feed data
-                            let stored = if std::path::Path::new(&feed.1.output).is_file() {
-                                Some(
-                                    feed_rs::parser::parse(
-                                        std::fs::read_to_string(&feed.1.output).unwrap().as_bytes(),
+                for feed in group.1.feeds.iter() {
+                    tracing::info!("Processing feed {}", feed.1.title);
+                    match client.get(&feed.1.url).send().await {
+                        //perform the HTTP query
+                        Ok(resp) => {
+                            tracing::info!("Feed downloaded from: {}", feed.1.url);
+                            //read the response
+                            if let Some(result) = get_response_feed(resp, &feed.1.url).await {
+                                tracing::info!("result: {:?}", result);
+                                //read feed data
+                                let stored = if std::path::Path::new(&feed.1.output).is_file() {
+                                    Some(
+                                        feed_rs::parser::parse(
+                                            std::fs::read_to_string(&feed.1.output)
+                                                .unwrap()
+                                                .as_bytes(),
+                                        )
+                                        .unwrap(),
                                     )
-                                    .unwrap(),
-                                )
-                            } else {
-                                None
-                            };
-                            add_new_articles(feed.0, stored, result, &app.feeds).await;
+                                } else {
+                                    None
+                                };
+                                add_new_articles(*feed.0, stored, result, &group.1.feeds).await;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Unable to get feed from: {}     {}", &feed.1.url, e)
                         }
                     }
-                    Err(e) => tracing::error!("Unable to get feed from: {}     {}", &feed.1.url, e),
                 }
             }
         })
