@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use chrono::prelude::*;
 use feed_rs::parser;
 use futures::{stream, StreamExt};
+use htmd::HtmlToMarkdown;
 use reqwest::{header, Client};
+use scraper::{Html, Selector};
 
 use crate::{
-    model::{App, Feed, Filter},
+    model::{App, ContentMode, Feed, Filter},
     START_TIME,
 };
 
@@ -27,11 +29,14 @@ fn is_refresh_required(
 }
 
 /// Check if an article date is older than the retention policy
-fn is_article_expired(entry_date: DateTime<Utc>, now: DateTime<Utc>, retention_days: u16) -> bool {
+fn is_article_expired(entry_date: DateTime<Utc>, retention_days: u16) -> bool {
     if retention_days == 0 {
         return false;
     }
-    now.signed_duration_since(entry_date).num_days() >= retention_days as i64
+    (*START_TIME.get().unwrap())
+        .signed_duration_since(entry_date)
+        .num_days()
+        >= retention_days as i64
 }
 
 async fn get_response_feed(
@@ -290,7 +295,13 @@ pub(crate) async fn start(app: &App) {
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
                 // 6. Apply Filters and Retention
-                apply_filters_and_retention(&mut fetched_feed, &feed, filters, now);
+                apply_filters_and_retention(
+                    &mut fetched_feed,
+                    &feed,
+                    filters,
+                    &client,
+                    feed.selector.clone(),
+                ).await;
 
                 // 7. Save output
                 save_feed_to_disk(&fetched_feed, &feed.output).await?;
@@ -312,17 +323,94 @@ pub(crate) async fn start(app: &App) {
         .await;
 }
 
+/// Adjust entry content based on the configured ContentMode
+async fn apply_content_mode(
+    entry: &mut feed_rs::model::Entry,
+    mode: &ContentMode,
+    client: &reqwest::Client,
+    selector_str: &Option<String>,
+) {
+    let converter = HtmlToMarkdown::new();
+
+    if *mode == ContentMode::LinksOnly || *mode == ContentMode::No {
+        entry.content = None;
+        entry.summary = None;
+    }
+    if *mode == ContentMode::Default {
+        // Keep everything as is (Title + Summary + Content)
+        // Convert existing content to Markdown to save space if needed
+        if let Some(content) = &mut entry.content {
+            if let Some(body) = &content.body {
+                content.body = Some(converter.convert(body).unwrap_or(body.clone()));
+            }
+        }
+    }
+    if *mode == ContentMode::Force {
+        // Use summary as content and convert to MD
+        if let Some(summary) = &entry.summary {
+            // entry.content = Some(feed_rs::model::Content {
+            //     body: Some(
+            //         converter
+            //             .convert(&summary.content)
+            //             .unwrap_or(summary.content.clone()),
+            //     ),
+            //     content_type: mime::TEXT_MARKDOWN,
+            //     length: None,
+            //     src: None,
+            // });
+            entry.summary = None;
+        }
+    }
+    if *mode == ContentMode::Force {
+        // 1. Get the article URL
+        if let Some(link) = entry.links.first() {
+            // 2. Download the full HTML page
+            if let Ok(resp) = client.get(&link.href).send().await {
+                if let Ok(html_content) = resp.text().await {
+                    let document = Html::parse_document(&html_content);
+
+                    // 3. Use CSS selector to find the main article body
+                    let selector = selector_str.as_deref().unwrap_or("article, main, .content");
+                    if let Ok(sel) = Selector::parse(selector) {
+                        if let Some(element) = document.select(&sel).next() {
+                            let inner_html = element.inner_html();
+                            // 4. Convert targeted HTML to Markdown
+                            // entry.content = Some(feed_rs::model::Content {
+                            //     body: Some(converter.convert(&inner_html).unwrap_or(inner_html)),
+                            //     content_type: mime::TEXT_MARKDOWN,
+                            //     length: None,
+                            //     src: None,
+                            // });
+                            entry.summary = None;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Filter entries based on retention policy and RegexSet filters
-fn apply_filters_and_retention(
+async fn apply_filters_and_retention(
     fetched_feed: &mut feed_rs::model::Feed,
     feed_config: &Feed,
     global_filters: &HashMap<u64, Filter>,
-    now: DateTime<Utc>,
+    client: &reqwest::Client,
+    selector: Option<String>,
 ) {
+    // 1. First, adjust content according to the mode
+    for entry in &mut fetched_feed.entries {
+        apply_content_mode(entry, &feed_config.content_mode, client, &selector).await;
+    }
+
+    // 2. Then, proceed with retention and filtering
     fetched_feed.entries.retain(|entry| {
         // A. Retention Check
-        let entry_date = entry.updated.or(entry.published).unwrap_or(now);
-        if is_article_expired(entry_date, now, feed_config.retention) {
+        let entry_date = entry
+            .updated
+            .or(entry.published)
+            .unwrap_or(*START_TIME.get().unwrap());
+        if is_article_expired(entry_date, feed_config.retention) {
             return false;
         }
 

@@ -28,5 +28,6 @@ reqwest = "0.13"
 feed-rs = { version = "2.3", features = ["sanitize"] }
 chrono = "0.4"
 scraper = "0.25"
+htmd = "0.5"
 
 [dev-dependencies]
