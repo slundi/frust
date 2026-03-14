@@ -12,7 +12,7 @@ keywords = ["cli", "rss", "atom", "feed", "aggregator", "feeds"]
 publish = true
 
 [dependencies]
-tokio = { version = "1.43", features = ["full"] }
+tokio = { version = "1.50", features = ["full"] }
 yaml-rust = "0.4"
 tracing = "0.1"
 tracing-subscriber = "0.3"
@@ -21,12 +21,12 @@ tracing-subscriber = "0.3"
 linked-hash-map = "0.5"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 slug = "0.1"
-url = "2.3"
+url = "2.5"
 regex = "1"
 futures = "0.3"
-reqwest = "0.12"
+reqwest = "0.13"
 feed-rs = { version = "2.3", features = ["sanitize"] }
 chrono = "0.4"
-scraper = "0.22"
+scraper = "0.25"
 
 [dev-dependencies]
