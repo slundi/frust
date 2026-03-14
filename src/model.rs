@@ -140,7 +140,6 @@ pub(crate) struct Feed {
 /// Filter structure. The name is not kept because it is only used during filter loading in order to help the user to find errors quickly.
 #[derive(Debug, Clone)]
 pub(crate) struct Filter {
-    pub(crate) slug: String,
     /// Text or regex.
     ///
     /// If `expressions=["Elon Musk", "Tesla"]`, it will search the exact `Elon Musk` then `Tesla`. It will not be `Elon`, `Musk` and `Tesla`.
@@ -163,7 +162,6 @@ pub(crate) struct Filter {
 impl Default for Filter {
     fn default() -> Self {
         Self {
-            slug: String::new(),
             expressions: Vec::new(),
             is_regex: false,
             is_case_sensitive: false,

@@ -179,7 +179,6 @@ impl App {
                 self.filters.insert(
                     h,
                     Filter {
-                        slug,
                         expressions,
                         regexes,
                         is_regex,
