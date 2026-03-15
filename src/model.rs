@@ -148,8 +148,6 @@ pub(crate) struct Filter {
     pub(crate) regexes: RegexSet,
     /// list of regex to match
     pub(crate) is_regex: bool,
-    /// If the search is case sensitive, default false
-    pub(crate) is_case_sensitive: bool,
     /// if all sentences and regexes must match, default `false
     pub(crate) must_match_all: bool,
     // scopes
@@ -165,7 +163,6 @@ impl Default for Filter {
         Self {
             expressions: Vec::new(),
             is_regex: false,
-            is_case_sensitive: false,
             must_match_all: false,
             filter_in_title: true,
             filter_in_summary: true,
@@ -216,7 +213,7 @@ pub(crate) struct FeedState {
     pub(crate) last_modified_ts: Option<i64>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) enum ExportStrategy {
     /// One file containing all articles of the group (Ideal for EPUB/RSS)
     Monolithic, 

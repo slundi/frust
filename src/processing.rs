@@ -59,11 +59,7 @@ fn text_is_found(text: String, filter_id: u64, filters: &HashMap<u64, Filter>) -
         true
     } else {
         // if case insensitive, expressions are in lower case (loaded in [config.rs](config.rs))
-        let content = if filter.is_case_sensitive {
-            text
-        } else {
-            text.to_lowercase()
-        };
+        let content = text.to_lowercase();
         let mut count_found = 0usize;
         for exp in &filter.expressions {
             if content.contains(exp) {
@@ -459,18 +455,14 @@ fn check_text_match(text: &str, filter: &Filter) -> bool {
         }
     } else {
         // Case insensitive search (if not specified otherwise)
-        let (haystack, needles) = if filter.is_case_sensitive {
-            (text.to_string(), filter.expressions.clone())
-        } else {
-            (
-                text.to_lowercase(),
-                filter
-                    .expressions
-                    .iter()
-                    .map(|e| e.to_lowercase())
-                    .collect(),
-            )
-        };
+        let (haystack, needles): (String, Vec<String>) = (
+            text.to_lowercase(),
+            filter
+                .expressions
+                .iter()
+                .map(|e| e.to_lowercase())
+                .collect(),
+        );
 
         let match_count = needles.iter().filter(|&e| haystack.contains(e)).count();
         if filter.must_match_all {
@@ -497,6 +489,4 @@ async fn save_feed_to_disk(feed: &feed_rs::model::Feed, path: &str) -> Result<()
 }
 
 #[cfg(test)]
-mod tests {
-    
-}
+mod tests {}

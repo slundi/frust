@@ -68,16 +68,6 @@ impl App {
                     Some(format!("filters[{}].slug", i)),
                 );
                 let h = xxh3_64(slug.as_bytes());
-                // process is_case_sensitive
-                let mut is_case_sensitive = false;
-                if let Some(v) = m.get(&Yaml::String("is_case_sensitive".to_string())) {
-                    is_case_sensitive = v.as_bool().unwrap_or_else(|| {
-                        panic!(
-                            "Invalid filters.is_case_sensitive boolean for filter {}",
-                            slug
-                        )
-                    });
-                }
                 // process filter expressions/sentences
                 let value = m.get(&Yaml::String("expressions".to_string()));
                 if value.is_none() {
@@ -103,11 +93,7 @@ impl App {
                                 panic!("Invalid filters.expressions string for filter {}", slug)
                             })
                             .to_string();
-                        if is_case_sensitive {
-                            sentence
-                        } else {
-                            sentence.to_lowercase()
-                        }
+                        sentence.to_lowercase()
                     })
                     .collect();
                 let value = m.get(&Yaml::String("is_regex".to_string()));
@@ -168,7 +154,7 @@ impl App {
                 let mut regexes = RegexSet::empty();
                 if is_regex {
                     regexes = RegexSetBuilder::new(expressions.clone())
-                        .case_insensitive(!is_case_sensitive)
+                        .case_insensitive(true)
                         .ignore_whitespace(true)
                         .unicode(true)
                         .build()
@@ -182,7 +168,6 @@ impl App {
                         expressions,
                         regexes,
                         is_regex,
-                        is_case_sensitive,
                         must_match_all,
                         filter_in_title,
                         filter_in_summary,
