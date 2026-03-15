@@ -61,12 +61,13 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 
 - [ ] Index file with links (a href and head links) to RSS feeds + errors (unreachable, ...), section with ignored article + associated filter(s)
 - [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR
-- [ ]  Add logger
-- [ ] `produces`:
-  - [ ] page with ToC if on folders or global
-  - [ ] formats: HTML, Markdown, PDF, EPUB?, ZIP?, 
+- [ ] `exports` in the config file to have various format (global, per group or per feed or per article):
+  - [ ] HTML
+  - [ ] Markdown
+  - [ ] EPUB
+  - [ ] ~~PDF~~ to complex/heavy for the tool, use pandoc or typst
+  - [ ] ZIP of JSON or markdown or HTML or XML
 - [ ] Print help and version
-- [ ] Case sensitive regex?
 - [ ] Handle torrent
   - [ ] tags like the [Nyaa.si tracker](https://nyaa.si)
   - [ ] group all torrents in a single article (per feed)
