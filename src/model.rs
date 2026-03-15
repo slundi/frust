@@ -215,3 +215,13 @@ pub(crate) struct FeedState {
     pub(crate) last_check_ts: Option<i64>,
     pub(crate) last_modified_ts: Option<i64>,
 }
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) enum ExportStrategy {
+    /// One file containing all articles of the group (Ideal for EPUB/RSS)
+    Monolithic, 
+    /// One file per article (Ideal for Markdown/Knowledge bases)
+    Individual,
+    /// One file per day (Good compromise for Journaling)
+    Daily,
+}
