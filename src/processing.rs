@@ -9,24 +9,9 @@ use scraper::{Html, Selector};
 
 use crate::{
     model::{App, ContentMode, Feed, Filter},
+    utils::is_refresh_required,
     START_TIME,
 };
-
-fn is_time_elapsed(current_time: &DateTime<Utc>, time: DateTime<Utc>, delay: i64) -> bool {
-    time.signed_duration_since(current_time).num_seconds() >= delay
-}
-
-/// Check if the time elapsed since the last check is greater than the required interval
-fn is_refresh_required(
-    last_check: &Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-    interval: i64,
-) -> bool {
-    match last_check {
-        Some(time) => now.signed_duration_since(*time).num_seconds() >= interval,
-        None => true, // Never checked before
-    }
-}
 
 /// Check if an article date is older than the retention policy
 fn is_article_expired(entry_date: DateTime<Utc>, retention_days: u16) -> bool {
@@ -181,14 +166,12 @@ async fn add_new_articles(
     rf.entries.retain(|entry| {
         let mut should_add = true;
         // check if entry should be kept (storage time)
-        if let Some(date) = entry.updated {
-            if is_time_elapsed(
-                START_TIME.get().unwrap(),
-                date,
-                feeds.get(&feed_id).unwrap().retention as i64 * 86400,
-            ) {
-                should_add = false;
-            }
+        if is_refresh_required(
+            entry.updated,
+            *START_TIME.get().unwrap(),
+            feeds.get(&feed_id).unwrap().retention as i64 * 86400,
+        ) {
+            should_add = false;
         }
         // Apply filters (do not match content if CSS selector is specified)
         // TODO: handle blanks (\n, \r, ...)
@@ -251,7 +234,7 @@ pub(crate) async fn start(app: &App) {
 
             async move {
                 // 1. Smart Polling check (Interval)
-                if !is_refresh_required(&feed.last_check, now, min_refresh) {
+                if !is_refresh_required(feed.last_check, now, min_refresh) {
                     return Ok(());
                 }
 
@@ -301,7 +284,8 @@ pub(crate) async fn start(app: &App) {
                     filters,
                     &client,
                     feed.selector.clone(),
-                ).await;
+                )
+                .await;
 
                 // 7. Save output
                 save_feed_to_disk(&fetched_feed, &feed.output).await?;
@@ -514,25 +498,5 @@ async fn save_feed_to_disk(feed: &feed_rs::model::Feed, path: &str) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn elapsed_time() {
-        let now = chrono::offset::Utc::now();
-        assert!(
-            is_time_elapsed(&now, now, 0),
-            "1/3 It is not exactly the same date"
-        );
-        let t = now
-            .checked_add_signed(chrono::Duration::milliseconds(10500))
-            .unwrap();
-        assert!(
-            is_time_elapsed(&now, t, 10),
-            "2/3 Date 10.5s after the feed date with a delay of 10s"
-        );
-        assert!(
-            !is_time_elapsed(&now, t, 20),
-            "3/3 Date 10.5s after the feed date with a delay of 20s"
-        );
-    }
+    
 }
