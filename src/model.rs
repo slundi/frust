@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use chrono::Duration;
 use regex::RegexSet;
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::{DEFAULT_HTTP_TIMEOUT, DEFAULT_RETRIEVE_SERVER_MEDIA, START_TIME};
 
@@ -173,4 +174,44 @@ impl Default for Filter {
             keep: false,
         }
     }
+}
+
+#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
+pub(crate) struct Article {
+    /// Hash XXH3 of the original URL or GUID to identify uniqueness
+    pub(crate) id: u64,
+    /// Hash of the feed it belongs to
+    pub(crate) feed_id: u64,
+    pub(crate) title: String,
+    /// The link to the original article
+    pub(crate) url: String,
+    /// Content converted to Markdown
+    pub(crate) content: String,
+    /// Summary or snippet
+    pub(crate) summary: Option<String>,
+    /// Date from the feed (published or updated)
+    pub(crate) timestamp: i64,
+    /// Date when the article was first seen by frust
+    pub(crate) added_at: i64,
+    /// Useful for 'Force' mode: has the full content been fetched?
+    pub(crate) is_full_content: bool,
+    /// List of media/enclosures (images, podcasts)
+    pub(crate) enclosures: Vec<Enclosure>,
+}
+
+#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
+pub(crate) struct Enclosure {
+    pub(crate) url: String,
+    pub(crate) mime_type: String,
+    pub(crate) length: Option<u64>,
+}
+
+#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
+// rkyv needs this to handle byte alignment and validation
+pub(crate) struct FeedState {
+    pub(crate) last_etag: Option<String>,
+    // rkyv works best with fixed-size types or its own primitives
+    // We store timestamp as i64 (seconds) for easier serialization
+    pub(crate) last_check_ts: Option<i64>,
+    pub(crate) last_modified_ts: Option<i64>,
 }

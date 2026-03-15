@@ -12,6 +12,7 @@ use crate::model::App;
 pub(crate) mod config;
 pub(crate) mod model;
 pub(crate) mod processing;
+pub(crate) mod storage;
 pub(crate) mod utils;
 
 const DEFAULT_HTTP_TIMEOUT: u8 = 10;

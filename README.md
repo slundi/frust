@@ -18,7 +18,7 @@ I made this app because:
 * 🖼️ Retrieve article content when possible (images, audio, ...)
 * 🌐 No web server: you do not need to essure you use an available network port or secure it. It generates static files so you just need to serve them in your favorite web server (mine is **nginx**)
 * 🍃 Lightweight: it is written in Rust so it is green (fast and low memory usage), it also does not run in background so you just need to define a **cron** to run it periodically
-* 🕵 No spyware: sources available on [GitHub](https://github.com/slundi/frust), you can check for any bloatware
+* 🕵 No spyware: sources available on [Codeberg](https://codeberg.org/slundi/frust) and [GitHub (mirror)](https://github.com/slundi/frust), you can check for any bloatware
 * 🔒 You can run it as a non-root user. Just be sure to have permissions to write files in the output folder (mine is `/var/www/rss`)
 
 ## Configuration
@@ -28,13 +28,6 @@ Edit the [config.yaml](config.yaml) according to your needs.
 ## Usage
 
 `frust-cli CONFIG_FILE`
-
-It generates a `frust.csv` to keep track of the date when the article was added. It looks like this:
-
-```csv
-hash;ignored;date;slug
-df1fd01a;false;20220214103020;my-awesome-article
-```
 
 Add it to the cron table.
 
@@ -72,22 +65,17 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 - [ ] `produces`:
   - [ ] page with ToC if on folders or global
   - [ ] formats: HTML, Markdown, PDF, EPUB?, ZIP?, 
-- [ ] `touch` article file and folder to match the feed date?
 - [ ] Print help and version
 - [ ] Case sensitive regex?
 - [ ] Handle torrent
   - [ ] tags like the [Nyaa.si tracker](https://nyaa.si)
   - [ ] group all torrents in a single article (per feed)
-- [ ] Inject data (probably links) in article
-  - [ ] Download links:
-    - [ ] PDF
-    - [ ] ePUB?
-  - [ ] Share links
-  - [ ] Shiori, pocket links
 - [ ] OPML Import (`-i`?): generate the config file
 - [ ] OPML export (`-e`?)
-- [ ] Language flag
-- [ ] EPG (Electronic Program Guide) support
+- [ ] Feed enrichment to inject data in an article
+  - [ ] language flag? (add a flag is the feed title and `hreflang`)
+  - [ ] inject HTML at top or bottop to add links to call an external API (to download the article in bookmark manager like [Shiori](https://github.com/go-shiori/shiori) or share links or ...)
+  - [ ] download links so we have to export to various formats (PDF? epub?)
 
 ### Dropped ideas
 
@@ -95,3 +83,5 @@ Just run: `frust-cli <arguments> > path/to/log/file.log`
 - Generate user in DB? prompt password? Exit without processing? (`-u USERNAME`?): Not needed, we do not use the Frust DB
 - Using a DB to store ignored articles, last update and hash
 - web server
+- EPG (Electronic Program Guide) support (will be a dedicated app)
+- `touch` article file and folder to match the feed date: will create a lot of files so it will be IO intensive and slow when a lot a files... when save on SD card it will kill it faster, no COW (copy on write) like with redb
