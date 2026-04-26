@@ -126,7 +126,7 @@ impl Storage {
 
     pub fn save_media(&self, data: &[u8]) -> Result<u64, Box<dyn std::error::Error>> {
         tracing::info!("Saving media");
-        let hash = xxhash_rust::xxh3::xxh3_64(data);
+        let hash = twox_hash::XxHash3_64::oneshot(data);
 
         let write_txn = self.articles_db.begin_write()?;
         {

@@ -3,7 +3,7 @@ use std::{collections::HashMap, convert::TryFrom};
 use linked_hash_map::LinkedHashMap;
 use regex::{RegexSet, RegexSetBuilder};
 use slug::slugify;
-use xxhash_rust::xxh3::xxh3_64;
+use twox_hash::XxHash3_64;
 use yaml_rust::Yaml;
 
 use crate::model::{App, Feed, Filter, Group};
@@ -67,7 +67,7 @@ impl App {
                     true,
                     Some(format!("filters[{}].slug", i)),
                 );
-                let h = xxh3_64(slug.as_bytes());
+                let h = XxHash3_64::oneshot(slug.as_bytes());
                 // process filter expressions/sentences
                 let value = m.get(&Yaml::String("expressions".to_string()));
                 if value.is_none() {
@@ -208,12 +208,12 @@ impl App {
                 if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
                     for f_val in filters.as_vec().unwrap_or(&vec![]) {
                         if let Some(name) = f_val.as_str() {
-                            group_obj.filters.push(xxh3_64(name.as_bytes()));
+                            group_obj.filters.push(XxHash3_64::oneshot(name.as_bytes()));
                         }
                     }
                 }
 
-                let group_code = xxh3_64(slugify(&group_obj.slug).as_bytes());
+                let group_code = XxHash3_64::oneshot(slugify(&group_obj.slug).as_bytes());
                 self.groups.insert(group_code, group_obj.clone());
 
                 // Give group object for feeds that are inheriting it
@@ -267,7 +267,7 @@ impl Group {
                 if let Some(f_list) = m.get(&Yaml::String("filters".to_string())) {
                     for f_val in f_list.as_vec().unwrap_or(&vec![]) {
                         if let Some(name) = f_val.as_str() {
-                            let h = xxh3_64(name.as_bytes());
+                            let h = XxHash3_64::oneshot(name.as_bytes());
                             if !feed_obj.filters.contains(&h) {
                                 feed_obj.filters.push(h);
                             }
@@ -279,7 +279,7 @@ impl Group {
                 let parsed_url = url::Url::parse(&feed_obj.url).expect("Invalid URL");
                 feed_obj.slug = slugify(parsed_url.host_str().unwrap_or("no-host"));
 
-                let feed_code = xxh3_64(feed_obj.slug.as_bytes());
+                let feed_code = XxHash3_64::oneshot(feed_obj.slug.as_bytes());
                 self.feeds.insert(feed_code, feed_obj);
             }
             tracing::info!("Loaded feeds: {} (group: {})", self.feeds.len(), self.slug);
