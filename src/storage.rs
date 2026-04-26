@@ -4,7 +4,6 @@ use std::{collections::HashMap, io::Cursor};
 
 const ARTICLES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("articles");
 const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
-const MEDIA_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("media");
 
 pub struct Storage {
     articles_db: Database,
@@ -122,53 +121,5 @@ impl Storage {
         // Sort by date (descending) to have newest articles first in the RSS
         articles.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         Ok(articles)
-    }
-
-    pub fn save_media(&self, data: &[u8]) -> Result<u64, Box<dyn std::error::Error>> {
-        tracing::info!("Saving media");
-        let hash = twox_hash::XxHash3_64::oneshot(data);
-
-        let write_txn = self.articles_db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(MEDIA_TABLE)?;
-            // insert only if not existing (avoid duplicates)
-            if table.get(hash)?.is_none() {
-                table.insert(hash, data)?;
-            }
-        }
-        write_txn.commit()?;
-        Ok(hash)
-    }
-
-    /// Load media from its hash
-    pub fn load_media(&self, hash: u64) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
-        tracing::info!("Loading media {}", hash);
-        let read_txn = self.articles_db.begin_read()?;
-        let table = read_txn.open_table(MEDIA_TABLE)?;
-
-        if let Some(access) = table.get(hash)? {
-            // return a copy of bytes
-            Ok(Some(access.value().to_vec()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Load all media from a hash list (to export or for the cache)
-    pub fn load_multiple_media(
-        &self,
-        hashes: &[u64],
-    ) -> Result<HashMap<u64, Vec<u8>>, Box<dyn std::error::Error>> {
-        tracing::info!("Loading multiple media");
-        let read_txn = self.articles_db.begin_read()?;
-        let table = read_txn.open_table(MEDIA_TABLE)?;
-        let mut results = HashMap::new();
-
-        for &hash in hashes {
-            if let Some(access) = table.get(hash)? {
-                results.insert(hash, access.value().to_vec());
-            }
-        }
-        Ok(results)
     }
 }
