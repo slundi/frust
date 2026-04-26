@@ -6,7 +6,7 @@
 ## Core Philosophy
 - **Stateless & Periodic:** Designed to be run via `cron`, not as a background daemon.
 - **Static Generation:** Avoids the overhead of a database-driven web UI by generating static files.
-- **Resource Efficiency:** Low memory and CPU footprint (Rust). Minimal Disk I/O impact by preferring consolidated storage (`redb`) over thousands of small files.
+- **Resource Efficiency:** Low memory and CPU footprint (Rust). Articles are stored in `redb` (consolidated, ACID-safe). Media assets are written as flat files (`media/<xxh3>.<ext>`) so Nginx can serve them directly without any extraction layer.
 - **Privacy & Security:** Runs as a non-root user; no telemetry; open-source.
 
 ## Technical Stack
@@ -22,6 +22,7 @@
     - `htmd`: HTML to Markdown conversion for article storage.
     - `twox-hash (XXH3)`: High-speed hashing for IDs and deduplication.
 - **Date/Time:** `chrono`
+- `my-config.yaml` is an example of the app configuration
 
 ## Architecture & Data Models
 - **App:** The root configuration (timeout, workers, retention, global filters).
@@ -44,11 +45,11 @@
     - Markdown (Knowledge base integration like Obsidian).
     - EPUB (Grouped "long-read" books).
     - JSON (API-like static output).
-- **Media Handling:** Local enclosure retrieval (images/audio) with hashed deduplication.
+- **Media Handling:** Configurable asset download (`media` + `media_max_size`) at app/group/feed level. Assets (enclosures and inline images) are saved to `media/<xxh3>.<ext>`, deduplicated by hash, and served directly by the web server. Retention policy cleans old entries; orphaned media files are not yet auto-purged.
 
 ## Implementation Guardrails for AI/Devs
 1. **No System Dependencies for PDF:** PDF generation is explicitly excluded from the core binary. Use external tools like `pandoc` or `typst` via `std::process`.
-2. **Binary Storage:** Articles and Media should be stored in `redb` using `rkyv` and `zstd` compression (for articles) to prevent SD card wear and file system fragmentation.
+2. **Storage split:** Articles are stored in `redb` (via `rkyv` + `zstd`) to avoid SD card fragmentation. Media assets go to flat files `media/<xxh3>.<ext>` — deduplication by hash, zero extraction cost, direct static serving by Nginx. Do **not** store media bytes in `redb`.
 3. **Case Sensitivity:** Filtering defaults to Case-Insensitive to improve user experience, though regex flags can override this.
 4. **I/O Optimization:** Use XXH3 for all hashing (slugs, URLs, media) to keep performance high on ARM architectures.
 
