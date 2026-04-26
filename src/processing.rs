@@ -2,15 +2,15 @@ use std::collections::HashMap;
 
 use chrono::prelude::*;
 use feed_rs::parser;
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use htmd::HtmlToMarkdown;
-use reqwest::{header, Client};
+use reqwest::{Client, header};
 use scraper::{Html, Selector};
 
 use crate::{
+    START_TIME,
     model::{App, ContentMode, Feed, Filter},
     utils::is_refresh_required,
-    START_TIME,
 };
 
 /// Check if an article date is older than the retention policy
@@ -80,30 +80,27 @@ fn apply_filters_to_entry(
 ) -> bool {
     for filter_id in applied_filters {
         let filter = filters.get(filter_id).unwrap();
-        if filter.filter_in_title {
-            if let Some(value) = &entry.title {
-                if text_is_found(value.content.clone(), *filter_id, filters) {
-                    return true;
-                }
-            }
+        if filter.filter_in_title
+            && let Some(value) = &entry.title
+            && text_is_found(value.content.clone(), *filter_id, filters)
+        {
+            return true;
         }
-        if filter.filter_in_summary {
-            if let Some(value) = &entry.summary {
-                if text_is_found(value.content.clone(), *filter_id, filters) {
-                    return true;
-                }
-            }
+        if filter.filter_in_summary
+            && let Some(value) = &entry.summary
+            && text_is_found(value.content.clone(), *filter_id, filters)
+        {
+            return true;
         }
-        if filter.filter_in_content {
-            if let Some(value) = &entry.content {
-                if text_is_found(
-                    value.body.clone().unwrap_or(String::with_capacity(0)),
-                    *filter_id,
-                    filters,
-                ) {
-                    return true;
-                }
-            }
+        if filter.filter_in_content
+            && let Some(value) = &entry.content
+            && text_is_found(
+                value.body.clone().unwrap_or(String::with_capacity(0)),
+                *filter_id,
+                filters,
+            )
+        {
+            return true;
         }
     }
     applied_filters.is_empty()
@@ -345,25 +342,25 @@ async fn apply_content_mode(
         // 1. Get the article URL
         if let Some(link) = entry.links.first() {
             // 2. Download the full HTML page
-            if let Ok(resp) = client.get(&link.href).send().await {
-                if let Ok(html_content) = resp.text().await {
-                    let document = Html::parse_document(&html_content);
+            if let Ok(resp) = client.get(&link.href).send().await
+                && let Ok(html_content) = resp.text().await
+            {
+                let document = Html::parse_document(&html_content);
 
-                    // 3. Use CSS selector to find the main article body
-                    let selector = selector_str.as_deref().unwrap_or("article, main, .content");
-                    if let Ok(sel) = Selector::parse(selector) {
-                        if let Some(element) = document.select(&sel).next() {
-                            let inner_html = element.inner_html();
-                            // 4. Convert targeted HTML to Markdown
-                            // entry.content = Some(feed_rs::model::Content {
-                            //     body: Some(converter.convert(&inner_html).unwrap_or(inner_html)),
-                            //     content_type: mime::TEXT_MARKDOWN,
-                            //     length: None,
-                            //     src: None,
-                            // });
-                            entry.summary = None;
-                        }
-                    }
+                // 3. Use CSS selector to find the main article body
+                let selector = selector_str.as_deref().unwrap_or("article, main, .content");
+                if let Ok(sel) = Selector::parse(selector)
+                    && let Some(element) = document.select(&sel).next()
+                {
+                    let inner_html = element.inner_html();
+                    // 4. Convert targeted HTML to Markdown
+                    // entry.content = Some(feed_rs::model::Content {
+                    //     body: Some(converter.convert(&inner_html).unwrap_or(inner_html)),
+                    //     content_type: mime::TEXT_MARKDOWN,
+                    //     length: None,
+                    //     src: None,
+                    // });
+                    entry.summary = None;
                 }
             }
         }
@@ -401,33 +398,32 @@ async fn apply_filters_and_retention(
                 let mut is_match = false;
 
                 // Check title scope
-                if filter.filter_in_title {
-                    if let Some(title) = &entry.title {
-                        if check_text_match(&title.content, filter) {
-                            is_match = true;
-                        }
-                    }
+                if filter.filter_in_title
+                    && let Some(title) = &entry.title
+                    && check_text_match(&title.content, filter)
+                {
+                    is_match = true;
                 }
 
                 // Check summary scope
-                if !is_match && filter.filter_in_summary {
-                    if let Some(summary) = &entry.summary {
-                        if check_text_match(&summary.content, filter) {
-                            is_match = true;
-                        }
-                    }
+                if !is_match
+                    && filter.filter_in_summary
+                    && let Some(summary) = &entry.summary
+                    && check_text_match(&summary.content, filter)
+                {
+                    is_match = true;
                 }
 
-                // Check content scope
-                if !is_match && filter.filter_in_content {
-                    while let Some(content) = &entry.content {
-                        if let Some(body) = &content.body {
-                            if check_text_match(body, filter) {
-                                is_match = true;
-                                break;
-                            }
-                        }
-                    }
+                // Check content scope (skip if selector is set — content will be fetched
+                // separately via scraping, so feed content is not the final text to filter on)
+                if !is_match
+                    && filter.filter_in_content
+                    && feed_config.selector.is_none()
+                    && let Some(content) = &entry.content
+                    && let Some(body) = &content.body
+                    && check_text_match(body, filter)
+                {
+                    is_match = true;
                 }
 
                 // Filter logic: 'keep' means only keep if it matches, otherwise exclude if it matches

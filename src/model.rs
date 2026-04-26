@@ -216,7 +216,7 @@ pub(crate) struct FeedState {
 #[derive(Debug, Clone)]
 pub(crate) enum ExportStrategy {
     /// One file containing all articles of the group (Ideal for EPUB/RSS)
-    Monolithic, 
+    Monolithic,
     /// One file per article (Ideal for Markdown/Knowledge bases)
     Individual,
     /// One file per day (Good compromise for Journaling)
