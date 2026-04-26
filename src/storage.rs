@@ -1,6 +1,9 @@
 use crate::model::{Article, FeedState};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::{collections::HashMap, io::Cursor};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Cursor,
+};
 
 const ARTICLES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("articles");
 const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
@@ -71,6 +74,22 @@ impl Storage {
             states.insert(id.value(), state);
         }
         Ok(states)
+    }
+
+    /// Return the set of all article IDs currently stored. Used to skip already-seen entries.
+    pub fn load_article_ids(&self) -> Result<HashSet<u64>, Box<dyn std::error::Error>> {
+        let read_txn = self.articles_db.begin_read()?;
+        match read_txn.open_table(ARTICLES_TABLE) {
+            Ok(table) => {
+                let ids = table
+                    .iter()?
+                    .map(|item| item.map(|(k, _)| k.value()))
+                    .collect::<Result<_, _>>()?;
+                Ok(ids)
+            }
+            Err(redb::TableError::TableDoesNotExist(_)) => Ok(HashSet::new()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 
     pub fn upsert_articles(

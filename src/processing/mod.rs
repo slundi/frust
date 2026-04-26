@@ -1,9 +1,11 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use feed_rs::parser;
 use futures::{StreamExt, stream};
 use reqwest::{Client, header};
 
-use crate::{START_TIME, model::App, utils::is_refresh_required};
+use crate::{START_TIME, model::App, storage::Storage, utils::is_refresh_required};
 
 pub(crate) mod content;
 pub(crate) mod fetch;
@@ -20,6 +22,32 @@ pub(crate) async fn start(app: &App) {
         .expect("Failed to build HTTP client");
 
     let now = *START_TIME.get().expect("START_TIME not initialized");
+
+    // Load existing article IDs from storage so we can skip already-seen entries.
+    let existing_ids = Arc::new({
+        let articles_path = format!("{}/articles.redb", app.output);
+        let states_path = format!("{}/states.redb", app.output);
+        let media_path = format!("{}/media.redb", app.output);
+        match Storage::new(&articles_path, &states_path, &media_path) {
+            Ok(storage) => match storage.load_article_ids() {
+                Ok(ids) => {
+                    tracing::info!("Loaded {} known article IDs", ids.len());
+                    ids
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Could not load article IDs, proceeding without dedup: {}",
+                        e
+                    );
+                    std::collections::HashSet::new()
+                }
+            },
+            Err(e) => {
+                tracing::warn!("Could not open storage, proceeding without dedup: {}", e);
+                std::collections::HashSet::new()
+            }
+        }
+    });
 
     // Flatten groups → feeds into a single work list
     let feeds_to_process: Vec<_> = app
@@ -40,6 +68,7 @@ pub(crate) async fn start(app: &App) {
         .map(|(_feed_id, feed)| {
             let client = client.clone();
             let min_refresh = app.min_refresh_time;
+            let existing_ids = Arc::clone(&existing_ids);
 
             async move {
                 // 1. Smart polling: skip if the refresh interval has not elapsed
@@ -93,6 +122,7 @@ pub(crate) async fn start(app: &App) {
                     filters,
                     &client,
                     feed.selector.clone(),
+                    &existing_ids,
                 )
                 .await;
 

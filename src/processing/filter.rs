@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
+use twox_hash::XxHash3_64;
 
 use crate::{
     START_TIME,
@@ -48,13 +49,23 @@ pub(super) fn check_text_match(text: &str, filter: &Filter) -> bool {
 
 /// Apply content-mode transformation, retention policy and include/exclude filters
 /// to all entries in `fetched_feed`, mutating it in place.
+///
+/// `existing_ids` is a set of XXH3-hashed entry IDs already in storage; matching
+/// entries are dropped before any expensive content enrichment takes place.
 pub(super) async fn apply_filters_and_retention(
     fetched_feed: &mut feed_rs::model::Feed,
     feed_config: &Feed,
     global_filters: &HashMap<u64, Filter>,
     client: &reqwest::Client,
     selector: Option<String>,
+    existing_ids: &HashSet<u64>,
 ) {
+    // 0. Skip entries already stored — do this before content enrichment to avoid
+    //    unnecessary HTTP requests (especially costly for ContentMode::Force).
+    fetched_feed
+        .entries
+        .retain(|entry| !existing_ids.contains(&XxHash3_64::oneshot(entry.id.as_bytes())));
+
     // 1. Adjust content according to the configured mode
     for entry in &mut fetched_feed.entries {
         apply_content_mode(entry, &feed_config.content_mode, client, &selector).await;
