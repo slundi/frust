@@ -22,6 +22,10 @@ pub(crate) struct App {
     pub(crate) groups: HashMap<u64, Group>,
     /// Article retention in days, when defined retention, they are not kept
     pub(crate) retention: u16,
+    /// Download media assets (images, audio, video) to `media/<xxh3>.<ext>`
+    pub(crate) media: bool,
+    /// Maximum asset size in bytes to download (0 = no limit)
+    pub(crate) media_max_size: u64,
 }
 
 impl Default for App {
@@ -35,6 +39,8 @@ impl Default for App {
             filters: HashMap::with_capacity(0),
             groups: HashMap::with_capacity(0),
             retention: 0,
+            media: false,
+            media_max_size: 0,
         }
     }
 }
@@ -78,6 +84,10 @@ pub(crate) struct Group {
     pub(crate) output: String,
     /// Article retention in days
     pub(crate) retention: u16,
+    /// Download media assets (images, audio, video) to `media/<xxh3>.<ext>`
+    pub(crate) media: bool,
+    /// Maximum asset size in bytes to download (0 = no limit)
+    pub(crate) media_max_size: u64,
 }
 
 impl Group {
@@ -129,6 +139,10 @@ pub(crate) struct Feed {
     pub(crate) output: String,
     /// Article retention in days
     pub(crate) retention: u16,
+    /// Download media assets (images, audio, video) to `media/<xxh3>.<ext>`
+    pub(crate) media: bool,
+    /// Maximum asset size in bytes to download (0 = no limit)
+    pub(crate) media_max_size: u64,
     /// Entity tag timestamp in order to optimize cache.
     /// We need to send the header `If-None-Match` with our timestamp, then the
     /// server should return a 304 Not Modified with no content se we do not

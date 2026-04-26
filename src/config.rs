@@ -45,6 +45,17 @@ impl App {
                 .as_bool()
                 .expect("Invalid data in config file: retrieve_server_media");
         }
+        // enable media asset download
+        if let Some(value) = map.get(&Yaml::String("media".to_string())) {
+            self.media = value.as_bool().expect("Invalid data in config file: media");
+        }
+        // max asset size in bytes (0 = no limit)
+        if let Some(value) = map.get(&Yaml::String("media_max_size".to_string())) {
+            self.media_max_size = value
+                .as_i64()
+                .expect("Invalid data in config file: media_max_size")
+                as u64;
+        }
         // set the timeout for HTTP queries
         if let Some(value) = map.get(&Yaml::String("timeout".to_string())) {
             self.timeout = u8::try_from(value.as_i64().unwrap())
@@ -203,6 +214,16 @@ impl App {
                     .and_then(|v| v.as_i64())
                     .map(|v| v as u16)
                     .unwrap_or(self.retention);
+                // Group media settings, inherit from app if missing
+                group_obj.media = m
+                    .get(&Yaml::String("media".to_string()))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(self.media);
+                group_obj.media_max_size = m
+                    .get(&Yaml::String("media_max_size".to_string()))
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as u64)
+                    .unwrap_or(self.media_max_size);
 
                 // Load group filters
                 if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
@@ -255,6 +276,15 @@ impl Group {
                     last_etag: None,
                     last_modified: None,
                     last_check: None,
+                    media: m
+                        .get(&Yaml::String("media".to_string()))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(self.media), // inherited from group
+                    media_max_size: m
+                        .get(&Yaml::String("media_max_size".to_string()))
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as u64)
+                        .unwrap_or(self.media_max_size), // inherited from group
                 };
 
                 // If feed does not have output, use the one from the group

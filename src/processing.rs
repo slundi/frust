@@ -1,11 +1,16 @@
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 use chrono::prelude::*;
 use feed_rs::parser;
 use futures::{StreamExt, stream};
 use htmd::HtmlToMarkdown;
+use mediatype::MediaTypeBuf;
 use reqwest::{Client, header};
 use scraper::{Html, Selector};
+use twox_hash::XxHash3_64;
 
 use crate::{
     START_TIME,
@@ -147,52 +152,128 @@ async fn add_new_articles(
     file_feed: Option<feed_rs::model::Feed>,
     retrieved_feed: feed_rs::model::Feed,
     feeds: &HashMap<u64, Feed>,
+    workers: usize,
+    output_dir: &Path,
 ) {
-    // TODO: process retrieved data:
-    // - If applicable, retrieve articles (multiple per source) and its assets if applicable
+    let feed_config = feeds.get(&feed_id).unwrap();
     let client = Client::new();
-    let mut rf = retrieved_feed.clone();
+    let mut rf = retrieved_feed;
     if let Some(ff) = file_feed {
         merge_feeds_by_id(&mut rf, ff.entries);
     }
-    // check if feed is present in the file and keep it if yes (already filtered)
+
+    // 1. Drop entries that exceed the retention window
     rf.entries.retain(|entry| {
-        let mut should_add = true;
-        // check if entry should be kept (storage time)
-        if is_refresh_required(
+        !is_refresh_required(
             entry.updated,
             *START_TIME.get().unwrap(),
-            feeds.get(&feed_id).unwrap().retention as i64 * 86400,
-        ) {
-            should_add = false;
-        }
-        // Apply filters (do not match content if CSS selector is specified)
-        // TODO: handle blanks (\n, \r, ...)
-        // if apply_filters_to_entry(entry, &config.excludes, &config) {
-        //     should_add |= FLAG_EXCLUDED;
-        // }
-        // if should_add != (FLAG_ELAPSED | FLAG_EXCLUDED)
-        //     && !config.includes.is_empty()
-        //     && apply_filters_to_entry(entry, &config.includes, &config)
-        // {
-        //     should_add |= FLAG_INCLUDED;
-        // }
-        // TODO: selector
-        // if !feeds.get(&feed_id).unwrap().selector.is_empty() && !entry.links.is_empty() {
-        //     let rt = tokio::runtime::Runtime::new().unwrap();
-        //     match rt.block_on(get_link_data(
-        //         &client,
-        //         &entry.links[0].href,
-        //         &feeds.get(&feed_id).unwrap().selector,
-        //     )) {
-        //         Ok(_) => todo!(),
-        //         Err(_) => todo!(),
-        //     };
-        // }
-        should_add
+            feed_config.retention as i64 * 86400,
+        )
     });
-    // apply filters
-    // TODO: Generate feed file
+
+    // 2. In Force mode, replace the feed's brief content with the full article body.
+    //    Each entry's first link is fetched, the configured CSS selector extracts the
+    //    article element, and the result is converted to Markdown.
+    if feed_config.content_mode == ContentMode::Force {
+        let selector = feed_config
+            .selector
+            .as_deref()
+            .unwrap_or("article, main, .content")
+            .to_string();
+
+        // Collect (index, url) pairs so the async tasks own their data
+        let indexed_urls: Vec<(usize, String)> = rf
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(i, entry)| entry.links.first().map(|link| (i, link.href.clone())))
+            .collect();
+
+        // Fetch all article pages concurrently, bounded by `workers`
+        let fetched: Vec<(usize, String)> = stream::iter(indexed_urls)
+            .map(|(i, url)| {
+                let client = client.clone();
+                let selector = selector.clone();
+                async move {
+                    match get_link_data(&client, &url, &selector).await {
+                        Ok(html) if !html.is_empty() => (i, html),
+                        Ok(_) => {
+                            tracing::warn!("No content found with selector at {}", url);
+                            (i, String::new())
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to fetch article {}: {}", url, e);
+                            (i, String::new())
+                        }
+                    }
+                }
+            })
+            .buffer_unordered(workers)
+            .collect()
+            .await;
+
+        // Convert HTML → Markdown and update entries (sequential: HtmlToMarkdown is not Send)
+        let media_dir = output_dir.join("media");
+        let converter = HtmlToMarkdown::new();
+        for (i, mut html) in fetched {
+            if html.is_empty() {
+                continue;
+            }
+            // Rewrite inline <img> src to local paths before MD conversion
+            if feed_config.media {
+                html =
+                    rewrite_inline_images(&client, &html, &media_dir, feed_config.media_max_size)
+                        .await;
+            }
+            let markdown = converter.convert(&html).unwrap_or(html);
+            if let Some(entry) = rf.entries.get_mut(i) {
+                match entry.content {
+                    Some(ref mut c) => c.body = Some(markdown),
+                    None => {
+                        entry.content = Some(feed_rs::model::Content {
+                            body: Some(markdown),
+                            content_type: "text/plain".parse::<MediaTypeBuf>().unwrap(),
+                            length: None,
+                            src: None,
+                        });
+                    }
+                }
+                entry.summary = None;
+            }
+        }
+    }
+
+    // 3. Download enclosures (audio, video, images declared in <enclosure> / media:content)
+    if feed_config.media {
+        let media_dir = output_dir.join("media");
+        if let Err(e) = tokio::fs::create_dir_all(&media_dir).await {
+            tracing::error!("Cannot create media directory: {}", e);
+        } else {
+            let enclosure_urls: Vec<String> = rf
+                .entries
+                .iter()
+                .flat_map(|e| e.media.iter())
+                .flat_map(|m| m.content.iter())
+                .filter_map(|c| c.url.as_ref().map(|u| u.to_string()))
+                .collect();
+
+            stream::iter(enclosure_urls)
+                .map(|url| {
+                    let client = client.clone();
+                    let media_dir = media_dir.clone();
+                    let max_size = feed_config.media_max_size;
+                    async move {
+                        download_asset(&client, &url, &media_dir, max_size).await;
+                    }
+                })
+                .buffer_unordered(workers)
+                .for_each(|_| async {})
+                .await;
+        }
+    }
+
+    // TODO: apply filters
+    // TODO: generate output
 }
 
 /// Main processing entry point
@@ -482,6 +563,141 @@ async fn save_feed_to_disk(feed: &feed_rs::model::Feed, path: &str) -> Result<()
 
     // TODO: Implementation placeholder for serialization logic
     Ok(())
+}
+
+/// Map a MIME content-type string to a file extension.
+fn mime_to_ext(content_type: &str) -> &'static str {
+    match content_type.split(';').next().unwrap_or("").trim() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        "image/avif" => "avif",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/ogg" => "ogg",
+        "audio/flac" => "flac",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/aac" => "aac",
+        "audio/mp4" => "m4a",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/ogg" => "ogv",
+        _ => "bin",
+    }
+}
+
+/// Try to extract a file extension from a URL path (ignores query string).
+fn ext_from_url(url: &str) -> Option<&str> {
+    let path = url.split('?').next()?;
+    let filename = path.rsplit('/').next()?;
+    if !filename.contains('.') {
+        return None;
+    }
+    let ext = filename.rsplit('.').next()?;
+    if ext.is_empty() || ext.len() > 5 {
+        None
+    } else {
+        Some(ext)
+    }
+}
+
+/// Download a single asset, deduplicate by XXH3 hash, and write to `media_dir/<hash>.<ext>`.
+/// Returns the local path on success, `None` if skipped (size limit) or on error.
+async fn download_asset(
+    client: &Client,
+    url: &str,
+    media_dir: &Path,
+    max_size: u64,
+) -> Option<PathBuf> {
+    let resp = client.get(url).send().await.ok()?;
+
+    // Reject early based on Content-Length if available and a limit is set
+    if max_size > 0 {
+        if let Some(len) = resp.content_length() {
+            if len > max_size {
+                tracing::warn!(
+                    "Skipping asset (declared {} bytes > limit {} bytes): {}",
+                    len,
+                    max_size,
+                    url
+                );
+                return None;
+            }
+        }
+    }
+
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    let bytes = resp.bytes().await.ok()?;
+
+    // Reject after download if actual size exceeds limit (Content-Length may be absent)
+    if max_size > 0 && bytes.len() as u64 > max_size {
+        tracing::warn!(
+            "Skipping asset (actual {} bytes > limit {} bytes): {}",
+            bytes.len(),
+            max_size,
+            url
+        );
+        return None;
+    }
+
+    let hash = XxHash3_64::oneshot(&bytes);
+    let ext = ext_from_url(url).unwrap_or_else(|| mime_to_ext(&content_type));
+    let filename = format!("{:016x}.{}", hash, ext);
+    let path = media_dir.join(&filename);
+
+    // Skip write if already on disk (same hash = same content)
+    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        if let Err(e) = tokio::fs::write(&path, &bytes).await {
+            tracing::error!("Cannot write asset {}: {}", path.display(), e);
+            return None;
+        }
+    }
+
+    Some(path)
+}
+
+/// Find all external `<img src="...">` in an HTML fragment, download them, and rewrite
+/// their `src` to the local `media/<hash>.<ext>` path. Returns the rewritten HTML.
+async fn rewrite_inline_images(
+    client: &Client,
+    html: &str,
+    media_dir: &Path,
+    max_size: u64,
+) -> String {
+    if let Err(e) = tokio::fs::create_dir_all(media_dir).await {
+        tracing::error!("Cannot create media directory: {}", e);
+        return html.to_string();
+    }
+
+    let document = Html::parse_fragment(html);
+    let img_sel = Selector::parse("img").unwrap();
+
+    // Collect unique external image URLs (HashSet deduplicates)
+    let srcs: HashSet<String> = document
+        .select(&img_sel)
+        .filter_map(|img| img.value().attr("src"))
+        .filter(|src| src.starts_with("http://") || src.starts_with("https://"))
+        .map(|s| s.to_string())
+        .collect();
+
+    let mut result = html.to_string();
+    for src in srcs {
+        if let Some(path) = download_asset(client, &src, media_dir, max_size).await {
+            let filename = path.file_name().unwrap().to_string_lossy();
+            let local = format!("media/{}", filename);
+            // Replace both single and double-quoted attribute values
+            result = result.replace(&format!("src=\"{}\"", src), &format!("src=\"{}\"", local));
+            result = result.replace(&format!("src='{}'", src), &format!("src='{}'", local));
+        }
+    }
+    result
 }
 
 #[cfg(test)]

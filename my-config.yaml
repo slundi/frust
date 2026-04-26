@@ -1,3 +1,6 @@
+# media: false          # OPTIONAL: download assets to media/<hash>.<ext>, default false
+# media_max_size: 0    # OPTIONAL: max asset size in bytes (0 = no limit), default 0
+
 filters:
 - slug: "guitar-standard"
   # sentences or regexes should be defined
@@ -19,7 +22,9 @@ groups:
   slug: divers
   output: divers.atom
   filters: []
-  # retention: 60  # retention in days
+  # retention: 60       # retention in days
+  # media: false        # OPTIONAL: override app-level media setting for this group
+  # media_max_size: 0   # OPTIONAL: override app-level media_max_size for this group
   feeds:
   - title: "Lindsey Stirling"
     url: https://www.youtube.com/feeds/videos.xml?channel_id=UCZvo8TZtUZkLgiH3rJsj-Ow
@@ -83,6 +88,8 @@ groups:
     # xpath: ""  # OPTIONAL xpath to retrive article content instead of brief in some feeds
     retention: 60  # retention in days
     # retrieve_server_media: true  # OPTIONAL overide default value
+    # media: true             # OPTIONAL: override group-level media setting for this feed
+    # media_max_size: 5242880 # OPTIONAL: override group-level limit (e.g. 5 MB)
     filters: []  # applied filters, order is important
   - title: Blog Habitat Durable
     url: https://www.blog-habitat-durable.com/feed/
