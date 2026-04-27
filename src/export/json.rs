@@ -8,6 +8,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use slug::slugify;
+use tracing::info;
 
 use crate::{
     error::FrustError,
@@ -122,6 +123,7 @@ impl Exporter for JsonExporter {
         link: &str,
         destination: &Path,
     ) -> Result<(), FrustError> {
+        info!("Exporting to JSON");
         match self.strategy {
             ExportStrategy::Monolithic => monolithic(articles, title, link, destination),
             ExportStrategy::Individual => individual(articles, destination),

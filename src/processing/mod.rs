@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use feed_rs::parser;
 use futures::{StreamExt, stream};
 use reqwest::{Client, header};
+use tracing::{debug, info};
 
 use crate::{
     START_TIME,
@@ -34,6 +35,7 @@ struct FeedResult {
 /// Main processing entry point: fetches all feeds concurrently, applies
 /// filters/retention, persists new articles, then exports per-group output files.
 pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
+    debug!("Creating HTTP client");
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(app.timeout as u64))
         .user_agent("frust/0.1.0")
@@ -85,6 +87,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
 
             async move {
                 if !is_refresh_required(feed.last_check, now, min_refresh) {
+                    info!("Refresh not needed for {}", feed.title);
                     return Ok(None);
                 }
 
@@ -96,6 +99,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                     req = req.header(header::IF_MODIFIED_SINCE, last_mod.to_rfc2822());
                 }
 
+                debug!("Sending request for {} to {}", feed.title, feed.url);
                 let response = req.send().await?;
 
                 if response.status() == reqwest::StatusCode::NOT_MODIFIED {

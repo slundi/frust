@@ -38,3 +38,4 @@ frust.sqlite3
 web_server/frust.sqlite3
 # symlink to cli/config.yaml
 config.yaml
+.redb

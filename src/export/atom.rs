@@ -5,6 +5,7 @@ use quick_xml::{
     Writer,
     events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event},
 };
+use tracing::info;
 
 use crate::{error::FrustError, model::Article};
 
@@ -20,6 +21,7 @@ impl Exporter for AtomExporter {
         link: &str,
         destination: &Path,
     ) -> Result<(), FrustError> {
+        info!("Exporting to Atom");
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
         }
