@@ -30,8 +30,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
     let existing_ids = Arc::new({
         let articles_path = format!("{}/articles.redb", app.output);
         let states_path = format!("{}/states.redb", app.output);
-        let media_path = format!("{}/media.redb", app.output);
-        match Storage::new(&articles_path, &states_path, &media_path) {
+        match Storage::new(&articles_path, &states_path) {
             Ok(storage) => match storage.load_article_ids() {
                 Ok(ids) => {
                     tracing::info!("Loaded {} known article IDs", ids.len());

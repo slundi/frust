@@ -92,12 +92,11 @@ pub(crate) struct Group {
 
 impl Group {
     pub fn should_refresh_feed(&self, feed_slug: u64, app: &App) -> bool {
-        if let Some(feed) = self.feeds.get(&feed_slug) {
-            if let Some(last_check) = feed.last_check {
-                // Vérifie si le délai minimal (ex: 600s) est passé
-                return *START_TIME.get().unwrap() - last_check
-                    > Duration::seconds(app.min_refresh_time);
-            }
+        if let Some(feed) = self.feeds.get(&feed_slug)
+            && let Some(last_check) = feed.last_check
+        {
+            return *START_TIME.get().unwrap() - last_check
+                > Duration::seconds(app.min_refresh_time);
         }
         true // new feed or never checked
     }

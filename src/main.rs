@@ -103,8 +103,7 @@ async fn main() -> ExitCode {
     {
         let articles_path = format!("{}/articles.redb", app.output);
         let states_path = format!("{}/states.redb", app.output);
-        let media_path = format!("{}/media.redb", app.output);
-        if let Ok(storage) = Storage::new(&articles_path, &states_path, &media_path) {
+        if let Ok(storage) = Storage::new(&articles_path, &states_path) {
             let feed_retentions: HashMap<u64, u16> = app
                 .groups
                 .values()

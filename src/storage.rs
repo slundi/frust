@@ -16,10 +16,7 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn new(
-        articles_path: &str,
-        states_path: &str,
-    ) -> Result<Self, FrustError> {
+    pub fn new(articles_path: &str, states_path: &str) -> Result<Self, FrustError> {
         tracing::info!("Creating database files");
         let articles_db = Database::builder().create(articles_path)?;
         let states_db = Database::builder().create(states_path)?;
@@ -242,7 +239,7 @@ impl Storage {
         }
 
         // Sort by date (descending) to have newest articles first in the RSS
-        articles.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        articles.sort_by_key(|a| std::cmp::Reverse(a.timestamp));
         Ok(articles)
     }
 }
@@ -261,12 +258,7 @@ mod tests {
     }
 
     fn make_storage() -> Storage {
-        Storage::new(
-            &unique_path("articles"),
-            &unique_path("states"),
-            &unique_path("media"),
-        )
-        .unwrap()
+        Storage::new(&unique_path("articles"), &unique_path("states")).unwrap()
     }
 
     fn make_article(id: u64, feed_id: u64, timestamp: i64) -> Article {

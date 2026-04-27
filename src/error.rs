@@ -42,6 +42,10 @@ pub(crate) enum FrustError {
     #[error("Feed parse error: {0}")]
     FeedParse(String),
 
+    /// RSS/XML generation failed.
+    #[error("Export error: {0}")]
+    Export(String),
+
     /// A process-global (START_TIME, HTTP client) was accessed before it was set.
     #[error("{0} not initialized")]
     NotInitialized(&'static str),

@@ -32,7 +32,9 @@ htmd = "0.5"
 mediatype = "0.19"
 redb = "3.1"
 rkyv = { version = "0.8", features = ["bytecheck"] }
+quick-xml = { version = "0.37", features = ["serialize"] }
 zstd = "0.13"
 thiserror = "2.0"
 
 [dev-dependencies]
+tempfile = "3"
