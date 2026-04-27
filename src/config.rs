@@ -234,11 +234,12 @@ impl App {
                     }
                 }
 
-                let group_code = XxHash3_64::oneshot(slugify(&group_obj.slug).as_bytes());
-                self.groups.insert(group_code, group_obj.clone());
-
                 // Give group object for feeds that are inheriting it
                 group_obj.load_feeds(m);
+
+                let group_code = XxHash3_64::oneshot(slugify(&group_obj.slug).as_bytes());
+                self.groups.insert(group_code, group_obj);
+
             }
             tracing::info!("Loaded groups: {}", self.groups.len());
         }

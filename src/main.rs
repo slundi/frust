@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 use std::{env, process::ExitCode};
 
 use chrono::{DateTime, Utc};
+use tracing::info;
 
 use crate::error::FrustError;
 use crate::model::App;
@@ -101,6 +102,7 @@ async fn main() -> ExitCode {
 
     // Clean up articles that have exceeded their retention window
     {
+        info!("Cleaning up old articles");
         let articles_path = format!("{}/articles.redb", app.output);
         let states_path = format!("{}/states.redb", app.output);
         if let Ok(storage) = Storage::new(&articles_path, &states_path) {
@@ -111,13 +113,13 @@ async fn main() -> ExitCode {
                 .collect();
             let now_ts = START_TIME.get().unwrap().timestamp();
             match storage.delete_expired_articles(now_ts, &feed_retentions, app.retention) {
-                Ok(0) => {}
+                Ok(0) => {info!("No article to delete");}
                 Ok(n) => tracing::info!("Cleaned {} expired article(s)", n),
                 Err(e) => tracing::warn!("Article cleanup failed: {}", e),
             }
             let media_dir = format!("{}/media", app.output);
             match storage.purge_orphaned_media(&media_dir) {
-                Ok(0) => {}
+                Ok(0) => {info!("No media to delete");}
                 Ok(n) => tracing::info!("Purged {} orphaned media file(s)", n),
                 Err(e) => tracing::warn!("Media purge failed: {}", e),
             }
