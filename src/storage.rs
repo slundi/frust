@@ -110,6 +110,64 @@ impl Storage {
         Ok(())
     }
 
+    /// Delete articles that have exceeded their retention window.
+    ///
+    /// Returns the number of deleted articles.
+    /// `now_ts` is the current UNIX timestamp in seconds.
+    /// `feed_retentions` maps feed_id → retention in days (0 = keep forever).
+    /// `default_retention` is used for articles whose feed_id is not in the map.
+    pub fn delete_expired_articles(
+        &self,
+        now_ts: i64,
+        feed_retentions: &HashMap<u64, u16>,
+        default_retention: u16,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        let read_txn = self.articles_db.begin_read()?;
+        let ids_to_delete: Vec<u64> = match read_txn.open_table(ARTICLES_TABLE) {
+            Ok(table) => {
+                let mut ids = Vec::new();
+                for item in table.iter()? {
+                    let (key, bytes) = item?;
+                    let decompressed = zstd::decode_all(std::io::Cursor::new(bytes.value()))?;
+                    let archived = rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(
+                        &decompressed,
+                    )?;
+                    let article: Article =
+                        rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?;
+                    let retention = feed_retentions
+                        .get(&article.feed_id)
+                        .copied()
+                        .unwrap_or(default_retention);
+                    if retention == 0 {
+                        continue;
+                    }
+                    let cutoff = now_ts - retention as i64 * 86_400;
+                    if article.timestamp <= cutoff {
+                        ids.push(key.value());
+                    }
+                }
+                ids
+            }
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
+            Err(e) => return Err(Box::new(e)),
+        };
+        drop(read_txn);
+
+        if ids_to_delete.is_empty() {
+            return Ok(0);
+        }
+
+        let write_txn = self.articles_db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(ARTICLES_TABLE)?;
+            for id in &ids_to_delete {
+                table.remove(id)?;
+            }
+        }
+        write_txn.commit()?;
+        Ok(ids_to_delete.len())
+    }
+
     /// Load all articles for a specific feed (e.g., to regenerate the RSS XML)
     pub fn load_articles_for_feed(
         &self,
@@ -140,5 +198,160 @@ impl Storage {
         // Sort by date (descending) to have newest articles first in the RSS
         articles.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         Ok(articles)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Article, Enclosure};
+
+    fn unique_path(prefix: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("/tmp/frust_test_{}_{}.redb", prefix, nanos)
+    }
+
+    fn make_storage() -> Storage {
+        Storage::new(
+            &unique_path("articles"),
+            &unique_path("states"),
+            &unique_path("media"),
+        )
+        .unwrap()
+    }
+
+    fn make_article(id: u64, feed_id: u64, timestamp: i64) -> Article {
+        Article {
+            id,
+            feed_id,
+            title: String::from("Test"),
+            url: String::from("http://example.com"),
+            content: String::from("Content"),
+            summary: None,
+            timestamp,
+            added_at: timestamp,
+            is_full_content: false,
+            enclosures: Vec::<Enclosure>::new(),
+        }
+    }
+
+    #[test]
+    fn test_cleanup_empty_db_returns_zero() {
+        let storage = make_storage();
+        let deleted = storage
+            .delete_expired_articles(1_000_000, &HashMap::new(), 7)
+            .unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    #[test]
+    fn test_cleanup_fresh_articles_kept() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        storage
+            .upsert_articles(vec![make_article(1, 42, now - 3 * 86_400)])
+            .unwrap();
+
+        let mut retentions = HashMap::new();
+        retentions.insert(42u64, 7u16);
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(storage.load_article_ids().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_expired_articles_removed() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        // Article 1: 10 days old → expired (retention 7)
+        // Article 2: 3 days old → kept
+        storage
+            .upsert_articles(vec![
+                make_article(1, 42, now - 10 * 86_400),
+                make_article(2, 42, now - 3 * 86_400),
+            ])
+            .unwrap();
+
+        let mut retentions = HashMap::new();
+        retentions.insert(42u64, 7u16);
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 1);
+        let remaining = storage.load_article_ids().unwrap();
+        assert!(remaining.contains(&2));
+        assert!(!remaining.contains(&1));
+    }
+
+    #[test]
+    fn test_cleanup_retention_zero_keeps_all() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        storage
+            .upsert_articles(vec![make_article(1, 42, now - 9_999 * 86_400)])
+            .unwrap();
+
+        let mut retentions = HashMap::new();
+        retentions.insert(42u64, 0u16); // 0 = keep forever
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(storage.load_article_ids().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_uses_default_retention_for_unknown_feed() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        // feed_id=99 is not in the map; default_retention=7 → 10-day-old article expires
+        storage
+            .upsert_articles(vec![make_article(1, 99, now - 10 * 86_400)])
+            .unwrap();
+
+        let deleted = storage
+            .delete_expired_articles(now, &HashMap::new(), 7)
+            .unwrap();
+        assert_eq!(deleted, 1);
+        assert!(storage.load_article_ids().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_cleanup_at_exact_boundary_is_expired() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        // Article exactly at cutoff (7 * 86400 seconds old) → expired (<=)
+        storage
+            .upsert_articles(vec![make_article(1, 42, now - 7 * 86_400)])
+            .unwrap();
+
+        let mut retentions = HashMap::new();
+        retentions.insert(42u64, 7u16);
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 1);
+    }
+
+    #[test]
+    fn test_cleanup_one_second_before_boundary_is_kept() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        // One second before cutoff → not expired
+        storage
+            .upsert_articles(vec![make_article(1, 42, now - 7 * 86_400 + 1)])
+            .unwrap();
+
+        let mut retentions = HashMap::new();
+        retentions.insert(42u64, 7u16);
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 0);
     }
 }

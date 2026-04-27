@@ -1,6 +1,7 @@
 extern crate slug;
 extern crate yaml_rust;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::{env, process::ExitCode};
@@ -8,6 +9,7 @@ use std::{env, process::ExitCode};
 use chrono::{DateTime, Utc};
 
 use crate::model::App;
+use crate::storage::Storage;
 
 pub(crate) mod config;
 pub(crate) mod export;
@@ -84,6 +86,27 @@ async fn main() -> ExitCode {
         exit_code = ExitCode::FAILURE;
     });
     create_output_structure(&app);
+
+    // Clean up articles that have exceeded their retention window
+    {
+        let articles_path = format!("{}/articles.redb", app.output);
+        let states_path = format!("{}/states.redb", app.output);
+        let media_path = format!("{}/media.redb", app.output);
+        if let Ok(storage) = Storage::new(&articles_path, &states_path, &media_path) {
+            let feed_retentions: HashMap<u64, u16> = app
+                .groups
+                .values()
+                .flat_map(|g| g.feeds.iter().map(|(id, f)| (*id, f.retention)))
+                .collect();
+            let now_ts = START_TIME.get().unwrap().timestamp();
+            match storage.delete_expired_articles(now_ts, &feed_retentions, app.retention) {
+                Ok(0) => {}
+                Ok(n) => tracing::info!("Cleaned {} expired article(s)", n),
+                Err(e) => tracing::warn!("Article cleanup failed: {}", e),
+            }
+        }
+    }
+
     crate::processing::start(&app).await;
     exit_code
 }
