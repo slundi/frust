@@ -1,5 +1,6 @@
 use crate::model::{Article, FeedState};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
     io::Cursor,
@@ -166,6 +167,67 @@ impl Storage {
         }
         write_txn.commit()?;
         Ok(ids_to_delete.len())
+    }
+
+    /// Collect bare filenames (e.g. `"abc123def456789a.jpg"`) of every media asset
+    /// referenced by stored articles — either in enclosure URLs or inline in content.
+    pub fn collect_media_refs(&self) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+        let re = Regex::new(r"media/([0-9a-f]{16}\.[a-zA-Z0-9]{1,5})").unwrap();
+        let read_txn = self.articles_db.begin_read()?;
+        let mut refs = HashSet::new();
+        match read_txn.open_table(ARTICLES_TABLE) {
+            Ok(table) => {
+                for item in table.iter()? {
+                    let (_, bytes) = item?;
+                    let decompressed = zstd::decode_all(std::io::Cursor::new(bytes.value()))?;
+                    let archived = rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(
+                        &decompressed,
+                    )?;
+                    let article: Article =
+                        rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?;
+                    for enc in &article.enclosures {
+                        for cap in re.captures_iter(&enc.url) {
+                            refs.insert(cap[1].to_string());
+                        }
+                    }
+                    for cap in re.captures_iter(&article.content) {
+                        refs.insert(cap[1].to_string());
+                    }
+                }
+            }
+            Err(redb::TableError::TableDoesNotExist(_)) => {}
+            Err(e) => return Err(Box::new(e)),
+        }
+        Ok(refs)
+    }
+
+    /// Delete files in `media_dir` that are not referenced by any stored article.
+    /// Returns the number of deleted files.
+    pub fn purge_orphaned_media(
+        &self,
+        media_dir: &str,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        let referenced = self.collect_media_refs()?;
+        let media_path = std::path::Path::new(media_dir);
+        if !media_path.exists() {
+            return Ok(0);
+        }
+        let mut deleted = 0;
+        for entry in std::fs::read_dir(media_path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let filename = entry.file_name().to_string_lossy().into_owned();
+            if !referenced.contains(&filename) {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => deleted += 1,
+                    Err(e) => tracing::warn!("Cannot delete orphaned media {}: {}", filename, e),
+                }
+            }
+        }
+        Ok(deleted)
     }
 
     /// Load all articles for a specific feed (e.g., to regenerate the RSS XML)
@@ -353,5 +415,141 @@ mod tests {
             .delete_expired_articles(now, &retentions, 0)
             .unwrap();
         assert_eq!(deleted, 0);
+    }
+
+    // ---- collect_media_refs ----
+
+    #[test]
+    fn test_collect_media_refs_empty_db() {
+        let storage = make_storage();
+        assert!(storage.collect_media_refs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_collect_media_refs_from_enclosure_url() {
+        let storage = make_storage();
+        let mut article = make_article(1, 42, 1_000_000);
+        article.enclosures = vec![Enclosure {
+            url: "media/abcd1234abcd1234.jpg".to_string(),
+            mime_type: "image/jpeg".to_string(),
+            length: None,
+        }];
+        storage.upsert_articles(vec![article]).unwrap();
+
+        let refs = storage.collect_media_refs().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert!(refs.contains("abcd1234abcd1234.jpg"));
+    }
+
+    #[test]
+    fn test_collect_media_refs_from_content() {
+        let storage = make_storage();
+        let mut article = make_article(1, 42, 1_000_000);
+        article.content = r#"<img src="media/deadbeefdeadbeef.png">"#.to_string();
+        storage.upsert_articles(vec![article]).unwrap();
+
+        let refs = storage.collect_media_refs().unwrap();
+        assert!(refs.contains("deadbeefdeadbeef.png"));
+    }
+
+    #[test]
+    fn test_collect_media_refs_deduplicates() {
+        let storage = make_storage();
+        let mut a1 = make_article(1, 42, 1_000_000);
+        let mut a2 = make_article(2, 42, 1_000_000);
+        a1.content = r#"media/abcd1234abcd1234.jpg"#.to_string();
+        a2.enclosures = vec![Enclosure {
+            url: "media/abcd1234abcd1234.jpg".to_string(),
+            mime_type: "image/jpeg".to_string(),
+            length: None,
+        }];
+        storage.upsert_articles(vec![a1, a2]).unwrap();
+
+        let refs = storage.collect_media_refs().unwrap();
+        assert_eq!(refs.len(), 1);
+    }
+
+    // ---- purge_orphaned_media ----
+
+    fn tmp_media_dir() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("/tmp/frust_media_{}", nanos)
+    }
+
+    #[test]
+    fn test_purge_nonexistent_dir_returns_zero() {
+        let storage = make_storage();
+        let deleted = storage
+            .purge_orphaned_media("/tmp/frust_no_such_dir_xyz")
+            .unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    #[test]
+    fn test_purge_deletes_unreferenced_keeps_referenced() {
+        let storage = make_storage();
+        let dir = tmp_media_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let kept = "abcd1234abcd1234.jpg";
+        let orphan = "deadbeefdeadbeef.png";
+        std::fs::write(format!("{}/{}", dir, kept), b"data").unwrap();
+        std::fs::write(format!("{}/{}", dir, orphan), b"data").unwrap();
+
+        let mut article = make_article(1, 42, 1_000_000);
+        article.enclosures = vec![Enclosure {
+            url: format!("media/{}", kept),
+            mime_type: "image/jpeg".to_string(),
+            length: None,
+        }];
+        storage.upsert_articles(vec![article]).unwrap();
+
+        let deleted = storage.purge_orphaned_media(&dir).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(std::path::Path::new(&format!("{}/{}", dir, kept)).exists());
+        assert!(!std::path::Path::new(&format!("{}/{}", dir, orphan)).exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_purge_all_files_orphaned() {
+        let storage = make_storage();
+        let dir = tmp_media_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(format!("{}/abcd1234abcd1234.jpg", dir), b"data").unwrap();
+        std::fs::write(format!("{}/deadbeefdeadbeef.png", dir), b"data").unwrap();
+
+        // No articles → all files are orphans
+        let deleted = storage.purge_orphaned_media(&dir).unwrap();
+        assert_eq!(deleted, 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_purge_all_files_referenced() {
+        let storage = make_storage();
+        let dir = tmp_media_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        let filename = "abcd1234abcd1234.jpg";
+        std::fs::write(format!("{}/{}", dir, filename), b"data").unwrap();
+
+        let mut article = make_article(1, 42, 1_000_000);
+        article.enclosures = vec![Enclosure {
+            url: format!("media/{}", filename),
+            mime_type: "image/jpeg".to_string(),
+            length: None,
+        }];
+        storage.upsert_articles(vec![article]).unwrap();
+
+        let deleted = storage.purge_orphaned_media(&dir).unwrap();
+        assert_eq!(deleted, 0);
+        assert!(std::path::Path::new(&format!("{}/{}", dir, filename)).exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

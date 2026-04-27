@@ -104,6 +104,12 @@ async fn main() -> ExitCode {
                 Ok(n) => tracing::info!("Cleaned {} expired article(s)", n),
                 Err(e) => tracing::warn!("Article cleanup failed: {}", e),
             }
+            let media_dir = format!("{}/media", app.output);
+            match storage.purge_orphaned_media(&media_dir) {
+                Ok(0) => {}
+                Ok(n) => tracing::info!("Purged {} orphaned media file(s)", n),
+                Err(e) => tracing::warn!("Media purge failed: {}", e),
+            }
         }
     }
 
