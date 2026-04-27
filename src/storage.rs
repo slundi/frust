@@ -13,23 +13,19 @@ const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
 pub struct Storage {
     articles_db: Database,
     states_db: Database,
-    media_db: Database,
 }
 
 impl Storage {
     pub fn new(
         articles_path: &str,
         states_path: &str,
-        media_path: &str,
     ) -> Result<Self, FrustError> {
         tracing::info!("Creating database files");
         let articles_db = Database::builder().create(articles_path)?;
         let states_db = Database::builder().create(states_path)?;
-        let media_db = Database::builder().create(media_path)?;
         Ok(Self {
             articles_db,
             states_db,
-            media_db,
         })
     }
 
