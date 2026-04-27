@@ -7,27 +7,7 @@ use quick_xml::{
 
 use crate::{error::FrustError, model::Article};
 
-pub(crate) trait Exporter {
-    /// `articles`: items to export.
-    /// `title`:    channel/document title (group or feed name).
-    /// `link`:     canonical URL of the channel (base URL of the output site).
-    /// `destination`: path to the output file (parent dir must exist).
-    fn generate(
-        &self,
-        articles: &[Article],
-        title: &str,
-        link: &str,
-        destination: &Path,
-    ) -> Result<(), FrustError>;
-}
-
-// ── Stub exporters (not yet implemented) ─────────────────────────────────────
-
-pub(crate) struct EpubExporter;
-pub(crate) struct MarkdownExporter;
-pub(crate) struct JsonExporter;
-
-// ── RSS 2.0 exporter ─────────────────────────────────────────────────────────
+use super::Exporter;
 
 pub(crate) struct RssExporter;
 
