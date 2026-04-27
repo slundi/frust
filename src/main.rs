@@ -8,10 +8,12 @@ use std::{env, process::ExitCode};
 
 use chrono::{DateTime, Utc};
 
+use crate::error::FrustError;
 use crate::model::App;
 use crate::storage::Storage;
 
 pub(crate) mod config;
+pub(crate) mod error;
 pub(crate) mod export;
 pub(crate) mod model;
 pub(crate) mod processing;
@@ -23,7 +25,7 @@ const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 static START_TIME: OnceLock<DateTime<Utc>> = OnceLock::new();
 
 /// Create all feed folders following the scheme: `<output>/<feed slug>`
-fn create_output_structure(app: &App) {
+fn create_output_structure(app: &App) -> Result<(), FrustError> {
     for g in app.groups.iter() {
         // does not require a folder if we do not save media, we will just keep an XML feed with combined old articles with new ones
         if !app.retrieve_media_server {
@@ -35,9 +37,10 @@ fn create_output_structure(app: &App) {
             folder.push_str(&app.output);
             folder.push('/');
             folder.push_str(&f.1.slug);
-            std::fs::create_dir_all(folder).unwrap();
+            std::fs::create_dir_all(folder)?;
         }
     }
+    Ok(())
 }
 
 fn print_usage() {
@@ -67,7 +70,13 @@ async fn main() -> ExitCode {
     if args.len() == 2 {
         config_file = args[1].clone();
     }
-    let pwd = env::current_dir().unwrap().display().to_string();
+    let pwd = match env::current_dir() {
+        Ok(p) => p.display().to_string(),
+        Err(e) => {
+            tracing::error!("Cannot determine working directory: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
     tracing::info!("Working directory: {}", pwd);
     tracing::info!("Config file: {}", config_file);
     if !Path::new(&config_file).exists() {
@@ -85,7 +94,10 @@ async fn main() -> ExitCode {
         tracing::error!("Unable to create output directory: {}", e);
         exit_code = ExitCode::FAILURE;
     });
-    create_output_structure(&app);
+    if let Err(e) = create_output_structure(&app) {
+        tracing::error!("Failed to create output directories: {}", e);
+        return ExitCode::FAILURE;
+    }
 
     // Clean up articles that have exceeded their retention window
     {
@@ -113,6 +125,9 @@ async fn main() -> ExitCode {
         }
     }
 
-    crate::processing::start(&app).await;
+    if let Err(e) = crate::processing::start(&app).await {
+        tracing::error!("Processing failed: {}", e);
+        exit_code = ExitCode::FAILURE;
+    }
     exit_code
 }

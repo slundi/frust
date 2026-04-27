@@ -1,3 +1,4 @@
+use crate::error::FrustError;
 use crate::model::{Article, FeedState};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use regex::Regex;
@@ -20,7 +21,7 @@ impl Storage {
         articles_path: &str,
         states_path: &str,
         media_path: &str,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, FrustError> {
         tracing::info!("Creating database files");
         let articles_db = Database::builder().create(articles_path)?;
         let states_db = Database::builder().create(states_path)?;
@@ -33,11 +34,7 @@ impl Storage {
     }
 
     /// Save a FeedState using rkyv 0.8
-    pub fn save_feed_state(
-        &self,
-        feed_id: u64,
-        state: &FeedState,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save_feed_state(&self, feed_id: u64, state: &FeedState) -> Result<(), FrustError> {
         tracing::info!("Saving feed state");
         let write_txn = self.states_db.begin_write()?;
         {
@@ -54,7 +51,7 @@ impl Storage {
     }
 
     /// Load all states using rkyv 0.8 access API
-    pub fn load_all_states(&self) -> Result<HashMap<u64, FeedState>, Box<dyn std::error::Error>> {
+    pub fn load_all_states(&self) -> Result<HashMap<u64, FeedState>, FrustError> {
         tracing::info!("Loading feed state");
         let read_txn = self.states_db.begin_read()?;
         let table = read_txn.open_table(STATE_TABLE)?;
@@ -78,7 +75,7 @@ impl Storage {
     }
 
     /// Return the set of all article IDs currently stored. Used to skip already-seen entries.
-    pub fn load_article_ids(&self) -> Result<HashSet<u64>, Box<dyn std::error::Error>> {
+    pub fn load_article_ids(&self) -> Result<HashSet<u64>, FrustError> {
         let read_txn = self.articles_db.begin_read()?;
         match read_txn.open_table(ARTICLES_TABLE) {
             Ok(table) => {
@@ -89,14 +86,11 @@ impl Storage {
                 Ok(ids)
             }
             Err(redb::TableError::TableDoesNotExist(_)) => Ok(HashSet::new()),
-            Err(e) => Err(Box::new(e)),
+            Err(e) => Err(e.into()),
         }
     }
 
-    pub fn upsert_articles(
-        &self,
-        articles: Vec<Article>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn upsert_articles(&self, articles: Vec<Article>) -> Result<(), FrustError> {
         let write_txn = self.articles_db.begin_write()?;
         {
             let mut table = write_txn.open_table(ARTICLES_TABLE)?;
@@ -122,7 +116,7 @@ impl Storage {
         now_ts: i64,
         feed_retentions: &HashMap<u64, u16>,
         default_retention: u16,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
+    ) -> Result<usize, FrustError> {
         let read_txn = self.articles_db.begin_read()?;
         let ids_to_delete: Vec<u64> = match read_txn.open_table(ARTICLES_TABLE) {
             Ok(table) => {
@@ -150,7 +144,7 @@ impl Storage {
                 ids
             }
             Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-            Err(e) => return Err(Box::new(e)),
+            Err(e) => return Err(e.into()),
         };
         drop(read_txn);
 
@@ -171,7 +165,7 @@ impl Storage {
 
     /// Collect bare filenames (e.g. `"abc123def456789a.jpg"`) of every media asset
     /// referenced by stored articles — either in enclosure URLs or inline in content.
-    pub fn collect_media_refs(&self) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    pub fn collect_media_refs(&self) -> Result<HashSet<String>, FrustError> {
         let re = Regex::new(r"media/([0-9a-f]{16}\.[a-zA-Z0-9]{1,5})").unwrap();
         let read_txn = self.articles_db.begin_read()?;
         let mut refs = HashSet::new();
@@ -196,17 +190,14 @@ impl Storage {
                 }
             }
             Err(redb::TableError::TableDoesNotExist(_)) => {}
-            Err(e) => return Err(Box::new(e)),
+            Err(e) => return Err(e.into()),
         }
         Ok(refs)
     }
 
     /// Delete files in `media_dir` that are not referenced by any stored article.
     /// Returns the number of deleted files.
-    pub fn purge_orphaned_media(
-        &self,
-        media_dir: &str,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
+    pub fn purge_orphaned_media(&self, media_dir: &str) -> Result<usize, FrustError> {
         let referenced = self.collect_media_refs()?;
         let media_path = std::path::Path::new(media_dir);
         if !media_path.exists() {
@@ -231,10 +222,7 @@ impl Storage {
     }
 
     /// Load all articles for a specific feed (e.g., to regenerate the RSS XML)
-    pub fn load_articles_for_feed(
-        &self,
-        feed_id: u64,
-    ) -> Result<Vec<Article>, Box<dyn std::error::Error>> {
+    pub fn load_articles_for_feed(&self, feed_id: u64) -> Result<Vec<Article>, FrustError> {
         tracing::info!("Loading articles for feed");
         let read_txn = self.articles_db.begin_read()?;
         let table = read_txn.open_table(ARTICLES_TABLE)?;

@@ -5,7 +5,9 @@ use feed_rs::parser;
 use futures::{StreamExt, stream};
 use reqwest::{Client, header};
 
-use crate::{START_TIME, model::App, storage::Storage, utils::is_refresh_required};
+use crate::{
+    START_TIME, error::FrustError, model::App, storage::Storage, utils::is_refresh_required,
+};
 
 pub(crate) mod content;
 pub(crate) mod fetch;
@@ -14,14 +16,15 @@ pub(crate) mod media;
 
 /// Main processing entry point: fetches all feeds concurrently and applies
 /// filters, content enrichment, and output generation.
-pub(crate) async fn start(app: &App) {
+pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(app.timeout as u64))
         .user_agent("frust/0.1.0")
-        .build()
-        .expect("Failed to build HTTP client");
+        .build()?;
 
-    let now = *START_TIME.get().expect("START_TIME not initialized");
+    let now = *START_TIME
+        .get()
+        .ok_or(FrustError::NotInitialized("START_TIME"))?;
 
     // Load existing article IDs from storage so we can skip already-seen entries.
     let existing_ids = Arc::new({
@@ -113,7 +116,7 @@ pub(crate) async fn start(app: &App) {
                     .sanitize_content(true)
                     .build()
                     .parse(bytes.as_ref())
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    .map_err(|e| FrustError::FeedParse(e.to_string()))?;
 
                 // 6. Apply content mode, retention and filters
                 filter::apply_filters_and_retention(
@@ -131,7 +134,7 @@ pub(crate) async fn start(app: &App) {
 
                 // TODO: persist _new_etag, _new_last_mod and `now` as last_check to storage
 
-                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+                Ok::<(), FrustError>(())
             }
         })
         .buffer_unordered(app.workers)
@@ -141,4 +144,5 @@ pub(crate) async fn start(app: &App) {
             }
         })
         .await;
+    Ok(())
 }
