@@ -1,4 +1,6 @@
 /// Save the filtered feed to the specified output file.
+// TODO: This will be wired in when per-feed export (non-group mode) is implemented.
+#[allow(dead_code)]
 pub(super) async fn save_feed_to_disk(
     feed: &feed_rs::model::Feed,
     path: &str,

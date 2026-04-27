@@ -218,7 +218,11 @@ impl Storage {
     pub fn load_articles_for_feed(&self, feed_id: u64) -> Result<Vec<Article>, FrustError> {
         tracing::info!("Loading articles for feed");
         let read_txn = self.articles_db.begin_read()?;
-        let table = read_txn.open_table(ARTICLES_TABLE)?;
+        let table = match read_txn.open_table(ARTICLES_TABLE) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
         let mut articles = Vec::new();
 
         for item in table.iter()? {
