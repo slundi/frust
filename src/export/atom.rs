@@ -114,12 +114,12 @@ fn write_entry<W: std::io::Write>(
     }
 
     // <updated> and <published> in RFC 3339
-    if article.timestamp != 0 {
-        if let Some(dt) = DateTime::<Utc>::from_timestamp(article.timestamp, 0) {
-            let ts = dt.to_rfc3339();
-            write_text_element(writer, "published", &ts)?;
-            write_text_element(writer, "updated", &ts)?;
-        }
+    if article.timestamp != 0
+        && let Some(dt) = DateTime::<Utc>::from_timestamp(article.timestamp, 0)
+    {
+        let ts = dt.to_rfc3339();
+        write_text_element(writer, "published", &ts)?;
+        write_text_element(writer, "updated", &ts)?;
     }
 
     // <summary>
