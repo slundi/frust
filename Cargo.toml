@@ -8,7 +8,7 @@ readme = "README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://codeberg.org/slundi/frust"
 categories = ["command-line-utilities", "data-structures"]
-keywords = ["cli", "rss", "atom", "feed", "aggregator", "feeds"]
+keywords = ["cli", "rss", "atom", "feed", "aggregator"]
 publish = true
 
 [dependencies]
