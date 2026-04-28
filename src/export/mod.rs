@@ -1,9 +1,11 @@
 pub(crate) mod atom;
+pub(crate) mod epub;
 pub(crate) mod json;
 pub(crate) mod markdown;
 pub(crate) mod rss;
 
 pub(crate) use atom::AtomExporter;
+pub(crate) use epub::EpubExporter;
 pub(crate) use json::JsonExporter;
 pub(crate) use markdown::MarkdownExporter;
 pub(crate) use rss::RssExporter;
@@ -25,5 +27,3 @@ pub(crate) trait Exporter {
         destination: &Path,
     ) -> Result<(), FrustError>;
 }
-
-pub(crate) struct EpubExporter;

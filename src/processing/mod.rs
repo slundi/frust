@@ -14,7 +14,7 @@ use tracing::{debug, info};
 use crate::{
     START_TIME,
     error::FrustError,
-    export::{AtomExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter},
+    export::{AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter},
     model::{App, Article, ExportStrategy, FeedState},
     storage::Storage,
     utils::is_refresh_required,
@@ -208,6 +208,7 @@ fn select_exporter(dest: &Path) -> Box<dyn Exporter> {
         Some("json") => Box::new(JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }),
+        Some("epub") => Box::new(EpubExporter),
         Some("md") => Box::new(MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }),

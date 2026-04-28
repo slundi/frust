@@ -37,6 +37,8 @@ zstd = "0.13"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+epub-builder = "0.8"
+pulldown-cmark = "0.13"
 
 [dev-dependencies]
 tempfile = "3"
