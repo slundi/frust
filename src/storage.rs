@@ -2,10 +2,7 @@ use crate::error::FrustError;
 use crate::model::{Article, FeedState};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use regex::Regex;
-use std::{
-    collections::{HashMap, HashSet},
-    io::Cursor,
-};
+use std::collections::{HashMap, HashSet};
 
 const ARTICLES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("articles");
 const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
@@ -90,7 +87,7 @@ impl Storage {
             for article in articles {
                 // Serialize -> Compress -> Store
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&article)?;
-                let compressed = zstd::encode_all(Cursor::new(bytes.as_slice()), 3)?;
+                let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
                 table.insert(article.id, compressed.as_slice())?;
             }
         }
@@ -116,7 +113,8 @@ impl Storage {
                 let mut ids = Vec::new();
                 for item in table.iter()? {
                     let (key, bytes) = item?;
-                    let decompressed = zstd::decode_all(std::io::Cursor::new(bytes.value()))?;
+                    let decompressed = lz4_flex::decompress_size_prepended(bytes.value())
+                        .map_err(|e| FrustError::Serialization(e.to_string()))?;
                     let archived = rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(
                         &decompressed,
                     )?;
@@ -166,7 +164,8 @@ impl Storage {
             Ok(table) => {
                 for item in table.iter()? {
                     let (_, bytes) = item?;
-                    let decompressed = zstd::decode_all(std::io::Cursor::new(bytes.value()))?;
+                    let decompressed = lz4_flex::decompress_size_prepended(bytes.value())
+                        .map_err(|e| FrustError::Serialization(e.to_string()))?;
                     let archived = rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(
                         &decompressed,
                     )?;
@@ -229,7 +228,8 @@ impl Storage {
             let (_, bytes) = item?;
 
             // 1. Decompress (since articles ARE compressed)
-            let decompressed = zstd::decode_all(std::io::Cursor::new(bytes.value()))?;
+            let decompressed = lz4_flex::decompress_size_prepended(bytes.value())
+                .map_err(|e| FrustError::Serialization(e.to_string()))?;
 
             // 2. Deserialize
             let archived =
