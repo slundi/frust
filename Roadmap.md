@@ -22,28 +22,33 @@
 10) [ ] Clean old articles (more than `article_keep_time` value)
 11) [ ] Match remaining retrieved articles with filters
 12) [x] Generate feed files (feed, group)
+13) [ ] CLI parsing with gumdrop
+  * [ ] config file
+  * [ ] OPML export
+  * [ ] OPML import to generate the TOML configuration
+  * [ ] ZIP export (see #16)
+14) [ ] implement `If-Modified-Since` and `If-None-Match` using `FeedState`
+15) [ ] Index file with links (a href and head links) to RSS feeds + errors (unreachable, 404, ...), section with ignored article + associated filter(s)
+16) [ ] ZIP export by app or group or feed. So the user can download everything and read completely offline or use it anywhere else
 
 ## Ideas / roadmap
 
-- [ ] Index file with links (a href and head links) to RSS feeds + errors (unreachable, ...), section with ignored article + associated filter(s)
 - [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR
 - [ ] `exports` in the config file to have various format (global, per group or per feed or per article):
-  - [ ] HTML
-  - [ ] Markdown
-  - [ ] EPUB
+  - [ ] HTML: maybe same as ATOM/RSS
+  - [x] Markdown (done without injection)
+  - [x] EPUB (done without injection)
   - [ ] ~~PDF~~ to complex/heavy for the tool, use pandoc or typst
-  - [ ] ZIP of JSON or markdown or HTML or XML
+  - [ ] ZIP of JSON or markdown or HTML or XML? wonder if useful since the feed is generated and in the redb, the user can copy the one of the file
 - [ ] Print help and version
 - [ ] Handle torrent
   - [ ] tags like the [Nyaa.si tracker](https://nyaa.si)
   - [ ] group all torrents in a single article (per feed)
-- [ ] OPML Import (`-i`?): generate the config file
-- [ ] OPML export (`-e`?)
 - [ ] Feed enrichment to inject data in an article
-  - [ ] language flag? (add a flag is the feed title and `hreflang`)
+  - [ ] ~~language flag? (add a flag is the feed title and `hreflang`)~~ can only be useful if multilingual sources are mixed
   - [x] inject HTML at top or bottop to add links to call an external API (to download the article in bookmark manager like [Shiori](https://github.com/go-shiori/shiori) or share links or ...)
   - [ ] inject HTML at group and app level
-  - [ ] download links so we have to export to various formats (PDF? epub?)
+  - [ ] ~~download links so we have to export to various formats (PDF? epub?)~~
 
 ### Dropped ideas
 
