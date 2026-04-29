@@ -15,7 +15,7 @@ use crate::{
     model::{Article, ExportStrategy},
 };
 
-use super::Exporter;
+use super::{Enrichment, Exporter, render_template};
 
 pub(crate) struct JsonExporter {
     pub(crate) strategy: ExportStrategy,
@@ -42,8 +42,8 @@ struct ItemDto<'a> {
     #[serde(skip_serializing_if = "str::is_empty")]
     title: &'a str,
     /// Markdown content maps to `content_text` (plain text per spec).
-    #[serde(skip_serializing_if = "str::is_empty")]
-    content_text: &'a str,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    content_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<&'a str>,
     /// RFC 3339 publication date derived from the feed timestamp.
@@ -65,17 +65,33 @@ struct FeedDto<'a> {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-fn to_item(article: &Article) -> ItemDto<'_> {
+fn to_item<'a>(article: &'a Article, enrichment: Option<&Enrichment>) -> ItemDto<'a> {
     let date_published = if article.timestamp != 0 {
         DateTime::<Utc>::from_timestamp(article.timestamp, 0).map(|dt| dt.to_rfc3339())
     } else {
         None
     };
+    let content_text = match enrichment {
+        Some(e) => {
+            let pre = e
+                .prepend
+                .as_deref()
+                .map(|t| render_template(t, e, article))
+                .unwrap_or_default();
+            let app = e
+                .append
+                .as_deref()
+                .map(|t| render_template(t, e, article))
+                .unwrap_or_default();
+            format!("{pre}{}{app}", article.content)
+        }
+        None => article.content.clone(),
+    };
     ItemDto {
         id: &article.url,
         url: &article.url,
         title: &article.title,
-        content_text: &article.content,
+        content_text,
         summary: article.summary.as_deref(),
         date_published,
         attachments: article
@@ -122,12 +138,15 @@ impl Exporter for JsonExporter {
         title: &str,
         link: &str,
         destination: &Path,
+        enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to JSON");
         match self.strategy {
-            ExportStrategy::Monolithic => monolithic(articles, title, link, destination),
-            ExportStrategy::Individual => individual(articles, destination),
-            ExportStrategy::Daily => daily(articles, destination),
+            ExportStrategy::Monolithic => {
+                monolithic(articles, title, link, destination, enrichments)
+            }
+            ExportStrategy::Individual => individual(articles, destination, enrichments),
+            ExportStrategy::Daily => daily(articles, destination, enrichments),
         }
     }
 }
@@ -138,18 +157,26 @@ fn monolithic(
     title: &str,
     link: &str,
     destination: &Path,
+    enrichments: &HashMap<u64, Enrichment>,
 ) -> Result<(), FrustError> {
     let feed = FeedDto {
         version: "https://jsonfeed.org/version/1.1",
         title,
         home_page_url: link,
-        items: articles.iter().map(to_item).collect(),
+        items: articles
+            .iter()
+            .map(|a| to_item(a, enrichments.get(&a.feed_id)))
+            .collect(),
     };
     write_json(&feed, destination)
 }
 
 /// Produces one JSON file per article (a single JSON Feed item object each).
-fn individual(articles: &[Article], destination: &Path) -> Result<(), FrustError> {
+fn individual(
+    articles: &[Article],
+    destination: &Path,
+    enrichments: &HashMap<u64, Enrichment>,
+) -> Result<(), FrustError> {
     fs::create_dir_all(destination)?;
     let mut used: HashMap<String, u32> = HashMap::new();
     for article in articles {
@@ -164,14 +191,21 @@ fn individual(articles: &[Article], destination: &Path) -> Result<(), FrustError
         *idx += 1;
         let path = destination.join(filename);
         let file = fs::File::create(&path)?;
-        serde_json::to_writer_pretty(BufWriter::new(file), &to_item(article))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
+        serde_json::to_writer_pretty(
+            BufWriter::new(file),
+            &to_item(article, enrichments.get(&article.feed_id)),
+        )
+        .map_err(|e| FrustError::Export(e.to_string()))?;
     }
     Ok(())
 }
 
 /// Produces one JSON file per day (an array of JSON Feed item objects each).
-fn daily(articles: &[Article], destination: &Path) -> Result<(), FrustError> {
+fn daily(
+    articles: &[Article],
+    destination: &Path,
+    enrichments: &HashMap<u64, Enrichment>,
+) -> Result<(), FrustError> {
     fs::create_dir_all(destination)?;
     let mut by_day: BTreeMap<String, Vec<&Article>> = BTreeMap::new();
     for article in articles {
@@ -184,7 +218,10 @@ fn daily(articles: &[Article], destination: &Path) -> Result<(), FrustError> {
     for (day, day_articles) in &by_day {
         let path = destination.join(format!("{day}.json"));
         let file = fs::File::create(&path)?;
-        let items: Vec<ItemDto> = day_articles.iter().map(|a| to_item(a)).collect();
+        let items: Vec<ItemDto> = day_articles
+            .iter()
+            .map(|a| to_item(a, enrichments.get(&a.feed_id)))
+            .collect();
         serde_json::to_writer_pretty(BufWriter::new(file), &items)
             .map_err(|e| FrustError::Export(e.to_string()))?;
     }
@@ -214,6 +251,10 @@ mod tests {
         }
     }
 
+    fn no_enrichment() -> HashMap<u64, Enrichment> {
+        HashMap::new()
+    }
+
     fn parse(path: &Path) -> Value {
         let s = fs::read_to_string(path).unwrap();
         serde_json::from_str(&s).unwrap()
@@ -226,7 +267,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[], "My Feed", "https://example.com", &dest)
+        .generate(
+            &[],
+            "My Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let v = parse(&dest);
         assert_eq!(
@@ -251,7 +298,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let v = parse(&dest);
         let item = &v["items"][0];
@@ -275,7 +328,7 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[], "Feed", "https://example.com", &dest)
+        .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
         .unwrap();
         assert!(dest.exists());
     }
@@ -289,7 +342,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[article], "Feed", "https://example.com", &dest)
+        .generate(
+            &[article],
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let v = parse(&dest);
         assert_eq!(v["items"][0]["summary"].as_str().unwrap(), "A summary");
@@ -308,7 +367,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[article], "Podcast Feed", "https://example.com", &dest)
+        .generate(
+            &[article],
+            "Podcast Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let v = parse(&dest);
         let att = &v["items"][0]["attachments"][0];
@@ -328,7 +393,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         assert_eq!(fs::read_dir(&dest).unwrap().count(), 2);
     }
@@ -346,7 +417,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let path = dest.join("2024-01-15-my-article.json");
         let v = parse(&path);
@@ -365,7 +442,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -387,7 +470,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -410,10 +499,53 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let v = parse(&dest.join("2024-01-15.json"));
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 2);
+    }
+
+    #[test]
+    fn test_json_enrichment_prepend_append() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("feed.json");
+        let mut article = make_article(1, "Test", "https://example.com/1", 1_705_276_800);
+        article.feed_id = 7;
+        article.content = "The content".to_string();
+        let mut enrichments = HashMap::new();
+        enrichments.insert(
+            7u64,
+            Enrichment {
+                feed_title: "My Source".to_string(),
+                feed_url: "https://example.com".to_string(),
+                feed_slug: "my-source".to_string(),
+                feed_page_url: "https://example.com/page".to_string(),
+                prepend: Some("Via {{feed.title}}: ".to_string()),
+                append: Some(" [Save](https://getpocket.com/save?url={{article.url}})".to_string()),
+            },
+        );
+        JsonExporter {
+            strategy: ExportStrategy::Monolithic,
+        }
+        .generate(
+            &[article],
+            "Feed",
+            "https://example.com",
+            &dest,
+            &enrichments,
+        )
+        .unwrap();
+        let v = parse(&dest);
+        let ct = v["items"][0]["content_text"].as_str().unwrap();
+        assert!(ct.contains("Via My Source:"), "prepend missing");
+        assert!(ct.contains("getpocket.com"), "append missing");
+        assert!(ct.contains("The content"), "original content missing");
     }
 }

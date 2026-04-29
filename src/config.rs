@@ -285,6 +285,16 @@ impl Group {
                         .and_then(|v| v.as_i64())
                         .map(|v| v as u64)
                         .unwrap_or(self.media_max_size), // inherited from group
+                    enrichment_prepend: m
+                        .get(&Yaml::String("enrichment_prepend".to_string()))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string()),
+                    enrichment_append: m
+                        .get(&Yaml::String("enrichment_append".to_string()))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string()),
                 };
 
                 // If feed does not have output, use the one from the group

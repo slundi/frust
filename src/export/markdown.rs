@@ -14,7 +14,7 @@ use crate::{
     model::{Article, ExportStrategy},
 };
 
-use super::Exporter;
+use super::{Enrichment, Exporter};
 
 pub(crate) struct MarkdownExporter {
     pub(crate) strategy: ExportStrategy,
@@ -27,6 +27,7 @@ impl Exporter for MarkdownExporter {
         title: &str,
         link: &str,
         destination: &Path,
+        _enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to Markdown");
         match self.strategy {
@@ -134,7 +135,12 @@ fn daily(articles: &[Article], destination: &Path) -> Result<(), FrustError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::export::Enrichment;
     use tempfile::TempDir;
+
+    fn no_enrichment() -> HashMap<u64, Enrichment> {
+        HashMap::new()
+    }
 
     fn make_article(id: u64, title: &str, url: &str, ts: i64, content: &str) -> Article {
         Article {
@@ -158,7 +164,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[], "My Feed", "https://example.com", &dest)
+        .generate(
+            &[],
+            "My Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let content = fs::read_to_string(&dest).unwrap();
         assert!(content.contains("# My Feed"));
@@ -179,7 +191,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&articles, "My Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "My Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let content = fs::read_to_string(&dest).unwrap();
         assert!(content.contains("title: \"Hello World\""));
@@ -194,7 +212,7 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[], "Feed", "https://example.com", &dest)
+        .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
         .unwrap();
         assert!(dest.exists());
     }
@@ -213,7 +231,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let content = fs::read_to_string(&dest).unwrap();
         assert!(content.contains(r#"title: "Say \"Hello\"""#));
@@ -242,7 +266,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let count = fs::read_dir(&dest).unwrap().count();
         assert_eq!(count, 2);
@@ -262,7 +292,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let path = dest.join("2024-01-15-my-article.md");
         let content = fs::read_to_string(path).unwrap();
@@ -282,7 +318,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -306,7 +348,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -329,7 +377,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(&articles, "Feed", "https://example.com", &dest)
+        .generate(
+            &articles,
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
         .unwrap();
         let content = fs::read_to_string(dest.join("2024-01-15.md")).unwrap();
         assert!(content.contains("First"));

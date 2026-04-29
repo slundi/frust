@@ -41,7 +41,8 @@
 - [ ] OPML export (`-e`?)
 - [ ] Feed enrichment to inject data in an article
   - [ ] language flag? (add a flag is the feed title and `hreflang`)
-  - [ ] inject HTML at top or bottop to add links to call an external API (to download the article in bookmark manager like [Shiori](https://github.com/go-shiori/shiori) or share links or ...)
+  - [x] inject HTML at top or bottop to add links to call an external API (to download the article in bookmark manager like [Shiori](https://github.com/go-shiori/shiori) or share links or ...)
+  - [ ] inject HTML at group and app level
   - [ ] download links so we have to export to various formats (PDF? epub?)
 
 ### Dropped ideas

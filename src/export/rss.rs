@@ -1,4 +1,4 @@
-use std::{fs, io::BufWriter, path::Path};
+use std::{collections::HashMap, fs, io::BufWriter, path::Path};
 
 use quick_xml::{
     Writer,
@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::{error::FrustError, model::Article};
 
-use super::Exporter;
+use super::{Enrichment, Exporter, render_template};
 
 pub(crate) struct RssExporter;
 
@@ -19,6 +19,7 @@ impl Exporter for RssExporter {
         title: &str,
         link: &str,
         destination: &Path,
+        enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to RSS");
         if let Some(parent) = destination.parent() {
@@ -49,7 +50,7 @@ impl Exporter for RssExporter {
         write_text_element(&mut writer, "description", title)?;
 
         for article in articles {
-            write_item(&mut writer, article)?;
+            write_item(&mut writer, article, enrichments.get(&article.feed_id))?;
         }
 
         // </channel>
@@ -88,6 +89,7 @@ fn write_text_element<W: std::io::Write>(
 fn write_item<W: std::io::Write>(
     writer: &mut Writer<W>,
     article: &Article,
+    enrichment: Option<&Enrichment>,
 ) -> Result<(), FrustError> {
     writer
         .write_event(Event::Start(BytesStart::new("item")))
@@ -97,10 +99,25 @@ fn write_item<W: std::io::Write>(
     write_text_element(writer, "link", &article.url)?;
     write_text_element(writer, "guid", &article.url)?;
 
-    if let Some(ref summary) = article.summary {
-        write_text_element(writer, "description", summary)?;
-    } else if !article.content.is_empty() {
-        write_text_element(writer, "description", &article.content)?;
+    let base = article.summary.as_deref().unwrap_or(&article.content);
+    if !base.is_empty() || enrichment.is_some() {
+        let description = match enrichment {
+            Some(e) => {
+                let pre = e
+                    .prepend
+                    .as_deref()
+                    .map(|t| render_template(t, e, article))
+                    .unwrap_or_default();
+                let app = e
+                    .append
+                    .as_deref()
+                    .map(|t| render_template(t, e, article))
+                    .unwrap_or_default();
+                format!("{pre}{base}{app}")
+            }
+            None => base.to_string(),
+        };
+        write_text_element(writer, "description", &description)?;
     }
 
     // pubDate in RFC 2822 format
@@ -157,6 +174,10 @@ mod tests {
         }
     }
 
+    fn no_enrichment() -> HashMap<u64, Enrichment> {
+        HashMap::new()
+    }
+
     fn output_path(dir: &TempDir, name: &str) -> PathBuf {
         dir.path().join(name)
     }
@@ -170,7 +191,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.xml");
         RssExporter
-            .generate(&[], "Empty Feed", "https://example.com", &dest)
+            .generate(
+                &[],
+                "Empty Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<title>Empty Feed</title>"));
@@ -184,7 +211,13 @@ mod tests {
         let dest = output_path(&dir, "feed.xml");
         let articles = vec![make_article(1, "Hello World", "https://example.com/1", 0)];
         RssExporter
-            .generate(&articles, "My Feed", "https://example.com", &dest)
+            .generate(
+                &articles,
+                "My Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<title>Hello World</title>"));
@@ -196,7 +229,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("sub").join("dir").join("feed.xml");
         RssExporter
-            .generate(&[], "Feed", "https://example.com", &dest)
+            .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
             .unwrap();
         assert!(dest.exists());
     }
@@ -212,7 +245,13 @@ mod tests {
             length: Some(4096),
         });
         RssExporter
-            .generate(&[article], "Podcast Feed", "https://example.com", &dest)
+            .generate(
+                &[article],
+                "Podcast Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("url=\"https://example.com/ep1.mp3\""));
@@ -232,9 +271,51 @@ mod tests {
             1_705_276_800,
         )];
         RssExporter
-            .generate(&articles, "Feed", "https://example.com", &dest)
+            .generate(
+                &articles,
+                "Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<pubDate>"), "pubDate element missing");
+    }
+
+    #[test]
+    fn test_rss_enrichment_prepend_append() {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.xml");
+        let mut article = make_article(1, "My Article", "https://example.com/1", 0);
+        article.feed_id = 42;
+        article.content = "Body text".to_string();
+        let mut enrichments = HashMap::new();
+        enrichments.insert(
+            42u64,
+            Enrichment {
+                feed_title: "Test Feed".to_string(),
+                feed_url: "https://example.com".to_string(),
+                feed_slug: "test-feed".to_string(),
+                feed_page_url: "https://example.com/page".to_string(),
+                prepend: Some("[Read on {{feed.title}}]({{article.url}}) — ".to_string()),
+                append: Some(
+                    " — [Save](https://getpocket.com/save?url={{article.url}})".to_string(),
+                ),
+            },
+        );
+        RssExporter
+            .generate(
+                &[article],
+                "Feed",
+                "https://example.com",
+                &dest,
+                &enrichments,
+            )
+            .unwrap();
+        let xml = read_xml(&dest);
+        assert!(xml.contains("Read on Test Feed"), "prepend missing");
+        assert!(xml.contains("getpocket.com"), "append missing");
+        assert!(xml.contains("Body text"), "original content missing");
     }
 }

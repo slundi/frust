@@ -1,4 +1,4 @@
-use std::{fs, io::BufWriter, path::Path};
+use std::{collections::HashMap, fs, io::BufWriter, path::Path};
 
 use chrono::{DateTime, Utc};
 use quick_xml::{
@@ -7,9 +7,9 @@ use quick_xml::{
 };
 use tracing::info;
 
-use crate::{error::FrustError, model::Article};
+use crate::{error::FrustError, model::{Article, Enrichment}};
 
-use super::Exporter;
+use super::{Exporter, render_template};
 
 pub(crate) struct AtomExporter;
 
@@ -20,6 +20,7 @@ impl Exporter for AtomExporter {
         title: &str,
         link: &str,
         destination: &Path,
+        enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to Atom");
         if let Some(parent) = destination.parent() {
@@ -64,7 +65,7 @@ impl Exporter for AtomExporter {
         write_text_element(&mut writer, "updated", &updated.to_rfc3339())?;
 
         for article in articles {
-            write_entry(&mut writer, article)?;
+            write_entry(&mut writer, article, enrichments.get(&article.feed_id))?;
         }
 
         writer
@@ -97,6 +98,7 @@ fn write_text_element<W: std::io::Write>(
 fn write_entry<W: std::io::Write>(
     writer: &mut Writer<W>,
     article: &Article,
+    enrichment: Option<&Enrichment>,
 ) -> Result<(), FrustError> {
     writer
         .write_event(Event::Start(BytesStart::new("entry")))
@@ -129,15 +131,33 @@ fn write_entry<W: std::io::Write>(
         write_text_element(writer, "summary", summary)?;
     }
 
-    // <content type="text"> — full markdown content
-    if !article.content.is_empty() {
+    // <content type="text"> — full markdown content, optionally enriched
+    let enriched;
+    let content: &str = if let Some(e) = enrichment {
+        let pre = e
+            .prepend
+            .as_deref()
+            .map(|t| render_template(t, e, article))
+            .unwrap_or_default();
+        let app = e
+            .append
+            .as_deref()
+            .map(|t| render_template(t, e, article))
+            .unwrap_or_default();
+        enriched = format!("{pre}{}{app}", article.content);
+        &enriched
+    } else {
+        &article.content
+    };
+
+    if !content.is_empty() {
         let mut content_tag = BytesStart::new("content");
         content_tag.push_attribute(("type", "text"));
         writer
             .write_event(Event::Start(content_tag))
             .map_err(|e| FrustError::Export(e.to_string()))?;
         writer
-            .write_event(Event::Text(BytesText::new(&article.content)))
+            .write_event(Event::Text(BytesText::new(content)))
             .map_err(|e| FrustError::Export(e.to_string()))?;
         writer
             .write_event(Event::End(BytesEnd::new("content")))
@@ -188,6 +208,10 @@ mod tests {
         }
     }
 
+    fn no_enrichment() -> HashMap<u64, Enrichment> {
+        HashMap::new()
+    }
+
     fn output_path(dir: &TempDir, name: &str) -> PathBuf {
         dir.path().join(name)
     }
@@ -201,7 +225,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.atom");
         AtomExporter
-            .generate(&[], "Empty Feed", "https://example.com", &dest)
+            .generate(
+                &[],
+                "Empty Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("xmlns=\"http://www.w3.org/2005/Atom\""));
@@ -216,7 +246,13 @@ mod tests {
         let dest = output_path(&dir, "feed.atom");
         let articles = vec![make_article(1, "Hello World", "https://example.com/1", 0)];
         AtomExporter
-            .generate(&articles, "My Feed", "https://example.com", &dest)
+            .generate(
+                &articles,
+                "My Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<title>Hello World</title>"));
@@ -229,7 +265,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("sub").join("dir").join("feed.atom");
         AtomExporter
-            .generate(&[], "Feed", "https://example.com", &dest)
+            .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
             .unwrap();
         assert!(dest.exists());
     }
@@ -245,7 +281,13 @@ mod tests {
             length: Some(4096),
         });
         AtomExporter
-            .generate(&[article], "Podcast Feed", "https://example.com", &dest)
+            .generate(
+                &[article],
+                "Podcast Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("rel=\"enclosure\""));
@@ -266,7 +308,13 @@ mod tests {
             1_705_276_800,
         )];
         AtomExporter
-            .generate(&articles, "Feed", "https://example.com", &dest)
+            .generate(
+                &articles,
+                "Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<published>2024-01-15T00:00:00+00:00</published>"));
@@ -281,7 +329,13 @@ mod tests {
         article.summary = Some("Short summary".to_string());
         article.content = "Full **markdown** content".to_string();
         AtomExporter
-            .generate(&[article], "Feed", "https://example.com", &dest)
+            .generate(
+                &[article],
+                "Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<summary>Short summary</summary>"));
@@ -298,10 +352,52 @@ mod tests {
             make_article(2, "Newer", "https://example.com/2", 1_705_276_800),
         ];
         AtomExporter
-            .generate(&articles, "Feed", "https://example.com", &dest)
+            .generate(
+                &articles,
+                "Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         let xml = read_xml(&dest);
         // The feed-level <updated> should be the newer timestamp
         assert!(xml.contains("<updated>2024-01-15T00:00:00+00:00</updated>"));
+    }
+
+    #[test]
+    fn test_atom_enrichment_prepend_append() {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.atom");
+        let mut article = make_article(1, "My Article", "https://example.com/1", 0);
+        article.feed_id = 99;
+        article.content = "Article body".to_string();
+        let mut enrichments = HashMap::new();
+        enrichments.insert(
+            99u64,
+            Enrichment {
+                feed_title: "My Feed".to_string(),
+                feed_url: "https://example.com".to_string(),
+                feed_slug: "my-feed".to_string(),
+                feed_page_url: "https://example.com/page".to_string(),
+                prepend: Some("SOURCE: {{feed.title}} | ".to_string()),
+                append: Some(
+                    " | [Pocket](https://getpocket.com/save?url={{article.url}})".to_string(),
+                ),
+            },
+        );
+        AtomExporter
+            .generate(
+                &[article],
+                "Feed",
+                "https://example.com",
+                &dest,
+                &enrichments,
+            )
+            .unwrap();
+        let xml = read_xml(&dest);
+        assert!(xml.contains("SOURCE: My Feed"), "prepend missing");
+        assert!(xml.contains("getpocket.com"), "append missing");
+        assert!(xml.contains("Article body"), "content missing");
     }
 }

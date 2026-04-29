@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -14,8 +14,11 @@ use tracing::{debug, info};
 use crate::{
     START_TIME,
     error::FrustError,
-    export::{AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter},
-    model::{App, Article, ExportStrategy, FeedState},
+    export::{
+        AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter,
+        RssExporter,
+    },
+    model::{App, Article, Enrichment, ExportStrategy, Feed, FeedState, Group},
     storage::Storage,
     utils::is_refresh_required,
 };
@@ -216,6 +219,26 @@ fn select_exporter(dest: &Path) -> Box<dyn Exporter> {
     }
 }
 
+/// Build a per-feed enrichment map for a group (keyed by `feed_id`).
+fn build_enrichment_map(group: &Group) -> HashMap<u64, Enrichment> {
+    group
+        .feeds
+        .iter()
+        .map(|(feed_id, feed)| (*feed_id, feed_to_enrichment(feed)))
+        .collect()
+}
+
+fn feed_to_enrichment(feed: &Feed) -> Enrichment {
+    Enrichment {
+        feed_title: feed.title.clone(),
+        feed_url: feed.url.clone(),
+        feed_slug: feed.slug.clone(),
+        feed_page_url: feed.page_url.clone(),
+        prepend: feed.enrichment_prepend.clone(),
+        append: feed.enrichment_append.clone(),
+    }
+}
+
 /// For each group, load its articles from storage and write the output file.
 fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
     for group in app.groups.values() {
@@ -246,6 +269,7 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 
         let exporter = select_exporter(&dest);
         let link = format!("/{}", group.slug);
+        let enrichments = build_enrichment_map(group);
 
         tracing::info!(
             "Exporting {} article(s) for group '{}' → {}",
@@ -254,7 +278,7 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
             dest.display()
         );
 
-        if let Err(e) = exporter.generate(&articles, &group.title, &link, &dest) {
+        if let Err(e) = exporter.generate(&articles, &group.title, &link, &dest, &enrichments) {
             tracing::error!("Export failed for group '{}': {}", group.slug, e);
         }
     }

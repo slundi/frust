@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use chrono::DateTime;
 use epub_builder::{EpubBuilder, EpubContent, EpubVersion, ZipLibrary};
@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::{error::FrustError, model::Article};
 
-use super::Exporter;
+use super::{Enrichment, Exporter};
 
 pub(crate) struct EpubExporter;
 
@@ -18,6 +18,7 @@ impl Exporter for EpubExporter {
         title: &str,
         _link: &str,
         destination: &Path,
+        _enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to EPUB");
         if let Some(parent) = destination.parent() {
@@ -93,8 +94,13 @@ fn escape_xml(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::export::Enrichment;
     use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn no_enrichment() -> HashMap<u64, Enrichment> {
+        HashMap::new()
+    }
 
     fn make_article(id: u64, title: &str, url: &str, ts: i64) -> Article {
         Article {
@@ -120,7 +126,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.epub");
         EpubExporter
-            .generate(&[], "Empty Feed", "https://example.com", &dest)
+            .generate(
+                &[],
+                "Empty Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         assert!(dest.exists());
         let bytes = fs::read(&dest).unwrap();
@@ -134,7 +146,13 @@ mod tests {
         let dest = output_path(&dir, "feed.epub");
         let articles = vec![make_article(1, "Hello World", "https://example.com/1", 0)];
         EpubExporter
-            .generate(&articles, "My Feed", "https://example.com", &dest)
+            .generate(
+                &articles,
+                "My Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         assert!(dest.exists());
         let bytes = fs::read(&dest).unwrap();
@@ -146,7 +164,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("sub").join("dir").join("feed.epub");
         EpubExporter
-            .generate(&[], "Feed", "https://example.com", &dest)
+            .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
             .unwrap();
         assert!(dest.exists());
     }
@@ -160,7 +178,13 @@ mod tests {
             make_article(2, "Second Article", "https://example.com/2", 1_705_276_800),
         ];
         EpubExporter
-            .generate(&articles, "Multi Feed", "https://example.com", &dest)
+            .generate(
+                &articles,
+                "Multi Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         assert!(dest.exists());
         let bytes = fs::read(&dest).unwrap();
@@ -175,7 +199,13 @@ mod tests {
         article.content = "## Subtitle\n\nThis is **bold** text.".to_string();
         article.summary = Some("A summary".to_string());
         EpubExporter
-            .generate(&[article], "Content Feed", "https://example.com", &dest)
+            .generate(
+                &[article],
+                "Content Feed",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
             .unwrap();
         assert!(dest.exists());
         let bytes = fs::read(&dest).unwrap();

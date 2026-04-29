@@ -142,6 +142,12 @@ pub(crate) struct Feed {
     pub(crate) media: bool,
     /// Maximum asset size in bytes to download (0 = no limit)
     pub(crate) media_max_size: u64,
+    /// Mustache-style template injected before each article's content at export time.
+    /// Available variables: {{feed.title}}, {{feed.url}}, {{feed.slug}}, {{feed.page_url}},
+    /// {{article.title}}, {{article.url}}, {{article.id}}
+    pub(crate) enrichment_prepend: Option<String>,
+    /// Mustache-style template injected after each article's content at export time.
+    pub(crate) enrichment_append: Option<String>,
     /// Entity tag timestamp in order to optimize cache.
     /// We need to send the header `If-None-Match` with our timestamp, then the
     /// server should return a 304 Not Modified with no content se we do not
@@ -234,4 +240,18 @@ pub(crate) enum ExportStrategy {
     Individual,
     /// One file per day (Good compromise for Journaling)
     Daily,
+}
+
+/// Feed-level enrichment context carried to exporters at runtime (not stored).
+/// Templates may reference: {{feed.title}}, {{feed.url}}, {{feed.slug}},
+/// {{feed.page_url}}, {{article.title}}, {{article.url}}, {{article.id}}
+pub(crate) struct Enrichment {
+    pub(crate) feed_title: String,
+    pub(crate) feed_url: String,
+    pub(crate) feed_slug: String,
+    pub(crate) feed_page_url: String,
+    /// Template injected before the article body.
+    pub(crate) prepend: Option<String>,
+    /// Template injected after the article body.
+    pub(crate) append: Option<String>,
 }
