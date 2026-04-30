@@ -21,6 +21,7 @@ pub(crate) mod config;
 pub(crate) mod error;
 pub(crate) mod export;
 pub(crate) mod model;
+pub(crate) mod opml;
 pub(crate) mod processing;
 pub(crate) mod storage;
 pub(crate) mod utils;
@@ -123,7 +124,7 @@ async fn main() -> ExitCode {
 
     match opts.command {
         Some(Command::Import(ref o)) => {
-            if let Err(e) = command::import(o) {
+            if let Err(e) = command::import_opml(o) {
                 tracing::error!("{}", e);
                 return ExitCode::FAILURE;
             }

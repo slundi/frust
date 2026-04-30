@@ -24,8 +24,8 @@
 12) [x] Generate feed files (feed, group)
 13) [x] CLI parsing with gumdrop
   * [ ] config file
-  * [ ] OPML export
-  * [ ] OPML import to generate the TOML configuration
+  * [x] OPML export
+  * [x] OPML import to generate the TOML configuration
   * [ ] ZIP export (see #16)
 14) [ ] implement `If-Modified-Since` and `If-None-Match` using `FeedState`
 15) [ ] Index file with links (a href and head links) to RSS feeds + errors (unreachable, 404, ...), section with ignored article + associated filter(s)
