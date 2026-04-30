@@ -22,7 +22,7 @@
 10) [ ] Clean old articles (more than `article_keep_time` value)
 11) [ ] Match remaining retrieved articles with filters
 12) [x] Generate feed files (feed, group)
-13) [ ] CLI parsing with gumdrop
+13) [x] CLI parsing with gumdrop
   * [ ] config file
   * [ ] OPML export
   * [ ] OPML import to generate the TOML configuration
