@@ -33,22 +33,13 @@
 
 ## Ideas / roadmap
 
-- [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR
-- [x] `exports` in the config file to have various format (global, per group or per feed or per article):
-  - [x] HTML: maybe same as ATOM/~~RSS~~
-  - [x] Markdown (done without injection)
-  - [x] EPUB (done without injection)
-  - [ ] ~~PDF~~ to complex/heavy for the tool, use pandoc or typst
-  - [x] ZIP of JSON or markdown or HTML or XML? wonder if useful since the feed is generated and in the redb, the user can copy the one of the file
+- [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR `filter: { any: ["slug1", "slug2"], all: ["slug3"] }` (ideally equal/not equal/in/not in/starts with or not/regex) 
 - [ ] Print help and version
-- [ ] Handle torrent
-  - [ ] tags like the [Nyaa.si tracker](https://nyaa.si)
-  - [ ] group all torrents in a single article (per feed)
+- [ ] Handle custom tags like the [Nyaa.si tracker](https://nyaa.si)
 - [ ] Feed enrichment to inject data in an article
-  - [ ] ~~language flag? (add a flag is the feed title and `hreflang`)~~ can only be useful if multilingual sources are mixed
   - [x] inject HTML at top or bottop to add links to call an external API (to download the article in bookmark manager like [Shiori](https://github.com/go-shiori/shiori) or share links or ...)
   - [ ] inject HTML at group and app level
-  - [ ] ~~download links so we have to export to various formats (PDF? epub?)~~
+- [ ] full text search using [tinysearch](https://github.com/tinysearch/tinysearch) for static content
 
 ### Dropped ideas
 
@@ -58,3 +49,7 @@
 - web server
 - EPG (Electronic Program Guide) support (will be a dedicated app)
 - `touch` article file and folder to match the feed date: will create a lot of files so it will be IO intensive and slow when a lot a files... when save on SD card it will kill it faster, no COW (copy on write) like with redb
+- PDF export: to complex/heavy for the tool, use pandoc or typst
+- Feed enrichment: download links so we have to export to various formats (PDF? epub?)
+- Feed enrichment: language flag? (add a flag is the feed title and `hreflang`) can only be useful if multilingual sources are mixed
+- Handle torrent / group all torrents in a single article (per feed)
