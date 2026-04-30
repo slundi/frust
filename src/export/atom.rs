@@ -29,54 +29,66 @@ impl Exporter for AtomExporter {
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
         }
-
         let file = fs::File::create(destination)?;
         let mut writer = Writer::new_with_indent(BufWriter::new(file), b' ', 2);
-
-        writer
-            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        // <feed xmlns="http://www.w3.org/2005/Atom">
-        let mut feed_tag = BytesStart::new("feed");
-        feed_tag.push_attribute(("xmlns", "http://www.w3.org/2005/Atom"));
-        writer
-            .write_event(Event::Start(feed_tag))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        write_text_element(&mut writer, "title", title)?;
-        write_text_element(&mut writer, "id", link)?;
-
-        // <link rel="alternate" href="..."/>
-        {
-            let mut link_tag = BytesStart::new("link");
-            link_tag.push_attribute(("rel", "alternate"));
-            link_tag.push_attribute(("href", link));
-            writer
-                .write_event(Event::Empty(link_tag))
-                .map_err(|e| FrustError::Export(e.to_string()))?;
-        }
-
-        // <updated> — most recent article timestamp, or now
-        let updated = articles
-            .iter()
-            .filter(|a| a.timestamp != 0)
-            .map(|a| a.timestamp)
-            .max()
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
-            .unwrap_or_else(Utc::now);
-        write_text_element(&mut writer, "updated", &updated.to_rfc3339())?;
-
-        for article in articles {
-            write_entry(&mut writer, article, enrichments.get(&article.feed_id))?;
-        }
-
-        writer
-            .write_event(Event::End(BytesEnd::new("feed")))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        Ok(())
+        write_atom_to(&mut writer, articles, title, link, enrichments)
     }
+}
+
+/// Write a complete Atom 1.0 feed to any `Write` sink.
+///
+/// This is the shared core used by both [`AtomExporter`] (file output) and the
+/// ZIP exporter (in-memory `Vec<u8>` output).
+pub(crate) fn write_atom_to<W: std::io::Write>(
+    writer: &mut Writer<W>,
+    articles: &[Article],
+    title: &str,
+    link: &str,
+    enrichments: &HashMap<u64, Enrichment>,
+) -> Result<(), FrustError> {
+    writer
+        .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    // <feed xmlns="http://www.w3.org/2005/Atom">
+    let mut feed_tag = BytesStart::new("feed");
+    feed_tag.push_attribute(("xmlns", "http://www.w3.org/2005/Atom"));
+    writer
+        .write_event(Event::Start(feed_tag))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    write_text_element(writer, "title", title)?;
+    write_text_element(writer, "id", link)?;
+
+    // <link rel="alternate" href="..."/>
+    {
+        let mut link_tag = BytesStart::new("link");
+        link_tag.push_attribute(("rel", "alternate"));
+        link_tag.push_attribute(("href", link));
+        writer
+            .write_event(Event::Empty(link_tag))
+            .map_err(|e| FrustError::Export(e.to_string()))?;
+    }
+
+    // <updated> — most recent article timestamp, or now
+    let updated = articles
+        .iter()
+        .filter(|a| a.timestamp != 0)
+        .map(|a| a.timestamp)
+        .max()
+        .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
+        .unwrap_or_else(Utc::now);
+    write_text_element(writer, "updated", &updated.to_rfc3339())?;
+
+    for article in articles {
+        write_entry(writer, article, enrichments.get(&article.feed_id))?;
+    }
+
+    writer
+        .write_event(Event::End(BytesEnd::new("feed")))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    Ok(())
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

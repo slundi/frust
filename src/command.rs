@@ -9,15 +9,16 @@ use crate::opml::{ParsedGroup, build_yaml, parse_opml, write_opml};
 
 /// `frust export OUTPUT`
 ///
-/// Reads all articles and media references from the redb database (no cleanup)
-/// and writes them into a zip archive at OUTPUT.
+/// Loads `config.yaml` (or the path given via `-c`) to locate the redb database
+/// and feed structure, then writes a ZIP archive to OUTPUT containing:
+/// - one Atom 1.0 file per group
+/// - all media assets from `{app.output}/media/`
 pub fn archive(opts: &ExportOpts) -> Result<(), FrustError> {
     let output = opts
         .output()
         .ok_or_else(|| FrustError::Config("usage: frust export OUTPUT".to_string()))?;
     tracing::info!("Building zip archive → {}", output);
-    // TODO: open redb, iterate all articles + media, write zip
-    todo!("Zip archive export is not yet implemented")
+    crate::export::zip::build_zip_archive(output, "config.yaml")
 }
 
 /// `frust import OUTPUT OPML_FILE [OPML_FILE…]`

@@ -3,6 +3,7 @@ pub(crate) mod epub;
 pub(crate) mod json;
 pub(crate) mod markdown;
 pub(crate) mod rss;
+pub(crate) mod zip;
 
 pub(crate) use atom::AtomExporter;
 pub(crate) use epub::EpubExporter;

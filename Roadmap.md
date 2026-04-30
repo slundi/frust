@@ -26,20 +26,20 @@
   * [ ] config file
   * [x] OPML export
   * [x] OPML import to generate the TOML configuration
-  * [ ] ZIP export (see #16)
+  * [x] ZIP export (see #16)
 14) [ ] implement `If-Modified-Since` and `If-None-Match` using `FeedState`
 15) [ ] Index file with links (a href and head links) to RSS feeds + errors (unreachable, 404, ...), section with ignored article + associated filter(s)
-16) [ ] ZIP export by app or group or feed. So the user can download everything and read completely offline or use it anywhere else
+16) [x] ZIP export by app or group or feed. So the user can download everything and read completely offline or use it anywhere else
 
 ## Ideas / roadmap
 
 - [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR
-- [ ] `exports` in the config file to have various format (global, per group or per feed or per article):
-  - [ ] HTML: maybe same as ATOM/RSS
+- [x] `exports` in the config file to have various format (global, per group or per feed or per article):
+  - [x] HTML: maybe same as ATOM/~~RSS~~
   - [x] Markdown (done without injection)
   - [x] EPUB (done without injection)
   - [ ] ~~PDF~~ to complex/heavy for the tool, use pandoc or typst
-  - [ ] ZIP of JSON or markdown or HTML or XML? wonder if useful since the feed is generated and in the redb, the user can copy the one of the file
+  - [x] ZIP of JSON or markdown or HTML or XML? wonder if useful since the feed is generated and in the redb, the user can copy the one of the file
 - [ ] Print help and version
 - [ ] Handle torrent
   - [ ] tags like the [Nyaa.si tracker](https://nyaa.si)
