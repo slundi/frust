@@ -1,12 +1,196 @@
 use std::fs;
 use std::io::BufWriter;
 
+use quick_xml::Reader;
 use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 
 use crate::cli::{ExportOpts, ImportOpts};
 use crate::error::FrustError;
 use crate::model::{App, Group};
+
+// ---------------------------------------------------------------------------
+// OPML import helpers
+// ---------------------------------------------------------------------------
+
+struct ParsedFeed {
+    title: String,
+    url: String,
+    page_url: String,
+}
+
+struct ParsedGroup {
+    title: String,
+    slug: String,
+    feeds: Vec<ParsedFeed>,
+}
+
+/// Extract the four attributes we care about from an `<outline>` element.
+/// Returns `(label, type, xmlUrl, htmlUrl)`.
+fn extract_outline_attrs(
+    e: &quick_xml::events::BytesStart<'_>,
+) -> (String, String, String, String) {
+    let mut text = String::new();
+    let mut title = String::new();
+    let mut outline_type = String::new();
+    let mut xml_url = String::new();
+    let mut html_url = String::new();
+
+    for attr in e.attributes().flatten() {
+        let key = std::str::from_utf8(attr.key.as_ref())
+            .unwrap_or("")
+            .to_lowercase();
+        let val = std::str::from_utf8(attr.value.as_ref())
+            .unwrap_or("")
+            .to_string();
+        match key.as_str() {
+            "type" => outline_type = val,
+            "text" => text = val,
+            "title" => title = val,
+            "xmlurl" => xml_url = val,
+            "htmlurl" => html_url = val,
+            _ => {}
+        }
+    }
+
+    let label = if !title.is_empty() { title } else { text };
+    (label, outline_type, xml_url, html_url)
+}
+
+/// Parse an OPML document from a string and return a flat list of groups with
+/// their feeds. Feeds that appear directly under `<body>` (no enclosing group
+/// outline) are placed in an "Uncategorized" group.
+fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
+    let mut reader = Reader::from_str(content);
+    reader.config_mut().trim_text(true);
+
+    let mut groups: Vec<ParsedGroup> = Vec::new();
+    let mut current_group: Option<ParsedGroup> = None;
+    let mut in_body = false;
+    let mut outline_depth: i32 = 0;
+
+    loop {
+        match reader
+            .read_event()
+            .map_err(|e| FrustError::Config(e.to_string()))?
+        {
+            Event::Start(ref e) => {
+                let local = e.local_name();
+                let tag = std::str::from_utf8(local.as_ref())
+                    .unwrap_or("")
+                    .to_lowercase();
+                match tag.as_str() {
+                    "body" => in_body = true,
+                    "outline" if in_body => {
+                        outline_depth += 1;
+                        if outline_depth == 1 {
+                            // Top-level outline without xmlUrl → group container.
+                            let (label, _, xml_url, _) = extract_outline_attrs(e);
+                            if xml_url.is_empty() {
+                                if let Some(g) = current_group.take() {
+                                    groups.push(g);
+                                }
+                                current_group = Some(ParsedGroup {
+                                    slug: slug::slugify(&label),
+                                    title: label,
+                                    feeds: Vec::new(),
+                                });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Event::Empty(ref e) => {
+                let local = e.local_name();
+                let tag = std::str::from_utf8(local.as_ref())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if tag == "outline" && in_body {
+                    let (label, _, xml_url, html_url) = extract_outline_attrs(e);
+                    if !xml_url.is_empty() {
+                        let feed = ParsedFeed {
+                            title: label,
+                            url: xml_url,
+                            page_url: html_url,
+                        };
+                        if let Some(g) = current_group.as_mut() {
+                            g.feeds.push(feed);
+                        } else {
+                            // Flat feed at body level → uncategorized group.
+                            match groups.iter_mut().find(|g| g.slug == "uncategorized") {
+                                Some(g) => g.feeds.push(feed),
+                                None => groups.push(ParsedGroup {
+                                    title: "Uncategorized".to_string(),
+                                    slug: "uncategorized".to_string(),
+                                    feeds: vec![feed],
+                                }),
+                            }
+                        }
+                    }
+                }
+            }
+            Event::End(ref e) => {
+                let local = e.local_name();
+                let tag = std::str::from_utf8(local.as_ref())
+                    .unwrap_or("")
+                    .to_lowercase();
+                match tag.as_str() {
+                    "body" => {
+                        in_body = false;
+                        if let Some(g) = current_group.take() {
+                            groups.push(g);
+                        }
+                    }
+                    "outline" if in_body => {
+                        outline_depth -= 1;
+                        if outline_depth == 0
+                            && let Some(g) = current_group.take()
+                        {
+                            groups.push(g);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+
+    Ok(groups)
+}
+
+/// Read an OPML file from disk and delegate to [`parse_opml_str`].
+fn parse_opml(path: &str) -> Result<Vec<ParsedGroup>, FrustError> {
+    let content = fs::read_to_string(path)?;
+    parse_opml_str(&content)
+}
+
+/// Double-quote a YAML scalar, escaping backslashes and double-quotes.
+fn yaml_quote(s: &str) -> String {
+    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+/// Serialise the parsed groups into a minimal YAML config skeleton.
+fn build_yaml(groups: &[ParsedGroup]) -> String {
+    let mut out = String::from("groups:\n");
+    for g in groups {
+        out.push_str(&format!("- title: {}\n", yaml_quote(&g.title)));
+        out.push_str(&format!("  slug: {}\n", g.slug));
+        out.push_str(&format!("  output: {}.atom\n", g.slug));
+        out.push_str("  feeds:\n");
+        for f in &g.feeds {
+            out.push_str(&format!("  - title: {}\n", yaml_quote(&f.title)));
+            out.push_str(&format!("    url: {}\n", f.url));
+            if !f.page_url.is_empty() {
+                out.push_str(&format!("    page_url: {}\n", f.page_url));
+            }
+        }
+    }
+    out
+}
 
 fn write_text_elem<W: std::io::Write>(
     writer: &mut Writer<W>,
@@ -36,7 +220,11 @@ fn write_opml<W: std::io::Write>(writer: &mut Writer<W>, app: &App) -> Result<()
     groups.sort_by(|a, b| a.slug.cmp(&b.slug));
 
     for group in groups {
-        let label = if group.title.is_empty() { &group.slug } else { &group.title };
+        let label = if group.title.is_empty() {
+            &group.slug
+        } else {
+            &group.title
+        };
 
         let mut group_outline = BytesStart::new("outline");
         group_outline.push_attribute(("text", label.as_str()));
@@ -69,11 +257,11 @@ fn write_opml<W: std::io::Write>(writer: &mut Writer<W>, app: &App) -> Result<()
 /// `frust import OUTPUT OPML_FILE [OPML_FILE…]`
 ///
 /// Parses one or more OPML files and writes a base YAML configuration to OUTPUT.
+/// Groups with the same slug found across multiple files are merged; duplicate
+/// feed URLs within a group are silently deduplicated.
 pub fn import(opts: &ImportOpts) -> Result<(), FrustError> {
     let output = opts.output().ok_or_else(|| {
-        FrustError::Config(
-            "usage: frust import OUTPUT OPML_FILE [OPML_FILE…]".to_string(),
-        )
+        FrustError::Config("usage: frust import OUTPUT OPML_FILE [OPML_FILE…]".to_string())
     })?;
     let opml_files = opts.opml_files();
     if opml_files.is_empty() {
@@ -82,8 +270,45 @@ pub fn import(opts: &ImportOpts) -> Result<(), FrustError> {
         ));
     }
     tracing::info!("Importing {} OPML file(s) → {}", opml_files.len(), output);
-    // TODO: parse each OPML file, collect feed entries, emit a YAML config skeleton
-    todo!("OPML → YAML config import is not yet implemented")
+
+    // Parse every OPML file and merge groups by slug.
+    let mut all_groups: Vec<ParsedGroup> = Vec::new();
+    for path in opml_files {
+        tracing::debug!("Parsing {}", path);
+        for g in parse_opml(path)? {
+            match all_groups.iter_mut().find(|e| e.slug == g.slug) {
+                Some(existing) => {
+                    for feed in g.feeds {
+                        if !existing.feeds.iter().any(|f| f.url == feed.url) {
+                            existing.feeds.push(feed);
+                        }
+                    }
+                }
+                None => all_groups.push(g),
+            }
+        }
+    }
+
+    // Deterministic output: groups and feeds sorted alphabetically.
+    all_groups.sort_by(|a, b| a.slug.cmp(&b.slug));
+    for g in &mut all_groups {
+        g.feeds.sort_by(|a, b| a.title.cmp(&b.title));
+    }
+
+    let yaml = build_yaml(&all_groups);
+
+    if let Some(parent) = std::path::Path::new(output).parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(output, yaml)?;
+    tracing::info!(
+        "Config written to {} ({} group(s))",
+        output,
+        all_groups.len()
+    );
+    Ok(())
 }
 
 /// `frust export OUTPUT CONFIG_FILE`
@@ -91,20 +316,20 @@ pub fn import(opts: &ImportOpts) -> Result<(), FrustError> {
 /// Loads the YAML configuration from CONFIG_FILE and writes an OPML 2.0 file to OUTPUT.
 /// Groups become container outlines; feeds become `type="rss"` leaf outlines.
 pub fn export_opml(opts: &ExportOpts) -> Result<(), FrustError> {
-    let output = opts.output().ok_or_else(|| {
-        FrustError::Config("usage: frust export OUTPUT CONFIG_FILE".to_string())
-    })?;
-    let config_file = opts.config_file().ok_or_else(|| {
-        FrustError::Config("usage: frust export OUTPUT CONFIG_FILE".to_string())
-    })?;
+    let output = opts
+        .output()
+        .ok_or_else(|| FrustError::Config("usage: frust export OUTPUT CONFIG_FILE".to_string()))?;
+    let config_file = opts
+        .config_file()
+        .ok_or_else(|| FrustError::Config("usage: frust export OUTPUT CONFIG_FILE".to_string()))?;
 
     tracing::info!("Loading config from {}", config_file);
     let app = crate::config::load_config_file(config_file.to_string());
 
-    if let Some(parent) = std::path::Path::new(output).parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = std::path::Path::new(output).parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
     }
 
     let file = fs::File::create(output)?;
@@ -120,9 +345,9 @@ pub fn export_opml(opts: &ExportOpts) -> Result<(), FrustError> {
 /// Reads all articles and media references from the redb database (no cleanup)
 /// and writes them into a zip archive at OUTPUT.
 pub fn archive(opts: &ExportOpts) -> Result<(), FrustError> {
-    let output = opts.output().ok_or_else(|| {
-        FrustError::Config("usage: frust export OUTPUT".to_string())
-    })?;
+    let output = opts
+        .output()
+        .ok_or_else(|| FrustError::Config("usage: frust export OUTPUT".to_string()))?;
     tracing::info!("Building zip archive → {}", output);
     // TODO: open redb, iterate all articles + media, write zip
     todo!("Zip archive export is not yet implemented")
@@ -134,7 +359,7 @@ mod tests {
 
     use quick_xml::Writer;
 
-    use super::write_opml;
+    use super::{build_yaml, parse_opml_str, write_opml};
     use crate::model::{App, ContentMode, Feed, Group};
 
     fn make_feed(title: &str, url: &str, page_url: &str) -> Feed {
@@ -206,13 +431,22 @@ mod tests {
     #[test]
     fn test_groups_sorted_by_slug() {
         let app = build_app(vec![
-            make_group("zebra", vec![make_feed("Z Feed", "https://z.example/feed", "")]),
-            make_group("alpha", vec![make_feed("A Feed", "https://a.example/feed", "")]),
+            make_group(
+                "zebra",
+                vec![make_feed("Z Feed", "https://z.example/feed", "")],
+            ),
+            make_group(
+                "alpha",
+                vec![make_feed("A Feed", "https://a.example/feed", "")],
+            ),
         ]);
         let xml = opml_from_app(&app);
         let pos_alpha = xml.find("alpha").unwrap();
         let pos_zebra = xml.find("zebra").unwrap();
-        assert!(pos_alpha < pos_zebra, "groups must be sorted alphabetically by slug");
+        assert!(
+            pos_alpha < pos_zebra,
+            "groups must be sorted alphabetically by slug"
+        );
     }
 
     #[test]
@@ -227,14 +461,21 @@ mod tests {
         let xml = opml_from_app(&app);
         let pos_alpha = xml.find("Alpha News").unwrap();
         let pos_zebra = xml.find("Zebra News").unwrap();
-        assert!(pos_alpha < pos_zebra, "feeds must be sorted alphabetically by title");
+        assert!(
+            pos_alpha < pos_zebra,
+            "feeds must be sorted alphabetically by title"
+        );
     }
 
     #[test]
     fn test_feed_outline_attributes() {
         let app = build_app(vec![make_group(
             "tech",
-            vec![make_feed("My Feed", "https://example.com/feed.xml", "https://example.com/")],
+            vec![make_feed(
+                "My Feed",
+                "https://example.com/feed.xml",
+                "https://example.com/",
+            )],
         )]);
         let xml = opml_from_app(&app);
         assert!(xml.contains(r#"type="rss""#));
@@ -249,7 +490,10 @@ mod tests {
             vec![make_feed("No Homepage", "https://example.com/feed.xml", "")],
         )]);
         let xml = opml_from_app(&app);
-        assert!(!xml.contains("htmlUrl"), "htmlUrl must not appear when page_url is empty");
+        assert!(
+            !xml.contains("htmlUrl"),
+            "htmlUrl must not appear when page_url is empty"
+        );
     }
 
     #[test]
@@ -258,5 +502,141 @@ mod tests {
         let xml = opml_from_app(&app);
         assert!(xml.contains(r#"text="my-group""#));
         assert!(xml.contains(r#"title="my-group""#));
+    }
+
+    // -----------------------------------------------------------------------
+    // import: parse_opml_str
+    // -----------------------------------------------------------------------
+
+    const SAMPLE_OPML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>Test</title></head>
+  <body>
+    <outline text="Tech" title="Tech">
+      <outline type="rss" text="Rust Blog" title="Rust Blog"
+               xmlUrl="https://blog.rust-lang.org/feed.xml"
+               htmlUrl="https://blog.rust-lang.org/"/>
+      <outline type="rss" text="LWN"
+               xmlUrl="https://lwn.net/headlines/rss"/>
+    </outline>
+    <outline text="Music" title="Music">
+      <outline type="rss" text="Pitchfork"
+               xmlUrl="https://pitchfork.com/rss/news/"/>
+    </outline>
+  </body>
+</opml>"#;
+
+    #[test]
+    fn test_parse_opml_groups() {
+        let groups = parse_opml_str(SAMPLE_OPML).unwrap();
+        assert_eq!(groups.len(), 2);
+        let tech = groups
+            .iter()
+            .find(|g| g.slug == "tech")
+            .expect("tech group");
+        assert_eq!(tech.feeds.len(), 2);
+        let music = groups
+            .iter()
+            .find(|g| g.slug == "music")
+            .expect("music group");
+        assert_eq!(music.feeds.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_opml_feed_fields() {
+        let groups = parse_opml_str(SAMPLE_OPML).unwrap();
+        let tech = groups.iter().find(|g| g.slug == "tech").unwrap();
+        let rust = tech
+            .feeds
+            .iter()
+            .find(|f| f.title == "Rust Blog")
+            .expect("Rust Blog feed");
+        assert_eq!(rust.url, "https://blog.rust-lang.org/feed.xml");
+        assert_eq!(rust.page_url, "https://blog.rust-lang.org/");
+    }
+
+    #[test]
+    fn test_parse_opml_missing_html_url() {
+        let groups = parse_opml_str(SAMPLE_OPML).unwrap();
+        let tech = groups.iter().find(|g| g.slug == "tech").unwrap();
+        let lwn = tech
+            .feeds
+            .iter()
+            .find(|f| f.title == "LWN")
+            .expect("LWN feed");
+        assert!(lwn.page_url.is_empty());
+    }
+
+    #[test]
+    fn test_parse_opml_flat_feeds_go_to_uncategorized() {
+        let opml = r#"<?xml version="1.0"?>
+<opml version="2.0">
+  <head><title>flat</title></head>
+  <body>
+    <outline type="rss" text="Flat Feed" xmlUrl="https://example.com/feed"/>
+  </body>
+</opml>"#;
+        let groups = parse_opml_str(opml).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].slug, "uncategorized");
+        assert_eq!(groups[0].feeds.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_opml_empty_body() {
+        let opml = r#"<?xml version="1.0"?>
+<opml version="2.0"><head/><body/></opml>"#;
+        let groups = parse_opml_str(opml).unwrap();
+        assert!(groups.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // import: build_yaml
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_build_yaml_structure() {
+        let groups = parse_opml_str(SAMPLE_OPML).unwrap();
+        let yaml = build_yaml(&groups);
+        assert!(yaml.starts_with("groups:\n"));
+        assert!(yaml.contains("slug: tech"));
+        assert!(yaml.contains("output: tech.atom"));
+        assert!(yaml.contains("slug: music"));
+        assert!(yaml.contains("url: https://blog.rust-lang.org/feed.xml"));
+        assert!(yaml.contains("page_url: https://blog.rust-lang.org/"));
+    }
+
+    #[test]
+    fn test_build_yaml_omits_page_url_when_empty() {
+        let groups = parse_opml_str(SAMPLE_OPML).unwrap();
+        let yaml = build_yaml(&groups);
+        // LWN has no htmlUrl — its entry must not emit a page_url line
+        let lwn_pos = yaml.find("LWN").expect("LWN in yaml");
+        let next_title_pos = yaml[lwn_pos..].find("\n  - title:").map(|p| lwn_pos + p);
+        let lwn_block = match next_title_pos {
+            Some(end) => &yaml[lwn_pos..end],
+            None => &yaml[lwn_pos..],
+        };
+        assert!(
+            !lwn_block.contains("page_url"),
+            "page_url must be absent for LWN"
+        );
+    }
+
+    #[test]
+    fn test_build_yaml_quotes_special_chars() {
+        let opml = r#"<?xml version="1.0"?>
+<opml version="2.0">
+  <head><title>t</title></head>
+  <body>
+    <outline text="Say &quot;Hello&quot;" title="Say &quot;Hello&quot;">
+      <outline type="rss" text="Feed" xmlUrl="https://example.com/f"/>
+    </outline>
+  </body>
+</opml>"#;
+        let groups = parse_opml_str(opml).unwrap();
+        let yaml = build_yaml(&groups);
+        // The title must be wrapped in double-quotes in the YAML output.
+        assert!(yaml.contains("title: \""), "title should be quoted");
     }
 }
