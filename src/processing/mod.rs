@@ -14,10 +14,7 @@ use tracing::{debug, info};
 use crate::{
     START_TIME,
     error::FrustError,
-    export::{
-        AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter,
-        RssExporter,
-    },
+    export::{AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter},
     model::{App, Article, Enrichment, ExportStrategy, Feed, FeedState, Group},
     storage::Storage,
     utils::is_refresh_required,

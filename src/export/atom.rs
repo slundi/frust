@@ -7,7 +7,10 @@ use quick_xml::{
 };
 use tracing::info;
 
-use crate::{error::FrustError, model::{Article, Enrichment}};
+use crate::{
+    error::FrustError,
+    model::{Article, Enrichment},
+};
 
 use super::{Exporter, render_template};
 
