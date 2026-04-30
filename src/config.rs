@@ -273,9 +273,6 @@ impl Group {
                         None,
                     )),
                     page_url: String::new(),
-                    last_etag: None,
-                    last_modified: None,
-                    last_check: None,
                     media: m
                         .get(&Yaml::String("media".to_string()))
                         .and_then(|v| v.as_bool())

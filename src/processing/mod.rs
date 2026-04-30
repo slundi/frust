@@ -20,6 +20,8 @@ use crate::{
     utils::is_refresh_required,
 };
 
+type StatesMap = Arc<HashMap<u64, FeedState>>;
+
 pub(crate) mod content;
 pub(crate) mod convert;
 pub(crate) mod fetch;
@@ -64,6 +66,17 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
         }
     });
 
+    let states: StatesMap = Arc::new(match storage.load_all_states() {
+        Ok(s) => {
+            tracing::info!("Loaded {} feed state(s) from storage", s.len());
+            s
+        }
+        Err(e) => {
+            tracing::warn!("Could not load feed states, cache headers disabled: {}", e);
+            HashMap::new()
+        }
+    });
+
     let feeds_to_process: Vec<_> = app
         .groups
         .values()
@@ -84,18 +97,27 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
             let client = client.clone();
             let min_refresh = app.min_refresh_time;
             let existing_ids = Arc::clone(&existing_ids);
+            let states = Arc::clone(&states);
 
             async move {
-                if !is_refresh_required(feed.last_check, now, min_refresh) {
+                let stored_state = states.get(&feed_id);
+
+                let last_check = stored_state
+                    .and_then(|s| s.last_check_ts)
+                    .and_then(|ts| DateTime::from_timestamp(ts, 0));
+                if !is_refresh_required(last_check, now, min_refresh) {
                     info!("Refresh not needed for {}", feed.title);
                     return Ok(None);
                 }
 
                 let mut req = client.get(&feed.url);
-                if let Some(ref etag) = feed.last_etag {
-                    req = req.header(header::IF_NONE_MATCH, etag.to_rfc2822());
+                if let Some(etag) = stored_state.and_then(|s| s.last_etag.as_deref()) {
+                    req = req.header(header::IF_NONE_MATCH, etag);
                 }
-                if let Some(last_mod) = feed.last_modified {
+                if let Some(last_mod) = stored_state
+                    .and_then(|s| s.last_modified_ts)
+                    .and_then(|ts| DateTime::from_timestamp(ts, 0))
+                {
                     req = req.header(header::IF_MODIFIED_SINCE, last_mod.to_rfc2822());
                 }
 
@@ -109,9 +131,9 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                         feed_id,
                         articles: vec![],
                         state: FeedState {
-                            last_etag: feed.last_etag.map(|dt| dt.to_rfc2822()),
+                            last_etag: stored_state.and_then(|s| s.last_etag.clone()),
                             last_check_ts: Some(now_ts),
-                            last_modified_ts: feed.last_modified.map(|dt| dt.timestamp()),
+                            last_modified_ts: stored_state.and_then(|s| s.last_modified_ts),
                             last_http_status: Some(http_status),
                         },
                     }));

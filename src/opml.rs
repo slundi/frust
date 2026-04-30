@@ -279,9 +279,6 @@ mod tests {
             media_max_size: 0,
             enrichment_prepend: None,
             enrichment_append: None,
-            last_etag: None,
-            last_modified: None,
-            last_check: None,
         }
     }
 

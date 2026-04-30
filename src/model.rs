@@ -90,18 +90,6 @@ pub(crate) struct Group {
     pub(crate) media_max_size: u64,
 }
 
-impl Group {
-    pub fn should_refresh_feed(&self, feed_slug: u64, app: &App) -> bool {
-        if let Some(feed) = self.feeds.get(&feed_slug)
-            && let Some(last_check) = feed.last_check
-        {
-            return *START_TIME.get().unwrap() - last_check
-                > Duration::seconds(app.min_refresh_time);
-        }
-        true // new feed or never checked
-    }
-}
-
 #[repr(u8)]
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum ContentMode {
@@ -148,13 +136,6 @@ pub(crate) struct Feed {
     pub(crate) enrichment_prepend: Option<String>,
     /// Mustache-style template injected after each article's content at export time.
     pub(crate) enrichment_append: Option<String>,
-    /// Entity tag timestamp in order to optimize cache.
-    /// We need to send the header `If-None-Match` with our timestamp, then the
-    /// server should return a 304 Not Modified with no content se we do not
-    /// need to process anything for this field
-    pub(crate) last_etag: Option<chrono::DateTime<chrono::Utc>>,
-    pub(crate) last_modified: Option<chrono::DateTime<chrono::Utc>>,
-    pub(crate) last_check: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Filter structure. The name is not kept because it is only used during filter loading in order to help the user to find errors quickly.

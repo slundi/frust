@@ -27,7 +27,7 @@
   * [x] OPML export
   * [x] OPML import to generate the TOML configuration
   * [x] ZIP export (see #16)
-14) [ ] implement `If-Modified-Since` and `If-None-Match` using `FeedState`
+14) [x] implement `If-Modified-Since` and `If-None-Match` using `FeedState`
 15) [ ] Index file with links (a href and head links) to RSS feeds + errors (unreachable, 404, ...), section with ignored article + associated filter(s)
 16) [x] ZIP export by app or group or feed. So the user can download everything and read completely offline or use it anywhere else
 
