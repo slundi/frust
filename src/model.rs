@@ -230,6 +230,7 @@ pub(crate) struct FeedState {
     // We store timestamp as i64 (seconds) for easier serialization
     pub(crate) last_check_ts: Option<i64>,
     pub(crate) last_modified_ts: Option<i64>,
+    pub(crate) last_http_status: Option<u16>,
 }
 
 #[derive(Debug, Clone)]

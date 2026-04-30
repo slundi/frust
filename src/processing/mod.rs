@@ -101,10 +101,20 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
 
                 debug!("Sending request for {} to {}", feed.title, feed.url);
                 let response = req.send().await?;
+                let http_status = response.status().as_u16();
 
                 if response.status() == reqwest::StatusCode::NOT_MODIFIED {
                     tracing::info!("Feed '{}' not modified (304)", feed.title);
-                    return Ok(None);
+                    return Ok(Some(FeedResult {
+                        feed_id,
+                        articles: vec![],
+                        state: FeedState {
+                            last_etag: feed.last_etag.map(|dt| dt.to_rfc2822()),
+                            last_check_ts: Some(now_ts),
+                            last_modified_ts: feed.last_modified.map(|dt| dt.timestamp()),
+                            last_http_status: Some(http_status),
+                        },
+                    }));
                 }
 
                 let new_etag = response
@@ -153,6 +163,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                     last_etag: new_etag,
                     last_check_ts: Some(now_ts),
                     last_modified_ts: new_last_mod.map(|dt| dt.timestamp()),
+                    last_http_status: Some(http_status),
                 };
 
                 Ok::<_, FrustError>(Some(FeedResult {
