@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use chrono::Duration;
 use regex::RegexSet;
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::{DEFAULT_HTTP_TIMEOUT, DEFAULT_RETRIEVE_SERVER_MEDIA, START_TIME};
+use crate::{DEFAULT_HTTP_TIMEOUT, DEFAULT_RETRIEVE_SERVER_MEDIA};
 
 #[derive(Debug, Clone)]
 pub(crate) struct App {
@@ -42,32 +41,6 @@ impl Default for App {
             media: false,
             media_max_size: 0,
         }
-    }
-}
-
-impl App {
-    pub fn has_output(&self, group_code: u64, feed_code: u64) -> bool {
-        let group = self.groups.get(&group_code).unwrap();
-        let feed = group.feeds.get(&feed_code).unwrap();
-        !feed.output.is_empty()
-    }
-
-    pub fn get_output(&self, group_code: u64, feed_code: u64) -> String {
-        let group = self.groups.get(&group_code).unwrap();
-        let feed = group.feeds.get(&feed_code).unwrap();
-        if !feed.output.is_empty() {
-            return feed.output.clone();
-        }
-        group.output.clone()
-    }
-
-    pub fn is_article_too_old(
-        &self,
-        article_date: chrono::DateTime<chrono::Utc>,
-        retention_days: u16,
-    ) -> bool {
-        let expiration = *START_TIME.get().unwrap() - Duration::days(retention_days as i64);
-        article_date < expiration
     }
 }
 
