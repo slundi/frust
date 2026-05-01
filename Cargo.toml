@@ -1,7 +1,7 @@
 [package]
 name = "frust-feed"
 authors = ["Sébastien LUNDI <slundi@ikmail.com>"]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "CLI RSS aggregator"
 readme = "README.md"
@@ -10,6 +10,10 @@ repository = "https://codeberg.org/slundi/frust"
 categories = ["command-line-utilities", "data-structures"]
 keywords = ["cli", "rss", "atom", "feed", "aggregator"]
 publish = true
+
+[[bin]]
+name = "frust"
+path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1.52", features = ["full"] }
