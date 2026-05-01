@@ -36,9 +36,9 @@
 - [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR `filter: { any: ["slug1", "slug2"], all: ["slug3"] }` (ideally equal/not equal/in/not in/starts with or not/regex) 
 - [ ] Print help and version
 - [ ] Handle custom tags like the [Nyaa.si tracker](https://nyaa.si)
-- [ ] Feed enrichment to inject data in an article
+- [x] Feed enrichment to inject data in an article
   - [x] inject HTML at top or bottop to add links to call an external API (to download the article in bookmark manager like [Shiori](https://github.com/go-shiori/shiori) or share links or ...)
-  - [ ] inject HTML at group and app level
+  - [x] inject HTML at group and app level
 - [ ] full text search using [tinysearch](https://github.com/tinysearch/tinysearch) for static content
 
 ### Dropped ideas

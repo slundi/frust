@@ -25,6 +25,10 @@ pub(crate) struct App {
     pub(crate) media: bool,
     /// Maximum asset size in bytes to download (0 = no limit)
     pub(crate) media_max_size: u64,
+    /// Mustache-style template injected before each article's content at export time (app-level default).
+    pub(crate) enrichment_prepend: Option<String>,
+    /// Mustache-style template injected after each article's content at export time (app-level default).
+    pub(crate) enrichment_append: Option<String>,
 }
 
 impl Default for App {
@@ -40,6 +44,8 @@ impl Default for App {
             retention: 0,
             media: false,
             media_max_size: 0,
+            enrichment_prepend: None,
+            enrichment_append: None,
         }
     }
 }
@@ -61,6 +67,10 @@ pub(crate) struct Group {
     pub(crate) media: bool,
     /// Maximum asset size in bytes to download (0 = no limit)
     pub(crate) media_max_size: u64,
+    /// Mustache-style template injected before each article's content at export time (group-level default).
+    pub(crate) enrichment_prepend: Option<String>,
+    /// Mustache-style template injected after each article's content at export time (group-level default).
+    pub(crate) enrichment_append: Option<String>,
 }
 
 #[repr(u8)]

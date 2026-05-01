@@ -61,6 +61,17 @@ impl App {
             self.timeout = u8::try_from(value.as_i64().unwrap())
                 .expect("Invalid data in config file: timeout");
         }
+        // app-level enrichment templates
+        self.enrichment_prepend = map
+            .get(&Yaml::String("enrichment_prepend".to_string()))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        self.enrichment_append = map
+            .get(&Yaml::String("enrichment_append".to_string()))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
     }
 
     fn load_filters(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
@@ -225,6 +236,20 @@ impl App {
                     .map(|v| v as u64)
                     .unwrap_or(self.media_max_size);
 
+                // Group enrichment templates, inherit from app if missing
+                group_obj.enrichment_prepend = m
+                    .get(&Yaml::String("enrichment_prepend".to_string()))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .or_else(|| self.enrichment_prepend.clone());
+                group_obj.enrichment_append = m
+                    .get(&Yaml::String("enrichment_append".to_string()))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .or_else(|| self.enrichment_append.clone());
+
                 // Load group filters
                 if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
                     for f_val in filters.as_vec().unwrap_or(&vec![]) {
@@ -286,12 +311,14 @@ impl Group {
                         .get(&Yaml::String("enrichment_prepend".to_string()))
                         .and_then(|v| v.as_str())
                         .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string()),
+                        .map(|s| s.to_string())
+                        .or_else(|| self.enrichment_prepend.clone()),
                     enrichment_append: m
                         .get(&Yaml::String("enrichment_append".to_string()))
                         .and_then(|v| v.as_str())
                         .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string()),
+                        .map(|s| s.to_string())
+                        .or_else(|| self.enrichment_append.clone()),
                 };
 
                 // If feed does not have output, use the one from the group
