@@ -8,6 +8,18 @@ use yaml_rust::Yaml;
 
 use crate::model::{App, Feed, Filter, Group};
 
+/// Concatenates two optional enrichment template strings.
+/// If both are `Some`, they are joined without any separator.
+/// If only one is `Some`, it is returned as-is.
+fn concat_enrichment(outer: Option<&str>, inner: Option<&str>) -> Option<String> {
+    match (outer, inner) {
+        (Some(a), Some(b)) => Some(format!("{}{}", a, b)),
+        (Some(a), None) => Some(a.to_string()),
+        (None, Some(b)) => Some(b.to_string()),
+        (None, None) => None,
+    }
+}
+
 fn get_string_field_from_map(
     map: &LinkedHashMap<Yaml, Yaml>,
     field: String,
@@ -236,19 +248,19 @@ impl App {
                     .map(|v| v as u64)
                     .unwrap_or(self.media_max_size);
 
-                // Group enrichment templates, inherit from app if missing
-                group_obj.enrichment_prepend = m
-                    .get(&Yaml::String("enrichment_prepend".to_string()))
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .or_else(|| self.enrichment_prepend.clone());
-                group_obj.enrichment_append = m
-                    .get(&Yaml::String("enrichment_append".to_string()))
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .or_else(|| self.enrichment_append.clone());
+                // Group enrichment templates: concatenate app-level + group's own value
+                group_obj.enrichment_prepend = concat_enrichment(
+                    self.enrichment_prepend.as_deref(),
+                    m.get(&Yaml::String("enrichment_prepend".to_string()))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty()),
+                );
+                group_obj.enrichment_append = concat_enrichment(
+                    self.enrichment_append.as_deref(),
+                    m.get(&Yaml::String("enrichment_append".to_string()))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty()),
+                );
 
                 // Load group filters
                 if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
@@ -307,18 +319,18 @@ impl Group {
                         .and_then(|v| v.as_i64())
                         .map(|v| v as u64)
                         .unwrap_or(self.media_max_size), // inherited from group
-                    enrichment_prepend: m
-                        .get(&Yaml::String("enrichment_prepend".to_string()))
-                        .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string())
-                        .or_else(|| self.enrichment_prepend.clone()),
-                    enrichment_append: m
-                        .get(&Yaml::String("enrichment_append".to_string()))
-                        .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string())
-                        .or_else(|| self.enrichment_append.clone()),
+                    enrichment_prepend: concat_enrichment(
+                        self.enrichment_prepend.as_deref(),
+                        m.get(&Yaml::String("enrichment_prepend".to_string()))
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty()),
+                    ),
+                    enrichment_append: concat_enrichment(
+                        self.enrichment_append.as_deref(),
+                        m.get(&Yaml::String("enrichment_append".to_string()))
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty()),
+                    ),
                 };
 
                 // If feed does not have output, use the one from the group
@@ -370,4 +382,159 @@ pub(crate) fn load_config_file(config_file: String) -> App {
         app.load_groups(map);
     }
     app.clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Parses a YAML string into an `App` without touching the filesystem.
+    fn app_from_yaml(yaml: &str) -> App {
+        let loader = yaml_rust::YamlLoader::load_from_str(yaml).expect("invalid yaml");
+        let mut app = App::default();
+        if let Some(map) = loader[0].as_hash() {
+            app.load_globals(map);
+            app.load_filters(map);
+            app.load_groups(map);
+        }
+        app
+    }
+
+    /// Returns the first feed found in the first group of the app.
+    fn first_feed(app: &App) -> &crate::model::Feed {
+        app.groups
+            .values()
+            .next()
+            .unwrap()
+            .feeds
+            .values()
+            .next()
+            .unwrap()
+    }
+
+    const FEED_URL: &str = "https://example.com/feed.xml";
+
+    #[test]
+    fn test_enrichment_app_level_only() {
+        let app = app_from_yaml(&format!(
+            r#"
+enrichment_prepend: "[app-pre]"
+enrichment_append: "[app-app]"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: F
+    url: {FEED_URL}
+"#
+        ));
+        let feed = first_feed(&app);
+        assert_eq!(feed.enrichment_prepend.as_deref(), Some("[app-pre]"));
+        assert_eq!(feed.enrichment_append.as_deref(), Some("[app-app]"));
+    }
+
+    #[test]
+    fn test_enrichment_group_level_only() {
+        let app = app_from_yaml(&format!(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  enrichment_prepend: "[grp-pre]"
+  enrichment_append: "[grp-app]"
+  feeds:
+  - title: F
+    url: {FEED_URL}
+"#
+        ));
+        let feed = first_feed(&app);
+        assert_eq!(feed.enrichment_prepend.as_deref(), Some("[grp-pre]"));
+        assert_eq!(feed.enrichment_append.as_deref(), Some("[grp-app]"));
+    }
+
+    #[test]
+    fn test_enrichment_feed_level_only() {
+        let app = app_from_yaml(&format!(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: F
+    url: {FEED_URL}
+    enrichment_prepend: "[feed-pre]"
+    enrichment_append: "[feed-app]"
+"#
+        ));
+        let feed = first_feed(&app);
+        assert_eq!(feed.enrichment_prepend.as_deref(), Some("[feed-pre]"));
+        assert_eq!(feed.enrichment_append.as_deref(), Some("[feed-app]"));
+    }
+
+    #[test]
+    fn test_enrichment_app_and_group_concatenated() {
+        let app = app_from_yaml(&format!(
+            r#"
+enrichment_prepend: "[app]"
+enrichment_append: "[app-app]"
+groups:
+- slug: g
+  output: g.atom
+  enrichment_prepend: "[grp]"
+  enrichment_append: "[grp-app]"
+  feeds:
+  - title: F
+    url: {FEED_URL}
+"#
+        ));
+        let feed = first_feed(&app);
+        assert_eq!(feed.enrichment_prepend.as_deref(), Some("[app][grp]"));
+        assert_eq!(
+            feed.enrichment_append.as_deref(),
+            Some("[app-app][grp-app]")
+        );
+    }
+
+    #[test]
+    fn test_enrichment_all_three_levels_concatenated() {
+        let app = app_from_yaml(&format!(
+            r#"
+enrichment_prepend: "[app]"
+enrichment_append: "[app-app]"
+groups:
+- slug: g
+  output: g.atom
+  enrichment_prepend: "[grp]"
+  enrichment_append: "[grp-app]"
+  feeds:
+  - title: F
+    url: {FEED_URL}
+    enrichment_prepend: "[feed]"
+    enrichment_append: "[feed-app]"
+"#
+        ));
+        let feed = first_feed(&app);
+        assert_eq!(feed.enrichment_prepend.as_deref(), Some("[app][grp][feed]"));
+        assert_eq!(
+            feed.enrichment_append.as_deref(),
+            Some("[app-app][grp-app][feed-app]")
+        );
+    }
+
+    #[test]
+    fn test_enrichment_none_when_not_defined() {
+        let app = app_from_yaml(&format!(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: F
+    url: {FEED_URL}
+"#
+        ));
+        let feed = first_feed(&app);
+        assert!(feed.enrichment_prepend.is_none());
+        assert!(feed.enrichment_append.is_none());
+    }
 }
