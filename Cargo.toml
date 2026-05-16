@@ -33,7 +33,7 @@ feed-rs = { version = "2.3", features = ["sanitize"] }
 chrono = "0.4"
 scraper = "0.25"
 htmd = "0.5"
-mediatype = "0.19"
+mediatype = "0.21"
 redb = "3.1"
 rkyv = { version = "0.8", features = ["bytecheck"] }
 quick-xml = { version = "0.37", features = ["serialize"] }
