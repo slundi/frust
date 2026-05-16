@@ -1,0 +1,14 @@
+{
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.cargo.buildScripts.enable": true,
+    "editor.formatOnSave": true,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+    "nix.enableLanguageServer": true,
+    "nix.serverPath": "nil",
+    "direnv.restart.automatic": true,
+    "coverage-gutters.coverageFileNames": ["lcov.info"],
+    "coverage-gutters.showLineCoverage": true,
+    "coverage-gutters.showRulerCoverage": true
+}
