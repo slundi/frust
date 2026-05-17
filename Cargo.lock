@@ -528,7 +528,7 @@ checksum = "e4c0591d23efd0d595099af69a31863ac1823046b1b021e3b06ba3aae7e00991"
 dependencies = [
  "ammonia",
  "chrono",
- "mediatype",
+ "mediatype 0.19.20",
  "quick-xml",
  "regex",
  "serde",
@@ -588,7 +588,7 @@ dependencies = [
  "htmd",
  "linked-hash-map",
  "lz4_flex",
- "mediatype",
+ "mediatype 0.21.0",
  "pulldown-cmark",
  "quick-xml",
  "redb",
@@ -1360,6 +1360,12 @@ checksum = "33746aadcb41349ec291e7f2f0a3aa6834d1d7c58066fb4b01f68efc4c4b7631"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "mediatype"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "120fa187be19d9962f0926633453784691731018a2bf936ddb4e29101b79c4a7"
 
 [[package]]
 name = "memchr"
