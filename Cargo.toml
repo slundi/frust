@@ -34,7 +34,7 @@ chrono = "0.4"
 scraper = "0.27"
 htmd = "0.5"
 mediatype = "0.21"
-redb = "3.1"
+redb = "4.1"
 rkyv = { version = "0.8", features = ["bytecheck"] }
 quick-xml = { version = "0.37", features = ["serialize"] }
 lz4_flex = "0.13"
