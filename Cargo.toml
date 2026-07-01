@@ -36,7 +36,7 @@ htmd = "0.5"
 mediatype = "0.21"
 redb = "4.1"
 rkyv = { version = "0.8", features = ["bytecheck"] }
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.41", features = ["serialize"] }
 lz4_flex = "0.13"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
