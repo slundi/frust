@@ -284,6 +284,66 @@ mod tests {
     }
 
     #[test]
+    fn test_rss_escapes_xml_special_chars() {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.xml");
+        let mut article =
+            make_article(1, "AT&T <News> \"Q&A\"", "https://example.com/1?a=1&b=2", 0);
+        article.content = "5 < 10 & ok".to_string();
+        RssExporter
+            .generate(
+                &[article],
+                "News & Media",
+                "https://example.com/?x=1&y=2",
+                &dest,
+                &no_enrichment(),
+            )
+            .unwrap();
+        let xml = read_xml(&dest);
+        // Text nodes: & and < must be entity-escaped
+        assert!(xml.contains("AT&amp;T"), "text amp not escaped: {}", xml);
+        assert!(
+            xml.contains("&lt;News&gt;"),
+            "text angle not escaped: {}",
+            xml
+        );
+        assert!(
+            xml.contains("News &amp; Media"),
+            "channel title not escaped"
+        );
+        assert!(xml.contains("5 &lt; 10 &amp; ok"), "content not escaped");
+        // Raw special chars must NOT leak through
+        assert!(!xml.contains("AT&T"), "raw '&' leaked into output: {}", xml);
+    }
+
+    #[test]
+    fn test_rss_escapes_ampersand_in_enclosure_attributes() {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.xml");
+        let mut article = make_article(1, "P", "https://example.com/ep", 0);
+        article.enclosures.push(crate::model::Enclosure {
+            url: "https://example.com/media.mp3?a=1&b=2".to_string(),
+            mime_type: "audio/mpeg".to_string(),
+            length: Some(1),
+        });
+        RssExporter
+            .generate(
+                &[article],
+                "F",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
+            .unwrap();
+        let xml = read_xml(&dest);
+        assert!(
+            xml.contains("a=1&amp;b=2"),
+            "attribute amp not escaped: {}",
+            xml
+        );
+    }
+
+    #[test]
     fn test_rss_enrichment_prepend_append() {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.xml");

@@ -381,6 +381,39 @@ mod tests {
     }
 
     #[test]
+    fn test_atom_escapes_xml_special_chars() {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.atom");
+        let mut article =
+            make_article(1, "AT&T <News> \"Q&A\"", "https://example.com/1?a=1&b=2", 0);
+        article.content = "5 < 10 & ok".to_string();
+        article.summary = Some("Sum & <sub>".to_string());
+        AtomExporter
+            .generate(
+                &[article],
+                "News & Media",
+                "https://example.com/?x=1&y=2",
+                &dest,
+                &no_enrichment(),
+            )
+            .unwrap();
+        let xml = read_xml(&dest);
+        // Text nodes escaped
+        assert!(xml.contains("AT&amp;T"), "title amp not escaped");
+        assert!(xml.contains("&lt;News&gt;"), "title angle not escaped");
+        assert!(xml.contains("News &amp; Media"), "feed title not escaped");
+        assert!(xml.contains("Sum &amp; &lt;sub&gt;"), "summary not escaped");
+        assert!(xml.contains("5 &lt; 10 &amp; ok"), "content not escaped");
+        // Attribute values (href) escaped
+        assert!(
+            xml.contains("a=1&amp;b=2"),
+            "attribute amp not escaped: {}",
+            xml
+        );
+        assert!(!xml.contains("AT&T"), "raw '&' leaked into output: {}", xml);
+    }
+
+    #[test]
     fn test_atom_enrichment_prepend_append() {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.atom");

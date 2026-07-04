@@ -403,6 +403,38 @@ mod tests {
         assert!(xml.contains(r#"title="my-group""#));
     }
 
+    #[test]
+    fn test_opml_write_escapes_xml_special_chars() {
+        let app = build_app(vec![make_group(
+            "news",
+            vec![make_feed(
+                "AT&T <News>",
+                "https://example.com/feed?a=1&b=2",
+                "https://example.com/?x=1&y=2",
+            )],
+        )]);
+        let xml = opml_from_app(&app);
+        // Title attribute must escape &, <, >
+        assert!(
+            xml.contains("AT&amp;T &lt;News&gt;"),
+            "feed title not escaped: {}",
+            xml
+        );
+        // xmlUrl / htmlUrl attributes must escape &
+        assert!(
+            xml.contains("a=1&amp;b=2"),
+            "xmlUrl amp not escaped: {}",
+            xml
+        );
+        assert!(
+            xml.contains("x=1&amp;y=2"),
+            "htmlUrl amp not escaped: {}",
+            xml
+        );
+        // No raw '&' outside entity references
+        assert!(!xml.contains("AT&T"), "raw '&' leaked: {}", xml);
+    }
+
     // -----------------------------------------------------------------------
     // import: parse_opml_str
     // -----------------------------------------------------------------------
