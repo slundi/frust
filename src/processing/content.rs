@@ -1,9 +1,78 @@
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use htmd::HtmlToMarkdown;
 use mediatype::MediaTypeBuf;
 use reqwest::Client;
 use scraper::{Html, Selector};
 
 use crate::model::ContentMode;
+
+/// Guard against feed-driven SSRF into private/loopback targets.
+///
+/// Returns `true` only for `http`/`https` URLs whose host is either
+/// * a domain name that isn't a well-known loopback alias, or
+/// * an IP literal that is neither loopback/private/link-local/unspecified.
+///
+/// This is a best-effort check on the URL as it appears in the feed; a full
+/// defence would also resolve DNS and re-check the answer (DNS rebinding),
+/// which is out of scope here.
+pub(super) fn is_safe_force_target(url: &str) -> bool {
+    let Ok(u) = url::Url::parse(url) else {
+        return false;
+    };
+    if !matches!(u.scheme(), "http" | "https") {
+        return false;
+    }
+    let Some(host) = u.host() else {
+        return false;
+    };
+    match host {
+        url::Host::Domain(name) => !is_forbidden_domain(name),
+        url::Host::Ipv4(addr) => is_public_ipv4(addr),
+        url::Host::Ipv6(addr) => is_public_ipv6(addr),
+    }
+}
+
+fn is_forbidden_domain(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let l = lower.as_str();
+    // Common loopback aliases and RFC 6762/6761 local-scope suffixes.
+    l == "localhost"
+        || l.ends_with(".localhost")
+        || l.ends_with(".local")
+        || l.ends_with(".internal")
+}
+
+fn is_public_ipv4(addr: Ipv4Addr) -> bool {
+    !addr.is_loopback()
+        && !addr.is_private()
+        && !addr.is_link_local()
+        && !addr.is_broadcast()
+        && !addr.is_multicast()
+        && !addr.is_unspecified()
+}
+
+fn is_public_ipv6(addr: Ipv6Addr) -> bool {
+    if addr.is_loopback() || addr.is_unspecified() || addr.is_multicast() {
+        return false;
+    }
+    let seg0 = addr.segments()[0];
+    // fc00::/7 — Unique Local Addresses
+    if (seg0 & 0xfe00) == 0xfc00 {
+        return false;
+    }
+    // fe80::/10 — link-local
+    if (seg0 & 0xffc0) == 0xfe80 {
+        return false;
+    }
+    // IPv4-mapped: check the mapped v4 is public too.
+    if let Some(v4) = addr.to_ipv4_mapped()
+        && !is_public_ipv4(v4)
+    {
+        return false;
+    }
+    true
+}
 
 /// Merge entries from `entries` into `base`, skipping any whose ID already exists.
 #[allow(dead_code)]
@@ -74,8 +143,18 @@ pub(super) async fn apply_content_mode(
             // Clear feed-provided summary; the scraped page becomes the content
             entry.summary = None;
 
-            if let Some(link) = entry.links.first()
-                && let Ok(resp) = client.get(&link.href).send().await
+            let Some(link) = entry.links.first() else {
+                return;
+            };
+            if !is_safe_force_target(&link.href) {
+                tracing::warn!(
+                    "Refusing Force-mode fetch of '{}' (non-http scheme or private/loopback host)",
+                    link.href
+                );
+                return;
+            }
+
+            if let Ok(resp) = client.get(&link.href).send().await
                 && let Ok(html_content) = resp.text().await
             {
                 let document = Html::parse_document(&html_content);
@@ -140,6 +219,87 @@ mod tests {
             length: None,
             src: None,
         }
+    }
+
+    // --- is_safe_force_target ---
+
+    #[test]
+    fn test_ssrf_guard_accepts_public_https_domain() {
+        assert!(is_safe_force_target("https://example.com/article"));
+        assert!(is_safe_force_target("http://blog.rust-lang.org/2024/x"));
+    }
+
+    #[test]
+    fn test_ssrf_guard_rejects_non_http_schemes() {
+        assert!(!is_safe_force_target("file:///etc/passwd"));
+        assert!(!is_safe_force_target("ftp://ftp.example.com/x"));
+        assert!(!is_safe_force_target("gopher://example.com/"));
+        assert!(!is_safe_force_target("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn test_ssrf_guard_rejects_localhost_aliases() {
+        assert!(!is_safe_force_target("http://localhost/x"));
+        assert!(!is_safe_force_target("http://LOCALHOST/x"));
+        assert!(!is_safe_force_target("http://foo.localhost/x"));
+        assert!(!is_safe_force_target("http://router.local/x"));
+        assert!(!is_safe_force_target("http://admin.internal/x"));
+    }
+
+    #[test]
+    fn test_ssrf_guard_rejects_private_ipv4_literals() {
+        for host in [
+            "127.0.0.1",
+            "127.1.2.3",
+            "10.0.0.1",
+            "10.255.255.255",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.1.1",
+            "192.168.255.255",
+            "169.254.169.254", // AWS/GCP metadata
+            "0.0.0.0",
+            "255.255.255.255",
+        ] {
+            let url = format!("http://{}/x", host);
+            assert!(
+                !is_safe_force_target(&url),
+                "should reject private/reserved IPv4: {}",
+                url
+            );
+        }
+    }
+
+    #[test]
+    fn test_ssrf_guard_accepts_public_ipv4_literals() {
+        assert!(is_safe_force_target("http://8.8.8.8/x"));
+        assert!(is_safe_force_target("http://1.1.1.1/x"));
+    }
+
+    #[test]
+    fn test_ssrf_guard_rejects_private_ipv6() {
+        for host in ["[::1]", "[::]", "[fe80::1]", "[fc00::1]", "[fd12:3456::1]"] {
+            let url = format!("http://{}/x", host);
+            assert!(
+                !is_safe_force_target(&url),
+                "should reject private IPv6: {}",
+                url
+            );
+        }
+    }
+
+    #[test]
+    fn test_ssrf_guard_rejects_ipv4_mapped_private_ipv6() {
+        // ::ffff:127.0.0.1 wraps loopback in IPv6 syntax
+        assert!(!is_safe_force_target("http://[::ffff:127.0.0.1]/x"));
+        assert!(!is_safe_force_target("http://[::ffff:192.168.1.1]/x"));
+    }
+
+    #[test]
+    fn test_ssrf_guard_rejects_malformed_urls() {
+        assert!(!is_safe_force_target(""));
+        assert!(!is_safe_force_target("not a url"));
+        assert!(!is_safe_force_target("http://"));
     }
 
     // --- merge_feeds_by_id ---
