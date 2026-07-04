@@ -6,6 +6,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
+use pulldown_cmark::{Parser, html};
 use serde::Serialize;
 use slug::slugify;
 use tracing::info;
@@ -41,9 +42,10 @@ struct ItemDto<'a> {
     url: &'a str,
     #[serde(skip_serializing_if = "str::is_empty")]
     title: &'a str,
-    /// Markdown content maps to `content_text` (plain text per spec).
+    /// Article body rendered from Markdown to HTML — the correct JSON Feed
+    /// 1.1 field for structured content (spec §content_html).
     #[serde(skip_serializing_if = "String::is_empty")]
-    content_text: String,
+    content_html: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<&'a str>,
     /// RFC 3339 publication date derived from the feed timestamp.
@@ -51,6 +53,13 @@ struct ItemDto<'a> {
     date_published: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     attachments: Vec<AttachmentDto<'a>>,
+}
+
+/// Convert Markdown source to a self-contained HTML fragment via pulldown-cmark.
+fn markdown_to_html(md: &str) -> String {
+    let mut out = String::with_capacity(md.len());
+    html::push_html(&mut out, Parser::new(md));
+    out
 }
 
 /// JSON Feed 1.1 top-level feed object (used for Monolithic strategy)
@@ -71,7 +80,7 @@ fn to_item<'a>(article: &'a Article, enrichment: Option<&Enrichment>) -> ItemDto
     } else {
         None
     };
-    let content_text = match enrichment {
+    let markdown = match enrichment {
         Some(e) => {
             let pre = e
                 .prepend
@@ -87,11 +96,16 @@ fn to_item<'a>(article: &'a Article, enrichment: Option<&Enrichment>) -> ItemDto
         }
         None => article.content.clone(),
     };
+    let content_html = if markdown.is_empty() {
+        String::new()
+    } else {
+        markdown_to_html(&markdown)
+    };
     ItemDto {
         id: &article.url,
         url: &article.url,
         title: &article.title,
-        content_text,
+        content_html,
         summary: article.summary.as_deref(),
         date_published,
         attachments: article
@@ -543,9 +557,73 @@ mod tests {
         )
         .unwrap();
         let v = parse(&dest);
-        let ct = v["items"][0]["content_text"].as_str().unwrap();
-        assert!(ct.contains("Via My Source:"), "prepend missing");
-        assert!(ct.contains("getpocket.com"), "append missing");
-        assert!(ct.contains("The content"), "original content missing");
+        // Enrichment templates are concatenated with the article body and the
+        // whole thing is rendered from Markdown to HTML.
+        let ch = v["items"][0]["content_html"].as_str().unwrap();
+        assert!(ch.contains("Via My Source:"), "prepend missing");
+        assert!(ch.contains("getpocket.com"), "append missing");
+        assert!(ch.contains("The content"), "original content missing");
+    }
+
+    #[test]
+    fn test_json_content_html_renders_markdown() {
+        // JSON Feed 1.1: article body must be exposed as content_html when it
+        // has any HTML structure. Markdown is rendered via pulldown-cmark.
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("feed.json");
+        let mut article = make_article(1, "MD", "https://example.com/1", 0);
+        article.content = "## Heading\n\nThis is **bold**.".to_string();
+        JsonExporter {
+            strategy: ExportStrategy::Monolithic,
+        }
+        .generate(
+            &[article],
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
+        .unwrap();
+        let v = parse(&dest);
+        let ch = v["items"][0]["content_html"].as_str().unwrap();
+        assert!(
+            ch.contains("<h2>Heading</h2>"),
+            "heading not rendered: {}",
+            ch
+        );
+        assert!(
+            ch.contains("<strong>bold</strong>"),
+            "bold not rendered: {}",
+            ch
+        );
+        // Legacy field must not exist anymore
+        assert!(
+            v["items"][0]["content_text"].is_null(),
+            "content_text must be dropped in favour of content_html"
+        );
+    }
+
+    #[test]
+    fn test_json_content_html_omitted_when_body_empty() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("feed.json");
+        // Article with no content should not produce a content_html key at all.
+        let article = make_article(1, "Nothing", "https://example.com/n", 0);
+        JsonExporter {
+            strategy: ExportStrategy::Monolithic,
+        }
+        .generate(
+            &[article],
+            "Feed",
+            "https://example.com",
+            &dest,
+            &no_enrichment(),
+        )
+        .unwrap();
+        let v = parse(&dest);
+        assert!(
+            v["items"][0]["content_html"].is_null(),
+            "content_html should be omitted when the body is empty"
+        );
     }
 }
