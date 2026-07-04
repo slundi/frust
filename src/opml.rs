@@ -55,9 +55,34 @@ fn extract_outline_attrs(
     (label, outline_type, xml_url, html_url)
 }
 
+/// Attach a parsed feed to `current_group` if one is open, otherwise route it
+/// into the shared "Uncategorized" group (creating it if needed).
+fn push_feed(
+    feed: ParsedFeed,
+    current_group: &mut Option<ParsedGroup>,
+    groups: &mut Vec<ParsedGroup>,
+) {
+    if let Some(g) = current_group.as_mut() {
+        g.feeds.push(feed);
+        return;
+    }
+    match groups.iter_mut().find(|g| g.slug == "uncategorized") {
+        Some(g) => g.feeds.push(feed),
+        None => groups.push(ParsedGroup {
+            title: "Uncategorized".to_string(),
+            slug: "uncategorized".to_string(),
+            feeds: vec![feed],
+        }),
+    }
+}
+
 /// Parse an OPML document from a string and return a flat list of groups with
 /// their feeds. Feeds that appear directly under `<body>` (no enclosing group
 /// outline) are placed in an "Uncategorized" group.
+///
+/// Handles both feed forms: `<outline xmlUrl="..."/>` (Empty event) and
+/// `<outline xmlUrl="...">...</outline>` (Start event with children — emitted
+/// by some readers such as older Feedly/Reeder exports).
 fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
     let mut reader = Reader::from_str(content);
     reader.config_mut().trim_text(true);
@@ -81,10 +106,10 @@ fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
                     "body" => in_body = true,
                     "outline" if in_body => {
                         outline_depth += 1;
-                        if outline_depth == 1 {
-                            // Top-level outline without xmlUrl → group container.
-                            let (label, _, xml_url, _) = extract_outline_attrs(e);
-                            if xml_url.is_empty() {
+                        let (label, _, xml_url, html_url) = extract_outline_attrs(e);
+                        if xml_url.is_empty() {
+                            // Group container — only the outermost creates a new group.
+                            if outline_depth == 1 {
                                 if let Some(g) = current_group.take() {
                                     groups.push(g);
                                 }
@@ -94,6 +119,18 @@ fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
                                     feeds: Vec::new(),
                                 });
                             }
+                        } else {
+                            // Feed leaf that carries children/whitespace — capture it
+                            // just like the Empty-tag form.
+                            push_feed(
+                                ParsedFeed {
+                                    title: label,
+                                    url: xml_url,
+                                    page_url: html_url,
+                                },
+                                &mut current_group,
+                                &mut groups,
+                            );
                         }
                     }
                     _ => {}
@@ -107,24 +144,15 @@ fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
                 if tag == "outline" && in_body {
                     let (label, _, xml_url, html_url) = extract_outline_attrs(e);
                     if !xml_url.is_empty() {
-                        let feed = ParsedFeed {
-                            title: label,
-                            url: xml_url,
-                            page_url: html_url,
-                        };
-                        if let Some(g) = current_group.as_mut() {
-                            g.feeds.push(feed);
-                        } else {
-                            // Flat feed at body level → uncategorized group.
-                            match groups.iter_mut().find(|g| g.slug == "uncategorized") {
-                                Some(g) => g.feeds.push(feed),
-                                None => groups.push(ParsedGroup {
-                                    title: "Uncategorized".to_string(),
-                                    slug: "uncategorized".to_string(),
-                                    feeds: vec![feed],
-                                }),
-                            }
-                        }
+                        push_feed(
+                            ParsedFeed {
+                                title: label,
+                                url: xml_url,
+                                page_url: html_url,
+                            },
+                            &mut current_group,
+                            &mut groups,
+                        );
                     }
                 }
             }
@@ -511,6 +539,69 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].slug, "uncategorized");
         assert_eq!(groups[0].feeds.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_opml_feed_as_start_form_inside_group() {
+        // Some readers (older Feedly/Reeder) emit feeds as <outline …>…</outline>
+        // (Start form with children/whitespace) instead of self-closing.
+        let opml = r#"<?xml version="1.0"?>
+<opml version="2.0">
+  <head><title>t</title></head>
+  <body>
+    <outline text="Tech" title="Tech">
+      <outline type="rss" text="Rust Blog" title="Rust Blog"
+               xmlUrl="https://blog.rust-lang.org/feed.xml"
+               htmlUrl="https://blog.rust-lang.org/">
+      </outline>
+    </outline>
+  </body>
+</opml>"#;
+        let groups = parse_opml_str(opml).unwrap();
+        let tech = groups.iter().find(|g| g.slug == "tech").expect("tech");
+        assert_eq!(tech.feeds.len(), 1, "start-form feed must be captured");
+        assert_eq!(tech.feeds[0].url, "https://blog.rust-lang.org/feed.xml");
+        assert_eq!(tech.feeds[0].page_url, "https://blog.rust-lang.org/");
+    }
+
+    #[test]
+    fn test_parse_opml_flat_feed_as_start_form() {
+        // Start-form feed directly under <body> (no enclosing group container)
+        // should land in Uncategorized, matching the Empty-form behavior.
+        let opml = r#"<?xml version="1.0"?>
+<opml version="2.0">
+  <head><title>t</title></head>
+  <body>
+    <outline type="rss" text="LWN" xmlUrl="https://lwn.net/headlines/rss">
+    </outline>
+  </body>
+</opml>"#;
+        let groups = parse_opml_str(opml).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].slug, "uncategorized");
+        assert_eq!(groups[0].feeds.len(), 1);
+        assert_eq!(groups[0].feeds[0].url, "https://lwn.net/headlines/rss");
+    }
+
+    #[test]
+    fn test_parse_opml_mixed_start_and_empty_forms() {
+        let opml = r#"<?xml version="1.0"?>
+<opml version="2.0">
+  <head><title>t</title></head>
+  <body>
+    <outline text="Mixed" title="Mixed">
+      <outline type="rss" text="Empty Form" xmlUrl="https://example.com/a"/>
+      <outline type="rss" text="Start Form" xmlUrl="https://example.com/b">
+      </outline>
+    </outline>
+  </body>
+</opml>"#;
+        let groups = parse_opml_str(opml).unwrap();
+        let mixed = groups.iter().find(|g| g.slug == "mixed").unwrap();
+        assert_eq!(mixed.feeds.len(), 2, "both forms must be captured");
+        let urls: Vec<&str> = mixed.feeds.iter().map(|f| f.url.as_str()).collect();
+        assert!(urls.contains(&"https://example.com/a"));
+        assert!(urls.contains(&"https://example.com/b"));
     }
 
     #[test]
