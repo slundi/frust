@@ -73,6 +73,21 @@ impl App {
             self.timeout = u8::try_from(value.as_i64().unwrap())
                 .expect("Invalid data in config file: timeout");
         }
+        // article retention in days (0 = keep forever); groups/feeds inherit this
+        if let Some(value) = map.get(&Yaml::String("retention".to_string())) {
+            self.retention = u16::try_from(
+                value
+                    .as_i64()
+                    .expect("Invalid data in config file: retention"),
+            )
+            .expect("Invalid data in config file: retention");
+        }
+        // minimum interval between refreshes for a given feed, in seconds
+        if let Some(value) = map.get(&Yaml::String("min_refresh_time".to_string())) {
+            self.min_refresh_time = value
+                .as_i64()
+                .expect("Invalid data in config file: min_refresh_time");
+        }
         // app-level enrichment templates
         self.enrichment_prepend = map
             .get(&Yaml::String("enrichment_prepend".to_string()))
@@ -537,6 +552,78 @@ groups:
         assert_eq!(
             feed.enrichment_append.as_deref(),
             Some("[app-app][grp-app][feed-app]")
+        );
+    }
+
+    #[test]
+    fn test_global_retention_loaded_from_yaml() {
+        let app = app_from_yaml(
+            r#"
+retention: 30
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: F
+    url: https://example.com/feed.xml
+"#,
+        );
+        assert_eq!(app.retention, 30);
+        // Groups and feeds inherit the app-level default.
+        let group = app.groups.values().next().unwrap();
+        assert_eq!(group.retention, 30);
+        assert_eq!(first_feed(&app).retention, 30);
+    }
+
+    #[test]
+    fn test_global_retention_defaults_to_zero() {
+        let app = app_from_yaml(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: F
+    url: https://example.com/feed.xml
+"#,
+        );
+        assert_eq!(
+            app.retention, 0,
+            "retention must default to 0 (keep forever)"
+        );
+    }
+
+    #[test]
+    fn test_global_min_refresh_time_loaded_from_yaml() {
+        let app = app_from_yaml(
+            r#"
+min_refresh_time: 1800
+groups: []
+"#,
+        );
+        assert_eq!(app.min_refresh_time, 1800);
+    }
+
+    #[test]
+    fn test_group_retention_overrides_global() {
+        let app = app_from_yaml(
+            r#"
+retention: 30
+groups:
+- slug: g
+  output: g.atom
+  retention: 90
+  feeds:
+  - title: F
+    url: https://example.com/feed.xml
+"#,
+        );
+        let group = app.groups.values().next().unwrap();
+        assert_eq!(group.retention, 90, "group retention must override global");
+        assert_eq!(
+            first_feed(&app).retention,
+            90,
+            "feed inherits group retention"
         );
     }
 
