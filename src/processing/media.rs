@@ -33,18 +33,23 @@ fn mime_to_ext(content_type: &str) -> &'static str {
 }
 
 /// Try to extract a file extension from a URL path (ignores query string).
+///
+/// Extension must be non-empty, at most 5 characters, and consist only of
+/// ASCII alphanumerics. Any URL-encoded or unusual character makes the URL
+/// fall back to MIME-derived extensions — defense in depth against odd
+/// filenames on disk and any theoretical path shenanigans.
 fn ext_from_url(url: &str) -> Option<&str> {
     let path = url.split('?').next()?;
     let filename = path.rsplit('/').next()?;
-    if !filename.contains('.') {
+    let dot = filename.rfind('.')?;
+    let ext = &filename[dot + 1..];
+    if ext.is_empty() || ext.len() > 5 {
         return None;
     }
-    let ext = filename.rsplit('.').next()?;
-    if ext.is_empty() || ext.len() > 5 {
-        None
-    } else {
-        Some(ext)
+    if !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
     }
+    Some(ext)
 }
 
 /// Download a single asset, deduplicate by XXH3 hash, and write to `media_dir/<hash>.<ext>`.
@@ -217,5 +222,30 @@ mod tests {
     #[test]
     fn test_ext_from_url_empty_extension() {
         assert_eq!(ext_from_url("https://example.com/file."), None);
+    }
+
+    #[test]
+    fn test_ext_from_url_rejects_url_encoded_chars() {
+        // %20 is a space, %2f is a slash — neither should ever end up in the
+        // filename we write to disk.
+        assert_eq!(ext_from_url("https://example.com/f.j%20g"), None);
+        assert_eq!(ext_from_url("https://example.com/f.j%2fg"), None);
+    }
+
+    #[test]
+    fn test_ext_from_url_rejects_non_ascii_alphanumeric() {
+        // Spaces, punctuation, non-ASCII — all rejected to keep filenames sane.
+        assert_eq!(ext_from_url("https://example.com/f.j g"), None);
+        assert_eq!(ext_from_url("https://example.com/f.j-g"), None);
+        assert_eq!(ext_from_url("https://example.com/f.jpé"), None);
+        assert_eq!(ext_from_url("https://example.com/f.j_g"), None);
+    }
+
+    #[test]
+    fn test_ext_from_url_accepts_mixed_case_alphanumeric() {
+        // Some CDNs use uppercase or digit-only extensions.
+        assert_eq!(ext_from_url("https://example.com/f.JPG"), Some("JPG"));
+        assert_eq!(ext_from_url("https://example.com/f.mp4"), Some("mp4"));
+        assert_eq!(ext_from_url("https://example.com/f.m4a"), Some("m4a"));
     }
 }
