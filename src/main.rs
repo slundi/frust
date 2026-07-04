@@ -5,11 +5,11 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::sync::OnceLock;
 
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use tracing::info;
 
 use crate::cli::{CliOptions, Command};
-use crate::error::FrustError;
 use crate::model::App;
 use crate::storage::Storage;
 
@@ -32,14 +32,16 @@ static START_TIME: OnceLock<DateTime<Utc>> = OnceLock::new();
 /// under `app.output` so per-article files can be written alongside their
 /// media. No-op otherwise: the flat `media/<xxh3>.<ext>` layout doesn't need
 /// per-feed folders.
-fn create_output_structure(app: &App) -> Result<(), FrustError> {
+fn create_output_structure(app: &App) -> anyhow::Result<()> {
     if !app.retrieve_media_server {
         return Ok(());
     }
     let base = Path::new(&app.output);
     for group in app.groups.values() {
         for feed in group.feeds.values() {
-            std::fs::create_dir_all(base.join(&feed.slug))?;
+            let path = base.join(&feed.slug);
+            std::fs::create_dir_all(&path)
+                .with_context(|| format!("create directory {}", path.display()))?;
         }
     }
     Ok(())
@@ -68,7 +70,7 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
         exit_code = ExitCode::FAILURE;
     });
     if let Err(e) = create_output_structure(&app) {
-        tracing::error!("Failed to create output directories: {}", e);
+        tracing::error!("Failed to create output directories: {:#}", e);
         return ExitCode::FAILURE;
     }
 
@@ -104,11 +106,22 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
     exit_code
 }
 
+/// Build a `tracing` filter from a `RUST_LOG`-style directive.
+///
+/// Returns `INFO` when the directive is missing or fails to parse — cron
+/// setups shouldn't crash on a typo in an env var.
+fn build_log_filter(directive: Option<&str>) -> tracing_subscriber::EnvFilter {
+    directive
+        .and_then(|d| tracing_subscriber::EnvFilter::try_new(d).ok())
+        .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"))
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
+    let filter = build_log_filter(std::env::var("RUST_LOG").ok().as_deref());
     let subscriber = tracing_subscriber::fmt()
         .with_level(true)
-        .with_max_level(tracing::level_filters::LevelFilter::INFO)
+        .with_env_filter(filter)
         .with_target(false)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
@@ -153,7 +166,7 @@ mod tests {
 
     use crate::model::{App, Feed, Group};
 
-    use super::create_output_structure;
+    use super::{build_log_filter, create_output_structure};
 
     fn unique_dir(prefix: &str) -> String {
         let nanos = std::time::SystemTime::now()
@@ -213,6 +226,56 @@ mod tests {
         create_output_structure(&app).unwrap();
         assert!(!std::path::Path::new(&format!("{}/a", dir)).exists());
         assert!(!std::path::Path::new(&format!("{}/b", dir)).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_build_log_filter_defaults_to_info_when_none() {
+        let filter = build_log_filter(None);
+        // EnvFilter's Display echoes the effective directives; "info" is enough
+        // for a smoke check.
+        assert_eq!(format!("{}", filter), "info");
+    }
+
+    #[test]
+    fn test_build_log_filter_parses_valid_directive() {
+        let filter = build_log_filter(Some("frust=debug,warn"));
+        let rendered = format!("{}", filter);
+        assert!(
+            rendered.contains("frust=debug"),
+            "unexpected filter directives: {}",
+            rendered
+        );
+        assert!(
+            rendered.contains("warn"),
+            "unexpected filter directives: {}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn test_build_log_filter_falls_back_on_garbage() {
+        // A malformed directive must not crash the CLI in a cron job.
+        let filter = build_log_filter(Some("!!not-a-real-directive!!"));
+        assert_eq!(format!("{}", filter), "info");
+    }
+
+    #[test]
+    fn test_create_output_structure_error_includes_failing_path() {
+        // Point output at a path that cannot be created (parent is a file).
+        let dir = unique_dir("badoutput");
+        std::fs::create_dir_all(&dir).unwrap();
+        let blocker = format!("{}/blocker", dir);
+        std::fs::write(&blocker, b"").unwrap();
+        // <blocker>/<feed_slug> — parent is a regular file, so create_dir_all fails.
+        let app = app_with(&blocker, true, vec![group_with_feeds(&["only-feed"])]);
+        let err = create_output_structure(&app).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("only-feed"),
+            "error context should name the failing directory, got {}",
+            msg
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
