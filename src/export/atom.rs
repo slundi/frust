@@ -120,7 +120,10 @@ fn write_entry<W: std::io::Write>(
         .map_err(|e| FrustError::Export(e.to_string()))?;
 
     write_text_element(writer, "title", &article.title)?;
-    write_text_element(writer, "id", &article.url)?;
+    // Atom entry <id> must be a permanent IRI (RFC 4287 §4.2.6). article.url
+    // can change (redirects, tracking-param churn, https migrations), so use
+    // a URN built from the stable XXH3 id instead.
+    write_text_element(writer, "id", &format!("urn:xxh3:{:016x}", article.id))?;
 
     // <link rel="alternate" href="..."/>
     {
@@ -271,8 +274,51 @@ mod tests {
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<title>Hello World</title>"));
-        assert!(xml.contains("<id>https://example.com/1</id>"));
+        // Entry <id> is a stable URN derived from article.id, not the URL.
+        assert!(
+            xml.contains("<id>urn:xxh3:0000000000000001</id>"),
+            "expected stable URN id, got:\n{}",
+            xml
+        );
+        // The URL still appears as the alternate link.
         assert!(xml.contains("href=\"https://example.com/1\""));
+    }
+
+    #[test]
+    fn test_atom_entry_id_is_stable_across_url_changes() {
+        // Two articles with the same id but different URLs must produce the
+        // same <id> URN — otherwise feed readers would see them as new items
+        // every time the source URL is rewritten (redirects, tracking params).
+        let dir = TempDir::new().unwrap();
+        let a = output_path(&dir, "a.atom");
+        let b = output_path(&dir, "b.atom");
+        let mut art_a = make_article(42, "T", "https://example.com/old", 0);
+        let mut art_b = make_article(42, "T", "https://example.com/new?utm=1", 0);
+        art_a.content = "body".into();
+        art_b.content = "body".into();
+        AtomExporter
+            .generate(&[art_a], "F", "https://example.com", &a, &no_enrichment())
+            .unwrap();
+        AtomExporter
+            .generate(&[art_b], "F", "https://example.com", &b, &no_enrichment())
+            .unwrap();
+
+        let extract_id = |p: &Path| {
+            let xml = read_xml(p);
+            let start = xml.find("<entry>").unwrap();
+            let idx = xml[start..].find("<id>").unwrap() + start;
+            let end = xml[idx..].find("</id>").unwrap() + idx;
+            xml[idx + 4..end].to_string()
+        };
+        assert_eq!(
+            extract_id(&a),
+            extract_id(&b),
+            "entry <id> must be stable when article.id is the same"
+        );
+        assert!(
+            extract_id(&a).starts_with("urn:xxh3:"),
+            "id must be a urn:xxh3 URN"
+        );
     }
 
     #[test]
