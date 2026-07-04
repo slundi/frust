@@ -12,6 +12,23 @@ pub struct Storage {
     states_db: Database,
 }
 
+/// Read only the `added_at` field of a stored article by id, if present.
+/// Currently pays for a full decompress+deserialize; a future secondary
+/// index could avoid the payload read.
+fn read_added_at<T>(table: &T, id: u64) -> Result<Option<i64>, FrustError>
+where
+    T: redb::ReadableTable<u64, &'static [u8]>,
+{
+    let Some(guard) = table.get(id)? else {
+        return Ok(None);
+    };
+    let decompressed = lz4_flex::decompress_size_prepended(guard.value())
+        .map_err(|e| FrustError::Serialization(e.to_string()))?;
+    let archived = rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(&decompressed)?;
+    let existing: Article = rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?;
+    Ok(Some(existing.added_at))
+}
+
 impl Storage {
     pub fn new(articles_path: &str, states_path: &str) -> Result<Self, FrustError> {
         tracing::info!("Creating database files");
@@ -84,8 +101,15 @@ impl Storage {
         let write_txn = self.articles_db.begin_write()?;
         {
             let mut table = write_txn.open_table(ARTICLES_TABLE)?;
-            for article in articles {
-                // Serialize -> Compress -> Store
+            for mut article in articles {
+                // If the id already exists, preserve its original added_at so
+                // "first seen" isn't rewritten to now on every re-fetch. The
+                // filter layer normally dedups upstream, but this makes the
+                // storage self-healing if dedup ever fails (e.g. the id-set
+                // couldn't be loaded, or the source rewrote its GUIDs).
+                if let Some(existing_added_at) = read_added_at(&table, article.id)? {
+                    article.added_at = existing_added_at;
+                }
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&article)?;
                 let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
                 table.insert(article.id, compressed.as_slice())?;
@@ -395,6 +419,51 @@ mod tests {
             .delete_expired_articles(now, &retentions, 0)
             .unwrap();
         assert_eq!(deleted, 0);
+    }
+
+    // ---- upsert_articles / added_at preservation ----
+
+    fn load_added_at(storage: &Storage, id: u64) -> Option<i64> {
+        let arts = storage
+            .load_articles_for_feed(42)
+            .unwrap()
+            .into_iter()
+            .chain(storage.load_articles_for_feed(0).unwrap())
+            .collect::<Vec<_>>();
+        arts.into_iter().find(|a| a.id == id).map(|a| a.added_at)
+    }
+
+    #[test]
+    fn test_upsert_preserves_added_at_on_reinsert() {
+        let storage = make_storage();
+        // First insert: added_at = 100.
+        let mut art = make_article(1, 42, 500);
+        art.added_at = 100;
+        storage.upsert_articles(vec![art]).unwrap();
+        assert_eq!(load_added_at(&storage, 1), Some(100));
+
+        // Second insert of the same id, later added_at — must NOT overwrite.
+        let mut art2 = make_article(1, 42, 900);
+        art2.added_at = 999;
+        storage.upsert_articles(vec![art2]).unwrap();
+        assert_eq!(
+            load_added_at(&storage, 1),
+            Some(100),
+            "added_at must be preserved across re-inserts"
+        );
+    }
+
+    #[test]
+    fn test_upsert_new_id_uses_supplied_added_at() {
+        let storage = make_storage();
+        let mut art = make_article(7, 42, 500);
+        art.added_at = 123;
+        storage.upsert_articles(vec![art]).unwrap();
+        assert_eq!(
+            load_added_at(&storage, 7),
+            Some(123),
+            "brand-new id must keep the supplied added_at"
+        );
     }
 
     // ---- collect_media_refs ----
