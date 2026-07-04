@@ -2,13 +2,23 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
+use regex::Regex;
 use reqwest::{Client, header};
 use scraper::{Html, Selector};
 use twox_hash::XxHash3_64;
+
+/// Matches `src="..."` (group 1) or `src='...'` (group 2). The Rust `regex`
+/// crate has no backreferences, so we spell both quote styles out as an
+/// alternation instead of `src=(["'])([^"']+)\1`.
+fn src_regex() -> &'static Regex {
+    static SRC_RE: OnceLock<Regex> = OnceLock::new();
+    SRC_RE.get_or_init(|| Regex::new(r#"src="([^"]+)"|src='([^']+)'"#).unwrap())
+}
 
 /// Map a MIME content-type string to a file extension.
 fn mime_to_ext(content_type: &str) -> &'static str {
@@ -136,16 +146,38 @@ pub(crate) async fn rewrite_inline_images(
         .map(|s| s.to_string())
         .collect();
 
-    let mut result = html.to_string();
+    // Download once per unique src and build a URL → local path map so the
+    // rewrite step below can run in a single pass over the HTML instead of
+    // scanning the entire string twice per image (String::replace is
+    // O(html_len × 2 × images) — that quadratic factor bit us on large
+    // articles).
+    let mut mapping: HashMap<String, String> = HashMap::new();
     for src in srcs {
         if let Some(path) = download_asset(client, &src, media_dir, max_size).await {
-            let filename = path.file_name().unwrap().to_string_lossy();
-            let local = format!("media/{}", filename);
-            result = result.replace(&format!("src=\"{}\"", src), &format!("src=\"{}\"", local));
-            result = result.replace(&format!("src='{}'", src), &format!("src='{}'", local));
+            let filename = path.file_name().unwrap().to_string_lossy().into_owned();
+            mapping.insert(src, format!("media/{}", filename));
         }
     }
-    result
+
+    if mapping.is_empty() {
+        return html.to_string();
+    }
+
+    src_regex()
+        .replace_all(html, |caps: &regex::Captures| {
+            // Exactly one of the two alternation branches matched — pick the
+            // right quote style so the rewrite round-trips faithfully.
+            let (url, quote) = match (caps.get(1), caps.get(2)) {
+                (Some(m), _) => (m.as_str(), '"'),
+                (_, Some(m)) => (m.as_str(), '\''),
+                _ => return caps[0].to_string(),
+            };
+            match mapping.get(url) {
+                Some(local) => format!("src={}{}{}", quote, local, quote),
+                None => caps[0].to_string(),
+            }
+        })
+        .into_owned()
 }
 
 #[cfg(test)]
@@ -247,5 +279,98 @@ mod tests {
         assert_eq!(ext_from_url("https://example.com/f.JPG"), Some("JPG"));
         assert_eq!(ext_from_url("https://example.com/f.mp4"), Some("mp4"));
         assert_eq!(ext_from_url("https://example.com/f.m4a"), Some("m4a"));
+    }
+
+    // --- src_regex (single-pass rewrite driver) ---
+
+    /// Simulate what `rewrite_inline_images` does after downloads: rewrite
+    /// every `src="..."` / `src='...'` occurrence in one pass using the
+    /// URL → local-path lookup map.
+    fn rewrite(html: &str, mapping: &HashMap<String, String>) -> String {
+        src_regex()
+            .replace_all(html, |caps: &regex::Captures| {
+                let (url, quote) = match (caps.get(1), caps.get(2)) {
+                    (Some(m), _) => (m.as_str(), '"'),
+                    (_, Some(m)) => (m.as_str(), '\''),
+                    _ => return caps[0].to_string(),
+                };
+                match mapping.get(url) {
+                    Some(local) => format!("src={}{}{}", quote, local, quote),
+                    None => caps[0].to_string(),
+                }
+            })
+            .into_owned()
+    }
+
+    #[test]
+    fn test_src_regex_rewrites_double_quoted_src() {
+        let mut m = HashMap::new();
+        m.insert(
+            "https://example.com/a.jpg".to_string(),
+            "media/abc.jpg".to_string(),
+        );
+        let out = rewrite(r#"<img src="https://example.com/a.jpg">"#, &m);
+        assert_eq!(out, r#"<img src="media/abc.jpg">"#);
+    }
+
+    #[test]
+    fn test_src_regex_rewrites_single_quoted_src() {
+        let mut m = HashMap::new();
+        m.insert(
+            "https://example.com/a.jpg".to_string(),
+            "media/abc.jpg".to_string(),
+        );
+        let out = rewrite(r#"<img src='https://example.com/a.jpg'>"#, &m);
+        assert_eq!(out, r#"<img src='media/abc.jpg'>"#);
+    }
+
+    #[test]
+    fn test_src_regex_leaves_unmapped_srcs_untouched() {
+        let m = HashMap::new();
+        let input = r#"<img src="https://example.com/never-downloaded.jpg">"#;
+        assert_eq!(rewrite(input, &m), input);
+    }
+
+    #[test]
+    fn test_src_regex_handles_many_images_in_single_pass() {
+        // Regression test for the O(html_len × images) blowup: build a
+        // moderately large document and check the pass still substitutes
+        // every occurrence correctly.
+        let mut m = HashMap::new();
+        m.insert("https://cdn/1.jpg".to_string(), "media/1.jpg".to_string());
+        m.insert("https://cdn/2.jpg".to_string(), "media/2.jpg".to_string());
+
+        // Interleave both URLs across many <img> tags, plus filler text.
+        let mut html = String::with_capacity(4096);
+        for i in 0..100 {
+            html.push_str(&format!(
+                r#"<p>filler {i} <img src="https://cdn/1.jpg" /> …</p>"#
+            ));
+            html.push_str(r#"<p><img src="https://cdn/2.jpg" /></p>"#);
+        }
+        let out = rewrite(&html, &m);
+        // Every original URL must be replaced.
+        assert!(!out.contains("https://cdn/1.jpg"));
+        assert!(!out.contains("https://cdn/2.jpg"));
+        assert_eq!(out.matches(r#"src="media/1.jpg""#).count(), 100);
+        assert_eq!(out.matches(r#"src="media/2.jpg""#).count(), 100);
+    }
+
+    #[test]
+    fn test_src_regex_preserves_html_around_rewrite() {
+        // Verify the rest of the tag (attributes, self-close) is preserved
+        // through the single-pass rewrite.
+        let mut m = HashMap::new();
+        m.insert(
+            "https://example.com/a.jpg".to_string(),
+            "media/abc.jpg".to_string(),
+        );
+        let input =
+            r#"<img alt="cat" src="https://example.com/a.jpg" width="300" loading="lazy" />"#;
+        let out = rewrite(input, &m);
+        assert_eq!(
+            out,
+            r#"<img alt="cat" src="media/abc.jpg" width="300" loading="lazy" />"#
+        );
     }
 }

@@ -267,14 +267,9 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
         .collect()
         .await;
 
-    // Phase 2: persist articles and feed states
-    let all_articles: Vec<Article> = results.iter().flat_map(|r| r.articles.clone()).collect();
-    let new_count = all_articles.len();
-    if !all_articles.is_empty() {
-        storage.upsert_articles(all_articles)?;
-        tracing::info!("Persisted {} new article(s)", new_count);
-    }
-
+    // Phase 2: persist articles and feed states.
+    // Save states first (only reads state, doesn't touch articles) so we can
+    // then move-consume `results` into a single article vec without cloning.
     for result in &results {
         if let Err(e) = storage.save_feed_state(result.feed_id, &result.state) {
             tracing::warn!(
@@ -283,6 +278,13 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                 e
             );
         }
+    }
+
+    let all_articles: Vec<Article> = results.into_iter().flat_map(|r| r.articles).collect();
+    let new_count = all_articles.len();
+    if !all_articles.is_empty() {
+        storage.upsert_articles(all_articles)?;
+        tracing::info!("Persisted {} new article(s)", new_count);
     }
 
     // Phase 3: export per-group output files

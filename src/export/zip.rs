@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{BufWriter, Write},
+    io::{self, BufReader, BufWriter, Write},
     path::Path,
 };
 
@@ -119,7 +119,11 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
             info!("zip: adding {}", name);
             zip.start_file(&name, opts)
                 .map_err(|e| FrustError::Export(e.to_string()))?;
-            zip.write_all(&fs::read(&path)?)?;
+            // Stream the file straight into the zip writer instead of reading
+            // the whole payload into memory — critical on router-class hosts
+            // when enclosures (podcasts, videos) get large.
+            let mut src = BufReader::new(fs::File::open(&path)?);
+            io::copy(&mut src, &mut zip)?;
         }
     }
 

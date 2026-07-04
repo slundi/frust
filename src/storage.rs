@@ -1,11 +1,16 @@
 use crate::error::FrustError;
 use crate::model::{Article, FeedState};
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 const ARTICLES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("articles");
 const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
+/// Secondary index keyed by `(feed_id, article_id)` with the article's
+/// `timestamp` as the value. Lets `delete_expired_articles` and
+/// `load_articles_for_feed` skip the decompress+deserialize step for the
+/// article payload — only the meta bytes (24 bytes/entry) are read.
+const META_TABLE: TableDefinition<(u64, u64), i64> = TableDefinition::new("article_meta");
 
 pub struct Storage {
     articles_db: Database,
@@ -34,10 +39,61 @@ impl Storage {
         tracing::info!("Creating database files");
         let articles_db = Database::builder().create(articles_path)?;
         let states_db = Database::builder().create(states_path)?;
-        Ok(Self {
+        let storage = Self {
             articles_db,
             states_db,
-        })
+        };
+        storage.backfill_meta_if_needed()?;
+        Ok(storage)
+    }
+
+    /// Rebuild META_TABLE from ARTICLES_TABLE when the two are out of sync.
+    /// This makes the schema upgrade transparent for databases created before
+    /// the secondary index existed — the meta table only gets fully populated
+    /// once, then upsert_articles keeps it in sync.
+    fn backfill_meta_if_needed(&self) -> Result<(), FrustError> {
+        let read_txn = self.articles_db.begin_read()?;
+        let articles_len = match read_txn.open_table(ARTICLES_TABLE) {
+            Ok(t) => t.len()?,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        let meta_len = match read_txn.open_table(META_TABLE) {
+            Ok(t) => t.len()?,
+            Err(redb::TableError::TableDoesNotExist(_)) => 0,
+            Err(e) => return Err(e.into()),
+        };
+        if articles_len == meta_len {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "Rebuilding article meta index ({} articles, {} meta entries)",
+            articles_len,
+            meta_len
+        );
+        let articles_table = read_txn.open_table(ARTICLES_TABLE)?;
+        let mut entries: Vec<(u64, u64, i64)> = Vec::with_capacity(articles_len as usize);
+        for item in articles_table.iter()? {
+            let (_key, bytes) = item?;
+            let decompressed = lz4_flex::decompress_size_prepended(bytes.value())
+                .map_err(|e| FrustError::Serialization(e.to_string()))?;
+            let archived =
+                rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(&decompressed)?;
+            let article: Article = rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?;
+            entries.push((article.feed_id, article.id, article.timestamp));
+        }
+        drop(read_txn);
+
+        let write_txn = self.articles_db.begin_write()?;
+        {
+            let mut meta = write_txn.open_table(META_TABLE)?;
+            for (feed_id, article_id, timestamp) in entries {
+                meta.insert((feed_id, article_id), timestamp)?;
+            }
+        }
+        write_txn.commit()?;
+        Ok(())
     }
 
     /// Save a FeedState using rkyv 0.8
@@ -101,6 +157,7 @@ impl Storage {
         let write_txn = self.articles_db.begin_write()?;
         {
             let mut table = write_txn.open_table(ARTICLES_TABLE)?;
+            let mut meta = write_txn.open_table(META_TABLE)?;
             for mut article in articles {
                 // If the id already exists, preserve its original added_at so
                 // "first seen" isn't rewritten to now on every re-fetch. The
@@ -113,6 +170,7 @@ impl Storage {
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&article)?;
                 let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
                 table.insert(article.id, compressed.as_slice())?;
+                meta.insert((article.feed_id, article.id), article.timestamp)?;
             }
         }
         write_txn.commit()?;
@@ -132,50 +190,49 @@ impl Storage {
         default_retention: u16,
     ) -> Result<usize, FrustError> {
         let read_txn = self.articles_db.begin_read()?;
-        let ids_to_delete: Vec<u64> = match read_txn.open_table(ARTICLES_TABLE) {
+        // Walk the meta index instead of the articles table so we never
+        // decompress a payload just to read its timestamp/feed_id.
+        let to_delete: Vec<(u64, u64)> = match read_txn.open_table(META_TABLE) {
             Ok(table) => {
-                let mut ids = Vec::new();
+                let mut victims = Vec::new();
                 for item in table.iter()? {
-                    let (key, bytes) = item?;
-                    let decompressed = lz4_flex::decompress_size_prepended(bytes.value())
-                        .map_err(|e| FrustError::Serialization(e.to_string()))?;
-                    let archived = rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(
-                        &decompressed,
-                    )?;
-                    let article: Article =
-                        rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?;
+                    let (key, value) = item?;
+                    let (feed_id, article_id) = key.value();
+                    let timestamp = value.value();
                     let retention = feed_retentions
-                        .get(&article.feed_id)
+                        .get(&feed_id)
                         .copied()
                         .unwrap_or(default_retention);
                     if retention == 0 {
                         continue;
                     }
                     let cutoff = now_ts - retention as i64 * 86_400;
-                    if article.timestamp <= cutoff {
-                        ids.push(key.value());
+                    if timestamp <= cutoff {
+                        victims.push((feed_id, article_id));
                     }
                 }
-                ids
+                victims
             }
             Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
             Err(e) => return Err(e.into()),
         };
         drop(read_txn);
 
-        if ids_to_delete.is_empty() {
+        if to_delete.is_empty() {
             return Ok(0);
         }
 
         let write_txn = self.articles_db.begin_write()?;
         {
-            let mut table = write_txn.open_table(ARTICLES_TABLE)?;
-            for id in &ids_to_delete {
-                table.remove(id)?;
+            let mut articles = write_txn.open_table(ARTICLES_TABLE)?;
+            let mut meta = write_txn.open_table(META_TABLE)?;
+            for (feed_id, article_id) in &to_delete {
+                articles.remove(article_id)?;
+                meta.remove((*feed_id, *article_id))?;
             }
         }
         write_txn.commit()?;
-        Ok(ids_to_delete.len())
+        Ok(to_delete.len())
     }
 
     /// Collect bare filenames (e.g. `"abc123def456789a.jpg"`) of every media asset
@@ -241,29 +298,34 @@ impl Storage {
     pub fn load_articles_for_feed(&self, feed_id: u64) -> Result<Vec<Article>, FrustError> {
         tracing::info!("Loading articles for feed");
         let read_txn = self.articles_db.begin_read()?;
-        let table = match read_txn.open_table(ARTICLES_TABLE) {
+        let meta = match read_txn.open_table(META_TABLE) {
             Ok(t) => t,
             Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
             Err(e) => return Err(e.into()),
         };
+        let articles_table = match read_txn.open_table(ARTICLES_TABLE) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+
+        // Range-query the composite (feed_id, article_id) key so we only touch
+        // meta entries for this feed. Then load and decompress just the matching
+        // article payloads — no scan of every article in every feed.
+        let range = meta.range((feed_id, u64::MIN)..=(feed_id, u64::MAX))?;
         let mut articles = Vec::new();
-
-        for item in table.iter()? {
-            let (_, bytes) = item?;
-
-            // 1. Decompress (since articles ARE compressed)
+        for item in range {
+            let (key, _) = item?;
+            let (_, article_id) = key.value();
+            let Some(bytes) = articles_table.get(article_id)? else {
+                continue;
+            };
             let decompressed = lz4_flex::decompress_size_prepended(bytes.value())
                 .map_err(|e| FrustError::Serialization(e.to_string()))?;
-
-            // 2. Deserialize
             let archived =
                 rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(&decompressed)?;
             let article: Article = rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?;
-
-            // 3. Filter by feed_id
-            if article.feed_id == feed_id {
-                articles.push(article);
-            }
+            articles.push(article);
         }
 
         // Sort by date (descending) to have newest articles first in the RSS
@@ -600,5 +662,90 @@ mod tests {
         assert!(std::path::Path::new(&format!("{}/{}", dir, filename)).exists());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- meta secondary-index behavior ----
+
+    #[test]
+    fn test_load_articles_for_feed_only_returns_matching_feed() {
+        let storage = make_storage();
+        // Two feeds, one article each. The meta range query must isolate
+        // articles by feed_id — a naive full scan would return both.
+        storage
+            .upsert_articles(vec![
+                make_article(1, 42, 1_000),
+                make_article(2, 99, 2_000),
+                make_article(3, 42, 3_000),
+            ])
+            .unwrap();
+        let articles = storage.load_articles_for_feed(42).unwrap();
+        let ids: Vec<u64> = articles.iter().map(|a| a.id).collect();
+        assert_eq!(ids, vec![3, 1], "newest-first order, only feed 42");
+    }
+
+    #[test]
+    fn test_load_articles_for_feed_empty_when_no_match() {
+        let storage = make_storage();
+        storage
+            .upsert_articles(vec![make_article(1, 42, 1_000)])
+            .unwrap();
+        assert!(storage.load_articles_for_feed(777).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_delete_expired_removes_meta_entries_too() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        storage
+            .upsert_articles(vec![
+                make_article(1, 42, now - 10 * 86_400), // expired
+                make_article(2, 42, now - 3 * 86_400),  // kept
+            ])
+            .unwrap();
+
+        let mut retentions = HashMap::new();
+        retentions.insert(42u64, 7u16);
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 1);
+
+        // After deletion, load_articles_for_feed must not resurrect the
+        // expired article — this catches a bug where the meta table is not
+        // cleaned up in sync with ARTICLES_TABLE.
+        let remaining = storage.load_articles_for_feed(42).unwrap();
+        let ids: Vec<u64> = remaining.iter().map(|a| a.id).collect();
+        assert_eq!(ids, vec![2]);
+    }
+
+    #[test]
+    fn test_backfill_meta_from_legacy_articles_table() {
+        // Simulate a legacy database where META_TABLE is empty but
+        // ARTICLES_TABLE has entries — writing directly to the articles table
+        // and then reopening Storage should trigger the backfill and let
+        // load_articles_for_feed work without any explicit upgrade step.
+        let articles_path = unique_path("articles");
+        let states_path = unique_path("states");
+
+        {
+            let storage = Storage::new(&articles_path, &states_path).unwrap();
+            storage
+                .upsert_articles(vec![make_article(1, 42, 1_000)])
+                .unwrap();
+        }
+
+        // Wipe the meta table to simulate the pre-index state.
+        {
+            let db = Database::builder().open(&articles_path).unwrap();
+            let tx = db.begin_write().unwrap();
+            let _ = tx.delete_table(META_TABLE);
+            tx.commit().unwrap();
+        }
+
+        // Reopening triggers backfill_meta_if_needed → meta is rebuilt.
+        let storage = Storage::new(&articles_path, &states_path).unwrap();
+        let arts = storage.load_articles_for_feed(42).unwrap();
+        assert_eq!(arts.len(), 1);
+        assert_eq!(arts[0].id, 1);
     }
 }
