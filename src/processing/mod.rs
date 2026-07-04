@@ -22,11 +22,50 @@ use crate::{
 
 type StatesMap = Arc<HashMap<u64, FeedState>>;
 
+/// Safety cap on a single feed response body. Real RSS/Atom feeds are rarely
+/// more than a few hundred KB; anything past this is either misconfigured or
+/// hostile. Reading unbounded would OOM the router-class targets this tool is
+/// meant to run on.
+const MAX_FEED_BYTES: u64 = 32 * 1024 * 1024; // 32 MiB
+
 pub(crate) mod content;
 pub(crate) mod convert;
 pub(crate) mod fetch;
 pub(crate) mod filter;
 pub(crate) mod media;
+
+/// Append a chunk to `buf`, returning `false` if doing so would exceed `max`.
+/// Extracted from `read_bounded_body` so the size-limit invariant is testable
+/// without a live HTTP response.
+fn append_within_cap(buf: &mut Vec<u8>, chunk: &[u8], max: u64) -> bool {
+    if buf.len() as u64 + chunk.len() as u64 > max {
+        return false;
+    }
+    buf.extend_from_slice(chunk);
+    true
+}
+
+/// Read a response body into memory, aborting if it exceeds `max` bytes.
+/// Rejects early via `Content-Length` when present; otherwise counts as it
+/// streams. Returns `None` when the cap is hit — the caller should treat that
+/// as "skip this feed but still update its state".
+async fn read_bounded_body(
+    mut response: reqwest::Response,
+    max: u64,
+) -> Result<Option<Vec<u8>>, FrustError> {
+    if let Some(len) = response.content_length()
+        && len > max
+    {
+        return Ok(None);
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if !append_within_cap(&mut buf, &chunk, max) {
+            return Ok(None);
+        }
+    }
+    Ok(Some(buf))
+}
 
 struct FeedResult {
     feed_id: u64,
@@ -152,11 +191,30 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                     .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
                     .map(|dt| dt.with_timezone(&Utc));
 
-                let bytes = response.bytes().await?;
+                let bytes = match read_bounded_body(response, MAX_FEED_BYTES).await? {
+                    Some(b) => b,
+                    None => {
+                        tracing::warn!(
+                            "Feed '{}' body exceeds {} bytes cap; skipping this refresh but recording state",
+                            feed.title,
+                            MAX_FEED_BYTES
+                        );
+                        return Ok(Some(FeedResult {
+                            feed_id,
+                            articles: vec![],
+                            state: FeedState {
+                                last_etag: new_etag,
+                                last_check_ts: Some(now_ts),
+                                last_modified_ts: new_last_mod.map(|dt| dt.timestamp()),
+                                last_http_status: Some(http_status),
+                            },
+                        }));
+                    }
+                };
                 let mut fetched_feed = parser::Builder::new()
                     .sanitize_content(true)
                     .build()
-                    .parse(bytes.as_ref())
+                    .parse(bytes.as_slice())
                     .map_err(|e| FrustError::FeedParse(e.to_string()))?;
 
                 filter::apply_filters_and_retention(
@@ -313,4 +371,47 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_within_cap;
+
+    #[test]
+    fn test_append_within_cap_accepts_chunk_below_limit() {
+        let mut buf = vec![0u8; 5];
+        assert!(append_within_cap(&mut buf, &[1, 2, 3], 100));
+        assert_eq!(buf.len(), 8);
+    }
+
+    #[test]
+    fn test_append_within_cap_rejects_chunk_that_would_overflow() {
+        let mut buf = vec![0u8; 90];
+        // Chunk of 20 bytes would push us to 110 > cap of 100
+        assert!(!append_within_cap(&mut buf, &vec![0u8; 20], 100));
+        // Buffer is unchanged — no partial writes past the cap
+        assert_eq!(buf.len(), 90);
+    }
+
+    #[test]
+    fn test_append_within_cap_exact_boundary_is_accepted() {
+        let mut buf = vec![0u8; 90];
+        // Exactly reaching the cap must succeed (limit is inclusive)
+        assert!(append_within_cap(&mut buf, &vec![0u8; 10], 100));
+        assert_eq!(buf.len(), 100);
+    }
+
+    #[test]
+    fn test_append_within_cap_one_over_boundary_is_rejected() {
+        let mut buf = vec![0u8; 100];
+        assert!(!append_within_cap(&mut buf, &[42], 100));
+        assert_eq!(buf.len(), 100);
+    }
+
+    #[test]
+    fn test_append_within_cap_empty_chunk_is_a_noop() {
+        let mut buf = vec![0u8; 50];
+        assert!(append_within_cap(&mut buf, &[], 100));
+        assert_eq!(buf.len(), 50);
+    }
 }
