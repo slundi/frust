@@ -30,18 +30,18 @@ const DEFAULT_HTTP_TIMEOUT: u8 = 10;
 const DEFAULT_RETRIEVE_SERVER_MEDIA: bool = false;
 static START_TIME: OnceLock<DateTime<Utc>> = OnceLock::new();
 
+/// When `retrieve_media_server` is enabled, create one subdirectory per feed
+/// under `app.output` so per-article files can be written alongside their
+/// media. No-op otherwise: the flat `media/<xxh3>.<ext>` layout doesn't need
+/// per-feed folders.
 fn create_output_structure(app: &App) -> Result<(), FrustError> {
-    for g in app.groups.iter() {
-        if !app.retrieve_media_server {
-            continue;
-        }
-        for f in g.1.feeds.iter() {
-            let mut folder =
-                String::with_capacity(app.output.len() + g.1.slug.len() + f.1.slug.len() + 2);
-            folder.push_str(&app.output);
-            folder.push('/');
-            folder.push_str(&f.1.slug);
-            std::fs::create_dir_all(folder)?;
+    if !app.retrieve_media_server {
+        return Ok(());
+    }
+    let base = Path::new(&app.output);
+    for group in app.groups.values() {
+        for feed in group.feeds.values() {
+            std::fs::create_dir_all(base.join(&feed.slug))?;
         }
     }
     Ok(())
@@ -147,4 +147,94 @@ async fn main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use crate::model::{App, Feed, Group};
+
+    use super::create_output_structure;
+
+    fn unique_dir(prefix: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("/tmp/frust_out_{}_{}", prefix, nanos)
+    }
+
+    fn feed_with_slug(slug: &str) -> Feed {
+        Feed {
+            title: slug.to_string(),
+            slug: slug.to_string(),
+            url: format!("https://{}.example/feed", slug),
+            page_url: String::new(),
+            content_mode: crate::model::ContentMode::Default,
+            selector: None,
+            filters: Vec::new(),
+            output: String::new(),
+            retention: 0,
+            media: false,
+            media_max_size: 0,
+            enrichment_prepend: None,
+            enrichment_append: None,
+        }
+    }
+
+    fn group_with_feeds(feeds: &[&str]) -> Group {
+        let mut map = HashMap::new();
+        for (i, slug) in feeds.iter().enumerate() {
+            map.insert(i as u64, feed_with_slug(slug));
+        }
+        Group {
+            feeds: map,
+            ..Group::default()
+        }
+    }
+
+    fn app_with(output: &str, retrieve: bool, groups: Vec<Group>) -> App {
+        let mut gmap = HashMap::new();
+        for (i, g) in groups.into_iter().enumerate() {
+            gmap.insert(i as u64, g);
+        }
+        App {
+            output: output.to_string(),
+            retrieve_media_server: retrieve,
+            groups: gmap,
+            ..App::default()
+        }
+    }
+
+    #[test]
+    fn test_create_output_structure_disabled_creates_nothing() {
+        let dir = unique_dir("disabled");
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = app_with(&dir, false, vec![group_with_feeds(&["a", "b"])]);
+        create_output_structure(&app).unwrap();
+        assert!(!std::path::Path::new(&format!("{}/a", dir)).exists());
+        assert!(!std::path::Path::new(&format!("{}/b", dir)).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_create_output_structure_enabled_creates_one_folder_per_feed() {
+        let dir = unique_dir("enabled");
+        let app = app_with(
+            &dir,
+            true,
+            vec![
+                group_with_feeds(&["alpha", "beta"]),
+                group_with_feeds(&["gamma"]),
+            ],
+        );
+        create_output_structure(&app).unwrap();
+        // Folders live at <output>/<feed_slug>, not <output>/<group>/<feed>.
+        for slug in ["alpha", "beta", "gamma"] {
+            let p = std::path::Path::new(&dir).join(slug);
+            assert!(p.is_dir(), "missing {}", p.display());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
