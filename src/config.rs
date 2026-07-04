@@ -211,14 +211,34 @@ impl App {
                 //     .collect();
                 let mut regexes = RegexSet::empty();
                 if is_regex {
-                    regexes = RegexSetBuilder::new(expressions.clone())
+                    // Cap compiled program size and DFA cache well below the
+                    // regex crate defaults (10 MiB / 2 MiB) so a pathological
+                    // pattern can't chew through memory on a router-class host.
+                    // Both limits are generous relative to what any real filter
+                    // pattern needs.
+                    const REGEX_SIZE_LIMIT: usize = 256 * 1024;
+                    const REGEX_DFA_SIZE_LIMIT: usize = 1024 * 1024;
+                    match RegexSetBuilder::new(expressions.clone())
                         .case_insensitive(true)
                         .ignore_whitespace(true)
                         .unicode(true)
+                        .size_limit(REGEX_SIZE_LIMIT)
+                        .dfa_size_limit(REGEX_DFA_SIZE_LIMIT)
                         .build()
-                        .unwrap_or_else(|e| {
-                            panic!("Cannot build one regex for filter {}: {:?}", slug, e)
-                        });
+                    {
+                        Ok(r) => regexes = r,
+                        Err(e) => {
+                            tracing::warn!(
+                                "Filter '{}' regex compilation failed ({}); skipping this filter",
+                                slug,
+                                e
+                            );
+                            // Skip inserting this filter entirely — feeds that
+                            // reference it by slug will silently no-op. Better
+                            // than a panic that kills the whole aggregator run.
+                            continue;
+                        }
+                    }
                 }
                 self.filters.insert(
                     h,
@@ -565,6 +585,26 @@ groups:
             feed.enrichment_append.as_deref(),
             Some("[app-app][grp-app][feed-app]")
         );
+    }
+
+    #[test]
+    fn test_invalid_regex_filter_is_skipped_not_panicked() {
+        // Unclosed character class — should skip the filter instead of panicking.
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: broken
+  expressions: ["[unclosed"]
+  is_regex: true
+- slug: ok
+  expressions: ["hello"]
+  is_regex: true
+"#,
+        );
+        // Only the valid filter survives.
+        assert_eq!(app.filters.len(), 1);
+        let f = app.filters.values().next().unwrap();
+        assert!(f.regexes.is_match("say hello"));
     }
 
     #[test]
