@@ -66,7 +66,6 @@ pub(super) fn entry_to_article(
         summary,
         timestamp,
         added_at: now_ts,
-        is_full_content: false,
         enclosures,
     }
 }

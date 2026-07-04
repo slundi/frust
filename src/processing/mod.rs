@@ -30,7 +30,6 @@ const MAX_FEED_BYTES: u64 = 32 * 1024 * 1024; // 32 MiB
 
 pub(crate) mod content;
 pub(crate) mod convert;
-pub(crate) mod fetch;
 pub(crate) mod filter;
 pub(crate) mod media;
 

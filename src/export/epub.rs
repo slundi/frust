@@ -112,7 +112,6 @@ mod tests {
             summary: None,
             timestamp: ts,
             added_at: ts,
-            is_full_content: false,
             enclosures: vec![],
         }
     }

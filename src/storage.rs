@@ -361,7 +361,6 @@ mod tests {
             summary: None,
             timestamp,
             added_at: timestamp,
-            is_full_content: false,
             enclosures: Vec::<Enclosure>::new(),
         }
     }

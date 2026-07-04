@@ -258,4 +258,123 @@ mod tests {
         assert!(check_text_match("Rust is fast", &f));
         assert!(!check_text_match("Rust is slow", &f));
     }
+
+    // ---- apply_filters_and_retention (keep semantics) ----
+
+    /// Build a `feed_rs::model::Feed` with the given item titles. Each item's
+    /// GUID is the title itself so `existing_ids` dedup is easy to control.
+    fn feed_with_titles(titles: &[&str]) -> feed_rs::model::Feed {
+        let items: String = titles
+            .iter()
+            .map(|t| format!("<item><guid>{t}</guid><title>{t}</title></item>"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0"><channel>
+                <title>T</title><link>https://example.com</link>
+                {items}
+            </channel></rss>"#
+        );
+        feed_rs::parser::parse(xml.as_bytes()).unwrap()
+    }
+
+    fn feed_config_with_filter(filter_id: u64) -> crate::model::Feed {
+        crate::model::Feed {
+            title: "test".into(),
+            slug: "test".into(),
+            url: "https://example.com/feed.xml".into(),
+            page_url: String::new(),
+            content_mode: crate::model::ContentMode::Default,
+            selector: None,
+            filters: vec![filter_id],
+            output: String::new(),
+            retention: 0,
+            media: false,
+            media_max_size: 0,
+            enrichment_prepend: None,
+            enrichment_append: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_apply_filters_keep_true_includes_only_matches() {
+        init_start_time();
+        let mut feed = feed_with_titles(&["Rust is great", "Python is fine", "Go is nice"]);
+        let filter_id = 1u64;
+        let mut filters = HashMap::new();
+        filters.insert(filter_id, make_plain_filter(&["rust"], false, true));
+        let feed_cfg = feed_config_with_filter(filter_id);
+
+        apply_filters_and_retention(
+            &mut feed,
+            &feed_cfg,
+            &filters,
+            &reqwest::Client::new(),
+            None,
+            &HashSet::new(),
+        )
+        .await;
+
+        // keep:true → only entries whose title matches "rust" survive.
+        assert_eq!(feed.entries.len(), 1);
+        assert_eq!(
+            feed.entries[0].title.as_ref().unwrap().content,
+            "Rust is great"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_filters_keep_false_excludes_matches() {
+        init_start_time();
+        let mut feed = feed_with_titles(&["Rust is great", "Python is fine", "Go is nice"]);
+        let filter_id = 2u64;
+        let mut filters = HashMap::new();
+        filters.insert(filter_id, make_plain_filter(&["rust"], false, false));
+        let feed_cfg = feed_config_with_filter(filter_id);
+
+        apply_filters_and_retention(
+            &mut feed,
+            &feed_cfg,
+            &filters,
+            &reqwest::Client::new(),
+            None,
+            &HashSet::new(),
+        )
+        .await;
+
+        // keep:false → matching entries are dropped, others remain.
+        assert_eq!(feed.entries.len(), 2);
+        let titles: Vec<&str> = feed
+            .entries
+            .iter()
+            .map(|e| e.title.as_ref().unwrap().content.as_str())
+            .collect();
+        assert!(titles.contains(&"Python is fine"));
+        assert!(titles.contains(&"Go is nice"));
+        assert!(!titles.contains(&"Rust is great"));
+    }
+
+    #[tokio::test]
+    async fn test_apply_filters_keep_true_drops_all_when_no_match() {
+        init_start_time();
+        let mut feed = feed_with_titles(&["Python is fine", "Go is nice"]);
+        let filter_id = 3u64;
+        let mut filters = HashMap::new();
+        filters.insert(filter_id, make_plain_filter(&["rust"], false, true));
+        let feed_cfg = feed_config_with_filter(filter_id);
+
+        apply_filters_and_retention(
+            &mut feed,
+            &feed_cfg,
+            &filters,
+            &reqwest::Client::new(),
+            None,
+            &HashSet::new(),
+        )
+        .await;
+
+        // keep:true with no matches → everything is dropped.
+        assert!(feed.entries.is_empty());
+    }
 }

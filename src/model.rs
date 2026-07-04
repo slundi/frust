@@ -85,7 +85,7 @@ pub(crate) enum ContentMode {
     /// Title and try to get the article content on the page because some sites
     /// are forcing you to click on the feed to visit their website
     Force,
-    /// Title and only keep the links on the page, may be usefull for
+    /// Title and only keep the links on the page, may be useful for
     /// downloadable stuffs
     LinksOnly,
 }
@@ -173,8 +173,6 @@ pub(crate) struct Article {
     pub(crate) timestamp: i64,
     /// Date when the article was first seen by frust
     pub(crate) added_at: i64,
-    /// Useful for 'Force' mode: has the full content been fetched?
-    pub(crate) is_full_content: bool,
     /// List of media/enclosures (images, podcasts)
     pub(crate) enclosures: Vec<Enclosure>,
 }

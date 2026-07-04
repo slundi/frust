@@ -260,7 +260,6 @@ mod tests {
             summary: None,
             timestamp: ts,
             added_at: ts,
-            is_full_content: false,
             enclosures: vec![],
         }
     }
@@ -332,7 +331,6 @@ mod tests {
         // internal fields must not be present
         assert!(item["timestamp"].is_null());
         assert!(item["added_at"].is_null());
-        assert!(item["is_full_content"].is_null());
     }
 
     #[test]
