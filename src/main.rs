@@ -1,5 +1,4 @@
 extern crate slug;
-extern crate yaml_rust;
 
 use std::collections::HashMap;
 use std::path::Path;

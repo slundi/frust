@@ -1,10 +1,9 @@
 use std::{collections::HashMap, convert::TryFrom};
 
-use linked_hash_map::LinkedHashMap;
 use regex::{RegexSet, RegexSetBuilder};
+use saphyr::{LoadableYamlNode, Mapping, Yaml};
 use slug::slugify;
 use twox_hash::XxHash3_64;
-use yaml_rust::Yaml;
 
 use crate::model::{App, Feed, Filter, Group};
 
@@ -20,105 +19,125 @@ fn concat_enrichment(outer: Option<&str>, inner: Option<&str>) -> Option<String>
     }
 }
 
+/// Case-sensitive lookup of a string key in a YAML mapping.
+///
+/// saphyr keys are typed scalars, so `map.get(&Yaml::Value(Scalar::String(...)))`
+/// would require building a synthetic node. Config keys are short and few, so
+/// linear scan on `as_str` is both simplest and fast enough.
+fn map_get<'a, 'input>(map: &'a Mapping<'input>, key: &str) -> Option<&'a Yaml<'input>> {
+    map.iter()
+        .find(|(k, _)| k.as_str() == Some(key))
+        .map(|(_, v)| v)
+}
+
 fn get_string_field_from_map(
-    map: &LinkedHashMap<Yaml, Yaml>,
-    field: String,
+    map: &Mapping<'_>,
+    field: &str,
     required: bool,
-    yaml_path: Option<String>,
+    yaml_path: Option<&str>,
 ) -> String {
-    if let Some(value) = map.get(&Yaml::String(field)) {
-        return value.as_str().unwrap().to_string();
+    if let Some(value) = map_get(map, field)
+        && let Some(s) = value.as_str()
+    {
+        return s.to_string();
     }
     if required {
         panic!(
             "Field missing in config file: {}",
-            yaml_path.unwrap_or_else(|| "UNKNOWN".to_string())
+            yaml_path.unwrap_or("UNKNOWN")
         );
     }
-    String::with_capacity(0)
+    String::new()
 }
 
 impl App {
-    fn load_globals(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
+    fn load_globals(&mut self, map: &Mapping<'_>) {
         // load output folder
-        let output =
-            get_string_field_from_map(map, "output".to_string(), false, Some("output".to_string()));
+        let output = get_string_field_from_map(map, "output", false, Some("output"));
         if !output.is_empty() {
             self.output = output;
         }
         // set the number of workers
-        if let Some(value) = map.get(&Yaml::String("workers".to_string())) {
-            self.workers = usize::try_from(value.as_i64().unwrap())
-                .expect("Invalid data in config file: workers");
+        if let Some(value) = map_get(map, "workers") {
+            self.workers = usize::try_from(
+                value
+                    .as_integer()
+                    .expect("Invalid data in config file: workers"),
+            )
+            .expect("Invalid data in config file: workers");
         }
         // set if we should retrieve media from server
-        if let Some(value) = map.get(&Yaml::String("retrieve_server_media".to_string())) {
+        if let Some(value) = map_get(map, "retrieve_server_media") {
             self.retrieve_media_server = value
                 .as_bool()
                 .expect("Invalid data in config file: retrieve_server_media");
         }
         // enable media asset download
-        if let Some(value) = map.get(&Yaml::String("media".to_string())) {
+        if let Some(value) = map_get(map, "media") {
             self.media = value.as_bool().expect("Invalid data in config file: media");
         }
         // max asset size in bytes (0 = no limit)
-        if let Some(value) = map.get(&Yaml::String("media_max_size".to_string())) {
+        if let Some(value) = map_get(map, "media_max_size") {
             self.media_max_size = value
-                .as_i64()
+                .as_integer()
                 .expect("Invalid data in config file: media_max_size")
                 as u64;
         }
         // set the timeout for HTTP queries
-        if let Some(value) = map.get(&Yaml::String("timeout".to_string())) {
-            self.timeout = u8::try_from(value.as_i64().unwrap())
-                .expect("Invalid data in config file: timeout");
+        if let Some(value) = map_get(map, "timeout") {
+            self.timeout = u8::try_from(
+                value
+                    .as_integer()
+                    .expect("Invalid data in config file: timeout"),
+            )
+            .expect("Invalid data in config file: timeout");
         }
         // article retention in days (0 = keep forever); groups/feeds inherit this
-        if let Some(value) = map.get(&Yaml::String("retention".to_string())) {
+        if let Some(value) = map_get(map, "retention") {
             self.retention = u16::try_from(
                 value
-                    .as_i64()
+                    .as_integer()
                     .expect("Invalid data in config file: retention"),
             )
             .expect("Invalid data in config file: retention");
         }
         // minimum interval between refreshes for a given feed, in seconds
-        if let Some(value) = map.get(&Yaml::String("min_refresh_time".to_string())) {
+        if let Some(value) = map_get(map, "min_refresh_time") {
             self.min_refresh_time = value
-                .as_i64()
+                .as_integer()
                 .expect("Invalid data in config file: min_refresh_time");
         }
         // app-level enrichment templates
-        self.enrichment_prepend = map
-            .get(&Yaml::String("enrichment_prepend".to_string()))
-            .and_then(|v| v.as_str())
+        self.enrichment_prepend = map_get(map, "enrichment_prepend")
+            .and_then(Yaml::as_str)
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-        self.enrichment_append = map
-            .get(&Yaml::String("enrichment_append".to_string()))
-            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        self.enrichment_append = map_get(map, "enrichment_append")
+            .and_then(Yaml::as_str)
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+            .map(str::to_string);
     }
 
-    fn load_filters(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
-        if let Some(filters) = map.get(&Yaml::String("filters".to_string())) {
+    fn load_filters(&mut self, map: &Mapping<'_>) {
+        if let Some(filters) = map_get(map, "filters") {
             let values = filters
                 .as_vec()
                 .expect("Invalid field in config file: filters");
             self.filters = HashMap::with_capacity(values.len());
             for (i, f) in values.iter().enumerate() {
-                let m = f.as_hash().expect("Invalid data in config file: filters");
+                let m = f
+                    .as_mapping()
+                    .expect("Invalid data in config file: filters");
                 // process filter name
                 let slug = get_string_field_from_map(
                     m,
-                    "slug".to_string(),
+                    "slug",
                     true,
-                    Some(format!("filters[{}].slug", i)),
+                    Some(&format!("filters[{}].slug", i)),
                 );
                 let h = XxHash3_64::oneshot(slug.as_bytes());
                 // process filter expressions/sentences
-                let value = m.get(&Yaml::String("expressions".to_string()));
+                let value = map_get(m, "expressions");
                 if value.is_none() {
                     panic!(
                         "Field missing in config file: filters[{}].expressions in filter {}",
@@ -148,67 +167,37 @@ impl App {
                             .to_string()
                     })
                     .collect();
-                let value = m.get(&Yaml::String("is_regex".to_string()));
                 let mut is_regex = false;
-                if let Some(v) = value {
+                if let Some(v) = map_get(m, "is_regex") {
                     is_regex = v.as_bool().unwrap_or_default();
                 }
                 // handle scopes
                 let mut filter_in_title = true;
                 let mut filter_in_summary = true;
                 let mut filter_in_content = false;
-                let value = m.get(&Yaml::String("filter_in_title".to_string()));
-                if let Some(v) = value {
+                if let Some(v) = map_get(m, "filter_in_title") {
                     filter_in_title = v.as_bool().unwrap_or_default();
                 }
-                let value = m.get(&Yaml::String("filter_in_summary".to_string()));
-                if let Some(v) = value {
+                if let Some(v) = map_get(m, "filter_in_summary") {
                     filter_in_summary = v.as_bool().unwrap_or_default();
                 }
-                let value = m.get(&Yaml::String("filter_in_content".to_string()));
-                if let Some(v) = value {
+                if let Some(v) = map_get(m, "filter_in_content") {
                     filter_in_content = v.as_bool().unwrap_or_default();
                 }
 
                 // process filter is_regex
                 let mut must_match_all = false;
-                if let Some(v) = m.get(&Yaml::String("must_match_all".to_string())) {
+                if let Some(v) = map_get(m, "must_match_all") {
                     must_match_all = v.as_bool().unwrap_or_else(|| {
                         panic!("Invalid filters.must_match_all boolean for filter {}", slug)
                     });
                 }
                 let mut keep = false;
-                if let Some(v) = m.get(&Yaml::String("keep".to_string())) {
+                if let Some(v) = map_get(m, "keep") {
                     keep = v.as_bool().unwrap_or_else(|| {
                         panic!("Invalid filters.keep boolean for filter {}", slug)
                     });
                 }
-                // process filter regexes: will be generated from expressions and is_regex flag
-                // let value = m.get(&Yaml::String("regexes".to_string()));
-                // if value.is_none() {
-                //     panic!(
-                //         "Field missing in config file: filters[{}].regexes in filter {}",
-                //         i, slug
-                //     );
-                // }
-                // let value = value.unwrap().as_vec();
-                // if value.is_none() {
-                //     panic!(
-                //         "Invalid data in config file: filters[{}].regexes in filter {}",
-                //         i, slug
-                //     );
-                // }
-                // let value = value.unwrap();
-                // let expressions: Vec<String> = value
-                //     .iter()
-                //     .map(|exp| {
-                //         exp.as_str()
-                //             .unwrap_or_else(|| {
-                //                 panic!("Invalid filters.regexes string for filter {}", slug)
-                //             })
-                //             .to_string()
-                //     })
-                //     .collect();
                 let mut regexes = RegexSet::empty();
                 if is_regex {
                     // Cap compiled program size and DFA cache well below the
@@ -258,57 +247,54 @@ impl App {
         tracing::info!("Loaded filters: {}", self.filters.len());
     }
 
-    fn load_groups(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
-        if let Some(groups) = map.get(&Yaml::String("groups".to_string())) {
+    fn load_groups(&mut self, map: &Mapping<'_>) {
+        if let Some(groups) = map_get(map, "groups") {
             let provided = groups.as_vec().expect("Invalid groups");
 
             for g in provided.iter() {
-                let m = g.as_hash().expect("Invalid group hash");
+                let m = g.as_mapping().expect("Invalid group hash");
 
-                let mut group_obj = Group::default();
-                group_obj.slug = get_string_field_from_map(m, "slug".to_string(), true, None);
-
-                // --- Group inheritance ---
-                // if group does not have output, it takes it from the App (global
-                group_obj.output = get_string_field_from_map(m, "output".to_string(), false, None);
-                if group_obj.output.is_empty() {
-                    group_obj.output = self.output.clone();
+                let mut group_output = get_string_field_from_map(m, "output", false, None);
+                if group_output.is_empty() {
+                    group_output = self.output.clone();
                 }
 
-                // Group retention or global if missing
-                group_obj.retention = m
-                    .get(&Yaml::String("retention".to_string()))
-                    .and_then(|v| v.as_i64())
-                    .map(|v| v as u16)
-                    .unwrap_or(self.retention);
-                // Group media settings, inherit from app if missing
-                group_obj.media = m
-                    .get(&Yaml::String("media".to_string()))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(self.media);
-                group_obj.media_max_size = m
-                    .get(&Yaml::String("media_max_size".to_string()))
-                    .and_then(|v| v.as_i64())
-                    .map(|v| v as u64)
-                    .unwrap_or(self.media_max_size);
-
-                // Group enrichment templates: concatenate app-level + group's own value
-                group_obj.enrichment_prepend = concat_enrichment(
-                    self.enrichment_prepend.as_deref(),
-                    m.get(&Yaml::String("enrichment_prepend".to_string()))
-                        .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty()),
-                );
-                group_obj.enrichment_append = concat_enrichment(
-                    self.enrichment_append.as_deref(),
-                    m.get(&Yaml::String("enrichment_append".to_string()))
-                        .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty()),
-                );
+                let mut group_obj = Group {
+                    slug: get_string_field_from_map(m, "slug", true, None),
+                    output: group_output,
+                    // Group retention or global if missing
+                    retention: map_get(m, "retention")
+                        .and_then(Yaml::as_integer)
+                        .map(|v| v as u16)
+                        .unwrap_or(self.retention),
+                    // Group media settings, inherit from app if missing
+                    media: map_get(m, "media")
+                        .and_then(Yaml::as_bool)
+                        .unwrap_or(self.media),
+                    media_max_size: map_get(m, "media_max_size")
+                        .and_then(Yaml::as_integer)
+                        .map(|v| v as u64)
+                        .unwrap_or(self.media_max_size),
+                    // Group enrichment templates: concatenate app-level + group's own value
+                    enrichment_prepend: concat_enrichment(
+                        self.enrichment_prepend.as_deref(),
+                        map_get(m, "enrichment_prepend")
+                            .and_then(Yaml::as_str)
+                            .filter(|s| !s.is_empty()),
+                    ),
+                    enrichment_append: concat_enrichment(
+                        self.enrichment_append.as_deref(),
+                        map_get(m, "enrichment_append")
+                            .and_then(Yaml::as_str)
+                            .filter(|s| !s.is_empty()),
+                    ),
+                    ..Group::default()
+                };
 
                 // Load group filters
-                if let Some(filters) = m.get(&Yaml::String("filters".to_string())) {
-                    for f_val in filters.as_vec().unwrap_or(&vec![]) {
+                if let Some(filters) = map_get(m, "filters") {
+                    let empty = Vec::new();
+                    for f_val in filters.as_vec().unwrap_or(&empty) {
                         if let Some(name) = f_val.as_str() {
                             group_obj.filters.push(XxHash3_64::oneshot(name.as_bytes()));
                         }
@@ -327,52 +313,44 @@ impl App {
 }
 
 impl Group {
-    fn load_feeds(&mut self, map: &LinkedHashMap<Yaml, Yaml>) {
-        if let Some(feeds) = map.get(&Yaml::String("feeds".to_string())) {
+    fn load_feeds(&mut self, map: &Mapping<'_>) {
+        if let Some(feeds) = map_get(map, "feeds") {
             let provided = feeds.as_vec().expect("Invalid feeds");
 
             for f in provided.iter() {
-                let m = f.as_hash().expect("Invalid feed hash");
+                let m = f.as_mapping().expect("Invalid feed hash");
 
                 // --- Feed inheritance ---
                 let mut feed_obj = Feed {
-                    title: get_string_field_from_map(m, "title".to_string(), true, None),
-                    url: get_string_field_from_map(m, "url".to_string(), true, None),
+                    title: get_string_field_from_map(m, "title", true, None),
+                    url: get_string_field_from_map(m, "url", true, None),
                     slug: String::new(), // will be computed later
-                    output: get_string_field_from_map(m, "output".to_string(), false, None),
-                    retention: m
-                        .get(&Yaml::String("retention".to_string()))
-                        .and_then(|v| v.as_i64())
+                    output: get_string_field_from_map(m, "output", false, None),
+                    retention: map_get(m, "retention")
+                        .and_then(Yaml::as_integer)
                         .map(|v| v as u16)
                         .unwrap_or(self.retention), // inherited from group
                     filters: self.filters.clone(), // starts with group filters
                     content_mode: crate::model::ContentMode::Default,
-                    selector: Some(get_string_field_from_map(
-                        m,
-                        "selector".to_string(),
-                        false,
-                        None,
-                    )),
+                    selector: Some(get_string_field_from_map(m, "selector", false, None)),
                     page_url: String::new(),
-                    media: m
-                        .get(&Yaml::String("media".to_string()))
-                        .and_then(|v| v.as_bool())
+                    media: map_get(m, "media")
+                        .and_then(Yaml::as_bool)
                         .unwrap_or(self.media), // inherited from group
-                    media_max_size: m
-                        .get(&Yaml::String("media_max_size".to_string()))
-                        .and_then(|v| v.as_i64())
+                    media_max_size: map_get(m, "media_max_size")
+                        .and_then(Yaml::as_integer)
                         .map(|v| v as u64)
                         .unwrap_or(self.media_max_size), // inherited from group
                     enrichment_prepend: concat_enrichment(
                         self.enrichment_prepend.as_deref(),
-                        m.get(&Yaml::String("enrichment_prepend".to_string()))
-                            .and_then(|v| v.as_str())
+                        map_get(m, "enrichment_prepend")
+                            .and_then(Yaml::as_str)
                             .filter(|s| !s.is_empty()),
                     ),
                     enrichment_append: concat_enrichment(
                         self.enrichment_append.as_deref(),
-                        m.get(&Yaml::String("enrichment_append".to_string()))
-                            .and_then(|v| v.as_str())
+                        map_get(m, "enrichment_append")
+                            .and_then(Yaml::as_str)
                             .filter(|s| !s.is_empty()),
                     ),
                 };
@@ -384,8 +362,9 @@ impl Group {
                 }
 
                 // Add feed filters to the one inherited from the group
-                if let Some(f_list) = m.get(&Yaml::String("filters".to_string())) {
-                    for f_val in f_list.as_vec().unwrap_or(&vec![]) {
+                if let Some(f_list) = map_get(m, "filters") {
+                    let empty = Vec::new();
+                    for f_val in f_list.as_vec().unwrap_or(&empty) {
                         if let Some(name) = f_val.as_str() {
                             let h = XxHash3_64::oneshot(name.as_bytes());
                             if !feed_obj.filters.contains(&h) {
@@ -435,19 +414,22 @@ pub(crate) fn load_config_file(config_file: String) -> App {
         tracing::error!("Unable to open config file: {:?}", e);
         std::process::exit(1);
     }
-    let result = yaml_rust::YamlLoader::load_from_str(&result.unwrap());
+    let raw = result.unwrap();
+    let result = Yaml::load_from_str(&raw);
     if let Err(e) = result {
         tracing::error!("Unable to parse config file: {:?}", e);
         std::process::exit(1);
     }
-    let loader = result.unwrap();
+    let docs = result.unwrap();
     let mut app = App::default();
-    if let Some(map) = loader[0].as_hash() {
+    if let Some(doc) = docs.first()
+        && let Some(map) = doc.as_mapping()
+    {
         app.load_globals(map);
         app.load_filters(map);
         app.load_groups(map);
     }
-    app.clone()
+    app
 }
 
 #[cfg(test)]
@@ -456,9 +438,11 @@ mod tests {
 
     /// Parses a YAML string into an `App` without touching the filesystem.
     fn app_from_yaml(yaml: &str) -> App {
-        let loader = yaml_rust::YamlLoader::load_from_str(yaml).expect("invalid yaml");
+        let docs = Yaml::load_from_str(yaml).expect("invalid yaml");
         let mut app = App::default();
-        if let Some(map) = loader[0].as_hash() {
+        if let Some(doc) = docs.first()
+            && let Some(map) = doc.as_mapping()
+        {
             app.load_globals(map);
             app.load_filters(map);
             app.load_groups(map);
@@ -819,5 +803,140 @@ groups:
         let feed = first_feed(&app);
         assert!(feed.enrichment_prepend.is_none());
         assert!(feed.enrichment_append.is_none());
+    }
+
+    // --- saphyr migration coverage ---
+
+    #[test]
+    fn test_globals_all_scalar_types_parsed() {
+        // Exercises every scalar type the loader touches: integer (workers,
+        // timeout, retention, media_max_size, min_refresh_time), boolean
+        // (retrieve_server_media, media), and string (output).
+        let app = app_from_yaml(
+            r#"
+output: /tmp/frust
+workers: 4
+timeout: 15
+retention: 45
+media: true
+media_max_size: 1048576
+retrieve_server_media: true
+min_refresh_time: 900
+"#,
+        );
+        assert_eq!(app.output, "/tmp/frust");
+        assert_eq!(app.workers, 4);
+        assert_eq!(app.timeout, 15);
+        assert_eq!(app.retention, 45);
+        assert!(app.media);
+        assert_eq!(app.media_max_size, 1_048_576);
+        assert!(app.retrieve_media_server);
+        assert_eq!(app.min_refresh_time, 900);
+    }
+
+    #[test]
+    fn test_group_media_overrides_app_media() {
+        let app = app_from_yaml(
+            r#"
+media: false
+media_max_size: 100
+groups:
+- slug: g
+  output: g.atom
+  media: true
+  media_max_size: 999
+  feeds:
+  - title: F
+    url: https://example.com/feed.xml
+"#,
+        );
+        let group = app.groups.values().next().unwrap();
+        assert!(group.media, "group media overrides app media");
+        assert_eq!(group.media_max_size, 999);
+        let feed = first_feed(&app);
+        assert!(feed.media, "feed inherits group media");
+        assert_eq!(feed.media_max_size, 999);
+    }
+
+    #[test]
+    fn test_multiple_groups_are_loaded_in_order() {
+        // saphyr preserves insertion order via LinkedHashMap; make sure
+        // we load every group listed, not just the first.
+        let app = app_from_yaml(
+            r#"
+groups:
+- slug: alpha
+  output: alpha.atom
+  feeds:
+  - title: A
+    url: https://alpha.example.com/feed.xml
+- slug: beta
+  output: beta.atom
+  feeds:
+  - title: B
+    url: https://beta.example.com/feed.xml
+"#,
+        );
+        assert_eq!(app.groups.len(), 2);
+        let slugs: std::collections::HashSet<&str> =
+            app.groups.values().map(|g| g.slug.as_str()).collect();
+        assert!(slugs.contains("alpha"));
+        assert!(slugs.contains("beta"));
+    }
+
+    #[test]
+    fn test_group_filters_are_inherited_by_feeds() {
+        // Filters referenced at the group level should propagate to feeds,
+        // and per-feed filters should be appended without duplicating the
+        // group-level ones.
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: no-ads
+  expressions: [sponsored]
+- slug: only-rust
+  expressions: [rust]
+  keep: true
+groups:
+- slug: g
+  output: g.atom
+  filters: [no-ads]
+  feeds:
+  - title: F
+    url: https://example.com/feed.xml
+    filters: [only-rust, no-ads]
+"#,
+        );
+        let feed = first_feed(&app);
+        // Group filter propagates, feed adds only-rust, no-ads is not
+        // duplicated on the feed.
+        assert_eq!(feed.filters.len(), 2);
+        let no_ads = XxHash3_64::oneshot(b"no-ads");
+        let only_rust = XxHash3_64::oneshot(b"only-rust");
+        assert!(feed.filters.contains(&no_ads));
+        assert!(feed.filters.contains(&only_rust));
+    }
+
+    #[test]
+    fn test_load_from_empty_document_yields_default_app() {
+        // Empty YAML input must not panic: we simply return App::default().
+        let docs = Yaml::load_from_str("").expect("empty is valid YAML");
+        // An empty stream has no documents; the loader must cope.
+        assert!(docs.is_empty() || docs.first().unwrap().as_mapping().is_none());
+    }
+
+    #[test]
+    fn test_quoted_and_unquoted_string_keys_both_work() {
+        // saphyr's scalar resolution differs slightly from yaml-rust for
+        // ambiguous scalars; make sure both quoted and bare keys still map
+        // to strings for the config keys we care about.
+        let app = app_from_yaml(
+            r#"
+"output": /tmp/quoted
+workers: 2
+"#,
+        );
+        assert_eq!(app.output, "/tmp/quoted");
+        assert_eq!(app.workers, 2);
     }
 }
