@@ -118,16 +118,19 @@ impl App {
                     );
                 }
                 let value = value.unwrap();
+                // Store expressions verbatim. Regex expressions rely on the
+                // RegexSetBuilder's case_insensitive(true) flag (see below);
+                // pre-lowercasing them here would corrupt character classes
+                // like [A-Z] and word-boundary patterns. Plain-text matching
+                // handles case-insensitivity in check_text_match.
                 let expressions: Vec<String> = value
                     .iter()
                     .map(|exp| {
-                        let sentence = exp
-                            .as_str()
+                        exp.as_str()
                             .unwrap_or_else(|| {
                                 panic!("Invalid filters.expressions string for filter {}", slug)
                             })
-                            .to_string();
-                        sentence.to_lowercase()
+                            .to_string()
                     })
                     .collect();
                 let value = m.get(&Yaml::String("is_regex".to_string()));
@@ -535,6 +538,42 @@ groups:
             feed.enrichment_append.as_deref(),
             Some("[app-app][grp-app][feed-app]")
         );
+    }
+
+    #[test]
+    fn test_filter_regex_preserves_case_in_character_class() {
+        // Uppercase character classes must survive loading; the RegexSet
+        // builder handles case-insensitivity via its own flag.
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: caps
+  expressions: ["[A-Z]{3,}"]
+  is_regex: true
+"#,
+        );
+        let filter = app.filters.values().next().expect("filter present");
+        assert_eq!(filter.expressions[0], "[A-Z]{3,}");
+        assert!(
+            filter.regexes.is_match("HELLO"),
+            "regex must match uppercase"
+        );
+    }
+
+    #[test]
+    fn test_filter_regex_word_boundary_preserved() {
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: rust
+  expressions: ["\\bRust\\b"]
+  is_regex: true
+"#,
+        );
+        let filter = app.filters.values().next().expect("filter present");
+        assert_eq!(filter.expressions[0], "\\bRust\\b");
+        assert!(filter.regexes.is_match("I love Rust"));
+        assert!(!filter.regexes.is_match("crustacean"));
     }
 
     #[test]
