@@ -159,7 +159,6 @@ mod tests {
 
         let out = format!("{}/archive.zip", dir);
         let opts = ExportOpts {
-            help: false,
             args: vec![out.clone()],
         };
         archive(&opts, &cfg).unwrap();
@@ -184,7 +183,6 @@ mod tests {
 
         let out = format!("{}/archive.zip", dir);
         let opts = ExportOpts {
-            help: false,
             args: vec![out.clone()],
         };
         archive(&opts, &cfg).unwrap();
@@ -203,10 +201,7 @@ mod tests {
 
     #[test]
     fn test_archive_missing_output_arg_errors() {
-        let opts = ExportOpts {
-            help: false,
-            args: vec![],
-        };
+        let opts = ExportOpts { args: vec![] };
         let err = archive(&opts, "does-not-matter.yaml").unwrap_err();
         matches!(err, FrustError::Config(_));
     }

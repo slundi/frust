@@ -6,7 +6,6 @@ use std::process::ExitCode;
 use std::sync::OnceLock;
 
 use chrono::{DateTime, Utc};
-use gumdrop::Options;
 use tracing::info;
 
 use crate::cli::{CliOptions, Command};
@@ -114,7 +113,7 @@ async fn main() -> ExitCode {
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let opts = CliOptions::parse_args_default_or_exit();
+    let opts: CliOptions = argh::from_env();
 
     if opts.version {
         println!("frust-feed {}", env!("CARGO_PKG_VERSION"));
