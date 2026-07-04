@@ -375,9 +375,21 @@ impl Group {
                     }
                 }
 
-                // Compute slug and insertion
-                let parsed_url = url::Url::parse(&feed_obj.url).expect("Invalid URL");
-                feed_obj.slug = slugify(parsed_url.host_str().unwrap_or("no-host"));
+                // Compute slug and insertion. Prefer the hostname when the URL
+                // parses cleanly; on malformed input, warn and slugify the raw
+                // URL so a single bad entry can't panic the whole loader.
+                feed_obj.slug = match url::Url::parse(&feed_obj.url) {
+                    Ok(u) => slugify(u.host_str().unwrap_or("no-host")),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Invalid feed URL '{}' in group '{}': {}. Deriving slug from the raw string.",
+                            feed_obj.url,
+                            self.slug,
+                            e
+                        );
+                        slugify(&feed_obj.url)
+                    }
+                };
 
                 // Hash the URL, not the slug: two feeds on the same host
                 // (e.g. different YouTube channels) share a hostname slug and
@@ -553,6 +565,42 @@ groups:
             feed.enrichment_append.as_deref(),
             Some("[app-app][grp-app][feed-app]")
         );
+    }
+
+    #[test]
+    fn test_invalid_feed_url_does_not_panic() {
+        // Bad URL used to hit .expect("Invalid URL") and crash the whole load.
+        let app = app_from_yaml(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: Bad
+    url: "not a url"
+"#,
+        );
+        let feed = first_feed(&app);
+        assert_eq!(
+            feed.url, "not a url",
+            "URL is preserved verbatim even when unparsable"
+        );
+        assert!(!feed.slug.is_empty(), "a fallback slug must be produced");
+    }
+
+    #[test]
+    fn test_valid_feed_url_still_uses_hostname_slug() {
+        let app = app_from_yaml(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: Ok
+    url: https://blog.rust-lang.org/feed.xml
+"#,
+        );
+        assert_eq!(first_feed(&app).slug, "blog-rust-lang-org");
     }
 
     #[test]
