@@ -156,7 +156,13 @@ impl App {
                 let mut must_match_all = false;
                 if let Some(v) = m.get(&Yaml::String("must_match_all".to_string())) {
                     must_match_all = v.as_bool().unwrap_or_else(|| {
-                        panic!("Invalid filters.is_regex boolean for filter {}", slug)
+                        panic!("Invalid filters.must_match_all boolean for filter {}", slug)
+                    });
+                }
+                let mut keep = false;
+                if let Some(v) = m.get(&Yaml::String("keep".to_string())) {
+                    keep = v.as_bool().unwrap_or_else(|| {
+                        panic!("Invalid filters.keep boolean for filter {}", slug)
                     });
                 }
                 // process filter regexes: will be generated from expressions and is_regex flag
@@ -206,7 +212,7 @@ impl App {
                         filter_in_title,
                         filter_in_summary,
                         filter_in_content,
-                        keep: false,
+                        keep,
                     },
                 );
             }
@@ -529,6 +535,33 @@ groups:
             feed.enrichment_append.as_deref(),
             Some("[app-app][grp-app][feed-app]")
         );
+    }
+
+    #[test]
+    fn test_filter_keep_true_loaded_from_yaml() {
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: only-rust
+  expressions: [rust]
+  keep: true
+"#,
+        );
+        let filter = app.filters.values().next().expect("filter present");
+        assert!(filter.keep, "keep: true must be honoured");
+    }
+
+    #[test]
+    fn test_filter_keep_defaults_to_false() {
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: no-ads
+  expressions: [sponsored]
+"#,
+        );
+        let filter = app.filters.values().next().expect("filter present");
+        assert!(!filter.keep, "keep must default to false when unspecified");
     }
 
     #[test]
