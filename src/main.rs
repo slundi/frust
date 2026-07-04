@@ -122,6 +122,7 @@ async fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let config_path = opts.config.as_deref().unwrap_or("config.yaml");
     match opts.command {
         Some(Command::Import(ref o)) => {
             if let Err(e) = command::import_opml(o) {
@@ -133,7 +134,7 @@ async fn main() -> ExitCode {
             let result = if o.config_file().is_some() {
                 command::export_opml(o)
             } else {
-                command::archive(o)
+                command::archive(o, config_path)
             };
             if let Err(e) = result {
                 tracing::error!("{}", e);
@@ -141,7 +142,6 @@ async fn main() -> ExitCode {
             }
         }
         None => {
-            let config_path = opts.config.as_deref().unwrap_or("config.yaml");
             return run_aggregator(config_path).await;
         }
     }

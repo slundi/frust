@@ -9,16 +9,20 @@ use crate::opml::{ParsedGroup, build_yaml, parse_opml, write_opml};
 
 /// `frust export OUTPUT`
 ///
-/// Loads `config.yaml` (or the path given via `-c`) to locate the redb database
-/// and feed structure, then writes a ZIP archive to OUTPUT containing:
+/// Loads the YAML config at `config_path` to locate the redb database and feed
+/// structure, then writes a ZIP archive to OUTPUT containing:
 /// - one Atom 1.0 file per group
 /// - all media assets from `{app.output}/media/`
-pub fn archive(opts: &ExportOpts) -> Result<(), FrustError> {
+pub fn archive(opts: &ExportOpts, config_path: &str) -> Result<(), FrustError> {
     let output = opts
         .output()
         .ok_or_else(|| FrustError::Config("usage: frust export OUTPUT".to_string()))?;
-    tracing::info!("Building zip archive → {}", output);
-    crate::export::zip::build_zip_archive(output, "config.yaml")
+    tracing::info!(
+        "Building zip archive → {} (config: {})",
+        output,
+        config_path
+    );
+    crate::export::zip::build_zip_archive(output, config_path)
 }
 
 /// `frust import OUTPUT OPML_FILE [OPML_FILE…]`
@@ -105,4 +109,105 @@ pub fn export_opml(opts: &ExportOpts) -> Result<(), FrustError> {
 
     tracing::info!("OPML written to {}", output);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Read, path::Path};
+
+    use zip::ZipArchive;
+
+    use super::*;
+
+    fn unique_dir(prefix: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("/tmp/frust_cmd_{}_{}", prefix, nanos)
+    }
+
+    fn write_config_at(path: &str, output_dir: &str, group_slug: &str) {
+        let yaml = format!(
+            "output: {out}\n\
+             groups:\n\
+             - title: {slug}\n  slug: {slug}\n  output: {slug}.atom\n  \
+             feeds:\n  - title: F\n    url: https://example.com/feed.xml\n",
+            out = output_dir,
+            slug = group_slug,
+        );
+        if let Some(parent) = Path::new(path).parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, yaml).unwrap();
+    }
+
+    fn zip_names(zip_path: &str) -> Vec<String> {
+        let mut archive = ZipArchive::new(fs::File::open(zip_path).unwrap()).unwrap();
+        (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_archive_uses_supplied_config_path() {
+        // A non-default config path (not "config.yaml") must be honoured.
+        let dir = unique_dir("cfgpath");
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = format!("{}/custom-name.yaml", dir);
+        write_config_at(&cfg, &dir, "customgroup");
+
+        let out = format!("{}/archive.zip", dir);
+        let opts = ExportOpts {
+            help: false,
+            args: vec![out.clone()],
+        };
+        archive(&opts, &cfg).unwrap();
+
+        let names = zip_names(&out);
+        assert!(
+            names.iter().any(|n| n == "customgroup.atom"),
+            "group from custom config must appear in zip, got {:?}",
+            names
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_archive_config_path_content_used() {
+        // Verify the config we supplied — not "config.yaml" — is actually read
+        // by checking the atom <id> reflects the group's configured output name.
+        let dir = unique_dir("cfgused");
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = format!("{}/alt.yaml", dir);
+        write_config_at(&cfg, &dir, "sentinelgroup");
+
+        let out = format!("{}/archive.zip", dir);
+        let opts = ExportOpts {
+            help: false,
+            args: vec![out.clone()],
+        };
+        archive(&opts, &cfg).unwrap();
+
+        let mut archive_file = ZipArchive::new(fs::File::open(&out).unwrap()).unwrap();
+        let mut entry = archive_file.by_name("sentinelgroup.atom").unwrap();
+        let mut xml = String::new();
+        entry.read_to_string(&mut xml).unwrap();
+        assert!(
+            xml.contains("<id>sentinelgroup.atom</id>"),
+            "atom <id> must reflect the sentinel group's output: {}",
+            xml
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_archive_missing_output_arg_errors() {
+        let opts = ExportOpts {
+            help: false,
+            args: vec![],
+        };
+        let err = archive(&opts, "does-not-matter.yaml").unwrap_err();
+        matches!(err, FrustError::Config(_));
+    }
 }
