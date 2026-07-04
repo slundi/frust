@@ -102,10 +102,19 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
     if Path::new(&media_dir).is_dir() {
         for entry in fs::read_dir(&media_dir)? {
             let entry = entry?;
-            let path = entry.path();
-            if !path.is_file() {
+            // DirEntry::file_type uses symlink_metadata semantics, so a symlink
+            // is detected as a symlink rather than as its target. Skip them —
+            // otherwise a symlink under media/ could pull arbitrary host files
+            // (e.g. /etc/passwd) into the archive.
+            let file_type = entry.file_type()?;
+            if file_type.is_symlink() {
+                tracing::warn!("Skipping symlink in media dir: {}", entry.path().display());
                 continue;
             }
+            if !file_type.is_file() {
+                continue;
+            }
+            let path = entry.path();
             let name = format!("media/{}", entry.file_name().to_string_lossy());
             info!("zip: adding {}", name);
             zip.start_file(&name, opts)
@@ -394,6 +403,49 @@ mod tests {
             "png missing: {:?}",
             names
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_build_zip_skips_symlinks_in_media_dir() {
+        // A symlink under media/ must not be followed into the archive.
+        // Otherwise a malicious media/ entry (e.g. link → /etc/passwd) would
+        // exfiltrate arbitrary host content via the zip.
+        let dir = unique_dir("symlink");
+        let cfg = write_config(&dir, &[("tech", "Tech", "https://linuxfr.org/news.atom")]);
+
+        let media_dir = format!("{}/media", dir);
+        fs::create_dir_all(&media_dir).unwrap();
+
+        // Real file — must appear in the zip
+        let real_name = "abcd1234abcd1234.jpg";
+        fs::write(format!("{}/{}", media_dir, real_name), b"legit").unwrap();
+
+        // Create a symlink pointing outside the media dir. The target doesn't
+        // need to exist for the test to be meaningful — we only care that the
+        // symlink itself is skipped.
+        let evil_name = "escape.dat";
+        let sensitive_target = format!("{}/host-secret", dir);
+        fs::write(&sensitive_target, b"host-secret-content").unwrap();
+        std::os::unix::fs::symlink(&sensitive_target, format!("{}/{}", media_dir, evil_name))
+            .unwrap();
+
+        let out = format!("{}/archive.zip", dir);
+        build_zip_archive(&out, &cfg).unwrap();
+
+        let names = zip_names(&out);
+        assert!(
+            names.contains(&format!("media/{}", real_name)),
+            "real file missing: {:?}",
+            names
+        );
+        assert!(
+            !names.iter().any(|n| n == &format!("media/{}", evil_name)),
+            "symlink was followed into the archive: {:?}",
+            names
+        );
+
         let _ = fs::remove_dir_all(&dir);
     }
 
