@@ -126,7 +126,6 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
 mod tests {
     use std::{collections::HashSet, io::Read};
 
-    use slug::slugify;
     use twox_hash::XxHash3_64;
     use zip::ZipArchive;
 
@@ -194,12 +193,9 @@ mod tests {
         path
     }
 
-    /// Compute the feed_id the same way config loading does:
-    /// slugify the URL hostname, then XXH3-hash it.
+    /// Compute the feed_id the same way config loading does: hash the URL.
     fn feed_id_for_url(url: &str) -> u64 {
-        let parsed = url::Url::parse(url).unwrap();
-        let slug = slugify(parsed.host_str().unwrap_or("no-host"));
-        XxHash3_64::oneshot(slug.as_bytes())
+        XxHash3_64::oneshot(url.as_bytes())
     }
 
     fn make_article(id: u64, feed_id: u64, title: &str, ts: i64) -> Article {

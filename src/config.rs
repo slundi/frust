@@ -355,7 +355,17 @@ impl Group {
                 let parsed_url = url::Url::parse(&feed_obj.url).expect("Invalid URL");
                 feed_obj.slug = slugify(parsed_url.host_str().unwrap_or("no-host"));
 
-                let feed_code = XxHash3_64::oneshot(feed_obj.slug.as_bytes());
+                // Hash the URL, not the slug: two feeds on the same host
+                // (e.g. different YouTube channels) share a hostname slug and
+                // would otherwise silently overwrite each other in the map.
+                let feed_code = XxHash3_64::oneshot(feed_obj.url.as_bytes());
+                if self.feeds.contains_key(&feed_code) {
+                    tracing::warn!(
+                        "Duplicate feed URL in group '{}': {}",
+                        self.slug,
+                        feed_obj.url
+                    );
+                }
                 self.feeds.insert(feed_code, feed_obj);
             }
             tracing::info!("Loaded feeds: {} (group: {})", self.feeds.len(), self.slug);
@@ -519,6 +529,32 @@ groups:
             feed.enrichment_append.as_deref(),
             Some("[app-app][grp-app][feed-app]")
         );
+    }
+
+    #[test]
+    fn test_feeds_same_host_do_not_collide() {
+        let app = app_from_yaml(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: Channel A
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=AAA
+  - title: Channel B
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=BBB
+"#,
+        );
+        let group = app.groups.values().next().unwrap();
+        assert_eq!(
+            group.feeds.len(),
+            2,
+            "two feeds on the same host must not collide"
+        );
+        let urls: std::collections::HashSet<&str> =
+            group.feeds.values().map(|f| f.url.as_str()).collect();
+        assert!(urls.contains("https://www.youtube.com/feeds/videos.xml?channel_id=AAA"));
+        assert!(urls.contains("https://www.youtube.com/feeds/videos.xml?channel_id=BBB"));
     }
 
     #[test]
