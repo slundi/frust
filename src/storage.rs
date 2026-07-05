@@ -35,10 +35,13 @@ where
 }
 
 impl Storage {
-    pub fn new(articles_path: &str, states_path: &str) -> Result<Self, FrustError> {
+    pub fn new(
+        articles_path: impl AsRef<std::path::Path>,
+        states_path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, FrustError> {
         tracing::info!("Creating database files");
-        let articles_db = Database::builder().create(articles_path)?;
-        let states_db = Database::builder().create(states_path)?;
+        let articles_db = Database::builder().create(articles_path.as_ref())?;
+        let states_db = Database::builder().create(states_path.as_ref())?;
         let storage = Self {
             articles_db,
             states_db,
@@ -270,9 +273,12 @@ impl Storage {
 
     /// Delete files in `media_dir` that are not referenced by any stored article.
     /// Returns the number of deleted files.
-    pub fn purge_orphaned_media(&self, media_dir: &str) -> Result<usize, FrustError> {
+    pub fn purge_orphaned_media(
+        &self,
+        media_dir: impl AsRef<std::path::Path>,
+    ) -> Result<usize, FrustError> {
         let referenced = self.collect_media_refs()?;
-        let media_path = std::path::Path::new(media_dir);
+        let media_path = media_dir.as_ref();
         if !media_path.exists() {
             return Ok(0);
         }

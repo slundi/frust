@@ -40,8 +40,9 @@ fn group_atom_name(group: &Group) -> String {
 pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<(), FrustError> {
     let app = crate::config::load_config_file(config_path.to_string());
 
-    let articles_path = format!("{}/articles.redb", app.output);
-    let states_path = format!("{}/states.redb", app.output);
+    let output_dir = Path::new(&app.output);
+    let articles_path = output_dir.join("articles.redb");
+    let states_path = output_dir.join("states.redb");
     let storage = Storage::new(&articles_path, &states_path)?;
 
     if let Some(parent) = Path::new(output_path).parent()
@@ -98,8 +99,8 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
     }
 
     // ── media assets ─────────────────────────────────────────────────────────
-    let media_dir = format!("{}/media", app.output);
-    if Path::new(&media_dir).is_dir() {
+    let media_dir = output_dir.join("media");
+    if media_dir.is_dir() {
         for entry in fs::read_dir(&media_dir)? {
             let entry = entry?;
             // DirEntry::file_type uses symlink_metadata semantics, so a symlink

@@ -30,31 +30,25 @@ fn map_get<'a, 'input>(map: &'a Mapping<'input>, key: &str) -> Option<&'a Yaml<'
         .map(|(_, v)| v)
 }
 
-fn get_string_field_from_map(
-    map: &Mapping<'_>,
-    field: &str,
-    required: bool,
-    yaml_path: Option<&str>,
-) -> String {
-    if let Some(value) = map_get(map, field)
-        && let Some(s) = value.as_str()
-    {
-        return s.to_string();
-    }
-    if required {
+fn optional_string_field(map: &Mapping<'_>, field: &str) -> Option<String> {
+    map_get(map, field)
+        .and_then(Yaml::as_str)
+        .map(str::to_string)
+}
+
+fn required_string_field(map: &Mapping<'_>, field: &str, yaml_path: Option<&str>) -> String {
+    optional_string_field(map, field).unwrap_or_else(|| {
         panic!(
             "Field missing in config file: {}",
             yaml_path.unwrap_or("UNKNOWN")
-        );
-    }
-    String::new()
+        )
+    })
 }
 
 impl App {
     fn load_globals(&mut self, map: &Mapping<'_>) {
         // load output folder
-        let output = get_string_field_from_map(map, "output", false, Some("output"));
-        if !output.is_empty() {
+        if let Some(output) = optional_string_field(map, "output") {
             self.output = output;
         }
         // set the number of workers
@@ -129,12 +123,7 @@ impl App {
                     .as_mapping()
                     .expect("Invalid data in config file: filters");
                 // process filter name
-                let slug = get_string_field_from_map(
-                    m,
-                    "slug",
-                    true,
-                    Some(&format!("filters[{}].slug", i)),
-                );
+                let slug = required_string_field(m, "slug", Some(&format!("filters[{}].slug", i)));
                 let h = XxHash3_64::oneshot(slug.as_bytes());
                 // process filter expressions/sentences
                 let value = map_get(m, "expressions");
@@ -174,7 +163,7 @@ impl App {
                 // handle scopes
                 let mut filter_in_title = true;
                 let mut filter_in_summary = true;
-                let mut filter_in_content = false;
+                let mut filter_in_content = true;
                 if let Some(v) = map_get(m, "filter_in_title") {
                     filter_in_title = v.as_bool().unwrap_or_default();
                 }
@@ -254,13 +243,11 @@ impl App {
             for g in provided.iter() {
                 let m = g.as_mapping().expect("Invalid group hash");
 
-                let mut group_output = get_string_field_from_map(m, "output", false, None);
-                if group_output.is_empty() {
-                    group_output = self.output.clone();
-                }
+                let group_output =
+                    optional_string_field(m, "output").unwrap_or_else(|| self.output.clone());
 
                 let mut group_obj = Group {
-                    slug: get_string_field_from_map(m, "slug", true, None),
+                    slug: required_string_field(m, "slug", None),
                     output: group_output,
                     // Group retention or global if missing
                     retention: map_get(m, "retention")
@@ -322,17 +309,17 @@ impl Group {
 
                 // --- Feed inheritance ---
                 let mut feed_obj = Feed {
-                    title: get_string_field_from_map(m, "title", true, None),
-                    url: get_string_field_from_map(m, "url", true, None),
+                    title: required_string_field(m, "title", None),
+                    url: required_string_field(m, "url", None),
                     slug: String::new(), // will be computed later
-                    output: get_string_field_from_map(m, "output", false, None),
+                    output: optional_string_field(m, "output").unwrap_or_default(),
                     retention: map_get(m, "retention")
                         .and_then(Yaml::as_integer)
                         .map(|v| v as u16)
                         .unwrap_or(self.retention), // inherited from group
                     filters: self.filters.clone(), // starts with group filters
                     content_mode: crate::model::ContentMode::Default,
-                    selector: Some(get_string_field_from_map(m, "selector", false, None)),
+                    selector: optional_string_field(m, "selector"),
                     page_url: String::new(),
                     media: map_get(m, "media")
                         .and_then(Yaml::as_bool)
@@ -923,6 +910,44 @@ groups:
         let docs = Yaml::load_from_str("").expect("empty is valid YAML");
         // An empty stream has no documents; the loader must cope.
         assert!(docs.is_empty() || docs.first().unwrap().as_mapping().is_none());
+    }
+
+    #[test]
+    fn test_filter_scopes_default_to_all_true() {
+        // When no scope keys are specified, the loader must match the
+        // Filter::default() from model.rs: all three scopes on.
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: any
+  expressions: [needle]
+"#,
+        );
+        let filter = app.filters.values().next().expect("filter present");
+        assert!(filter.filter_in_title);
+        assert!(filter.filter_in_summary);
+        assert!(
+            filter.filter_in_content,
+            "filter_in_content should default to true, matching Filter::default()"
+        );
+    }
+
+    #[test]
+    fn test_feed_selector_defaults_to_none_when_missing() {
+        // With the sentinel-empty-string sentinel gone, an omitted selector
+        // must arrive as None so downstream feature checks (e.g. skip
+        // content-body matching when a CSS selector is configured) work.
+        let app = app_from_yaml(&format!(
+            r#"
+groups:
+- slug: g
+  output: g.atom
+  feeds:
+  - title: F
+    url: {FEED_URL}
+"#
+        ));
+        assert!(first_feed(&app).selector.is_none());
     }
 
     #[test]

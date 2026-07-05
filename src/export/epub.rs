@@ -38,6 +38,9 @@ impl Exporter for EpubExporter {
             .metadata("lang", "en")
             .map_err(|e| FrustError::Export(e.to_string()))?;
 
+        // Oldest-first on purpose: EPUB is read start-to-end like a book, so the
+        // natural order is chronological. RSS/Atom exports sort newest-first for
+        // feed-reader conventions — that's a deliberate divergence.
         let mut sorted: Vec<&Article> = articles.iter().collect();
         sorted.sort_by_key(|a| a.timestamp);
 

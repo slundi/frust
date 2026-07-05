@@ -64,7 +64,7 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
 
     let mut exit_code = ExitCode::SUCCESS;
     let app = crate::config::load_config_file(config_path.to_string());
-    START_TIME.set(Utc::now()).unwrap();
+    START_TIME.get_or_init(Utc::now);
     std::fs::create_dir_all(app.output.clone()).unwrap_or_else(|e| {
         tracing::error!("Unable to create output directory: {}", e);
         exit_code = ExitCode::FAILURE;
@@ -76,8 +76,9 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
 
     {
         info!("Cleaning up old articles");
-        let articles_path = format!("{}/articles.redb", app.output);
-        let states_path = format!("{}/states.redb", app.output);
+        let output_dir = Path::new(&app.output);
+        let articles_path = output_dir.join("articles.redb");
+        let states_path = output_dir.join("states.redb");
         if let Ok(storage) = Storage::new(&articles_path, &states_path) {
             let feed_retentions: HashMap<u64, u16> = app
                 .groups
@@ -90,7 +91,7 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
                 Ok(n) => tracing::info!("Cleaned {} expired article(s)", n),
                 Err(e) => tracing::warn!("Article cleanup failed: {}", e),
             }
-            let media_dir = format!("{}/media", app.output);
+            let media_dir = output_dir.join("media");
             match storage.purge_orphaned_media(&media_dir) {
                 Ok(0) => info!("No media to delete"),
                 Ok(n) => tracing::info!("Purged {} orphaned media file(s)", n),

@@ -78,7 +78,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
     debug!("Creating HTTP client");
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(app.timeout as u64))
-        .user_agent("frust/0.1.0")
+        .user_agent(concat!("frust/", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let now = *START_TIME
@@ -86,8 +86,9 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
         .ok_or(FrustError::NotInitialized("START_TIME"))?;
     let now_ts = now.timestamp();
 
-    let articles_path = format!("{}/articles.redb", app.output);
-    let states_path = format!("{}/states.redb", app.output);
+    let output_dir = Path::new(&app.output);
+    let articles_path = output_dir.join("articles.redb");
+    let states_path = output_dir.join("states.redb");
     let storage = Storage::new(&articles_path, &states_path)?;
 
     let existing_ids: Arc<HashSet<u64>> = Arc::new(match storage.load_article_ids() {

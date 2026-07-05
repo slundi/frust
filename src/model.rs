@@ -33,14 +33,20 @@ pub(crate) struct App {
 
 impl Default for App {
     fn default() -> Self {
+        let output = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
         Self {
-            output: std::env::current_dir().unwrap().display().to_string(),
+            output,
             retrieve_media_server: DEFAULT_RETRIEVE_SERVER_MEDIA,
             timeout: DEFAULT_HTTP_TIMEOUT,
             min_refresh_time: 600,
-            workers: std::thread::available_parallelism().unwrap().get(),
-            filters: HashMap::with_capacity(0),
-            groups: HashMap::with_capacity(0),
+            workers,
+            filters: HashMap::new(),
+            groups: HashMap::new(),
             retention: 0,
             media: false,
             media_max_size: 0,
