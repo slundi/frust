@@ -35,12 +35,8 @@ fn extract_outline_attrs(
     let mut html_url = String::new();
 
     for attr in e.attributes().flatten() {
-        let key = std::str::from_utf8(attr.key.as_ref())
-            .unwrap_or("")
-            .to_lowercase();
-        let val = std::str::from_utf8(attr.value.as_ref())
-            .unwrap_or("")
-            .to_string();
+        let key = attr.key.as_ref().to_lowercase();
+        let val = attr.value.into_owned();
         match key.as_str() {
             "type" => outline_type = val,
             "text" => text = val,
@@ -99,9 +95,7 @@ fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
         {
             Event::Start(ref e) => {
                 let local = e.local_name();
-                let tag = std::str::from_utf8(local.as_ref())
-                    .unwrap_or("")
-                    .to_lowercase();
+                let tag = local.as_ref().to_lowercase();
                 match tag.as_str() {
                     "body" => in_body = true,
                     "outline" if in_body => {
@@ -138,9 +132,7 @@ fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
             }
             Event::Empty(ref e) => {
                 let local = e.local_name();
-                let tag = std::str::from_utf8(local.as_ref())
-                    .unwrap_or("")
-                    .to_lowercase();
+                let tag = local.as_ref().to_lowercase();
                 if tag == "outline" && in_body {
                     let (label, _, xml_url, html_url) = extract_outline_attrs(e);
                     if !xml_url.is_empty() {
@@ -158,9 +150,7 @@ fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
             }
             Event::End(ref e) => {
                 let local = e.local_name();
-                let tag = std::str::from_utf8(local.as_ref())
-                    .unwrap_or("")
-                    .to_lowercase();
+                let tag = local.as_ref().to_lowercase();
                 match tag.as_str() {
                     "body" => {
                         in_body = false;

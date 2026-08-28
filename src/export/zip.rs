@@ -317,8 +317,8 @@ mod tests {
 
         let fid = feed_id_for_url(feed_url);
         let storage = Storage::new(
-            &format!("{}/articles.redb", dir),
-            &format!("{}/states.redb", dir),
+            format!("{}/articles.redb", dir),
+            format!("{}/states.redb", dir),
         )
         .unwrap();
         storage
@@ -345,8 +345,8 @@ mod tests {
 
         let fid = feed_id_for_url(feed_url);
         let storage = Storage::new(
-            &format!("{}/articles.redb", dir),
-            &format!("{}/states.redb", dir),
+            format!("{}/articles.redb", dir),
+            format!("{}/states.redb", dir),
         )
         .unwrap();
         storage

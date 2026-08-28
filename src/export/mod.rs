@@ -30,6 +30,24 @@ pub(crate) fn render_template(template: &str, e: &Enrichment, article: &Article)
         .replace("{{article.id}}", &article.id.to_string())
 }
 
+pub(crate) trait Exporter {
+    /// `articles`:     items to export.
+    /// `title`:        channel/document title (group or feed name).
+    /// `link`:         canonical URL of the channel (base URL of the output site).
+    /// `destination`:  for Monolithic, path to the output file; for Individual/Daily, path to the output directory.
+    /// `enrichments`:  per-feed enrichment config keyed by `Article::feed_id`.
+    ///                 RSS, Atom and JSON exporters inject the rendered prepend/append;
+    ///                 other exporters may ignore it.
+    fn generate(
+        &self,
+        articles: &[Article],
+        title: &str,
+        link: &str,
+        destination: &Path,
+        enrichments: &HashMap<u64, Enrichment>,
+    ) -> Result<(), FrustError>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,22 +138,4 @@ mod tests {
         // XXH3 IDs are 64-bit unsigned — rendered as decimal, not hex.
         assert_eq!(render_template("{{article.id}}", &e, &a), "3735928559");
     }
-}
-
-pub(crate) trait Exporter {
-    /// `articles`:     items to export.
-    /// `title`:        channel/document title (group or feed name).
-    /// `link`:         canonical URL of the channel (base URL of the output site).
-    /// `destination`:  for Monolithic, path to the output file; for Individual/Daily, path to the output directory.
-    /// `enrichments`:  per-feed enrichment config keyed by `Article::feed_id`.
-    ///                 RSS, Atom and JSON exporters inject the rendered prepend/append;
-    ///                 other exporters may ignore it.
-    fn generate(
-        &self,
-        articles: &[Article],
-        title: &str,
-        link: &str,
-        destination: &Path,
-        enrichments: &HashMap<u64, Enrichment>,
-    ) -> Result<(), FrustError>;
 }

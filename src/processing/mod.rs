@@ -390,7 +390,7 @@ mod tests {
     fn test_append_within_cap_rejects_chunk_that_would_overflow() {
         let mut buf = vec![0u8; 90];
         // Chunk of 20 bytes would push us to 110 > cap of 100
-        assert!(!append_within_cap(&mut buf, &vec![0u8; 20], 100));
+        assert!(!append_within_cap(&mut buf, &[0u8; 20], 100));
         // Buffer is unchanged — no partial writes past the cap
         assert_eq!(buf.len(), 90);
     }
@@ -399,7 +399,7 @@ mod tests {
     fn test_append_within_cap_exact_boundary_is_accepted() {
         let mut buf = vec![0u8; 90];
         // Exactly reaching the cap must succeed (limit is inclusive)
-        assert!(append_within_cap(&mut buf, &vec![0u8; 10], 100));
+        assert!(append_within_cap(&mut buf, &[0u8; 10], 100));
         assert_eq!(buf.len(), 100);
     }
 

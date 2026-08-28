@@ -354,7 +354,7 @@ mod tests {
     }
 
     fn make_storage() -> Storage {
-        Storage::new(&unique_path("articles"), &unique_path("states")).unwrap()
+        Storage::new(unique_path("articles"), unique_path("states")).unwrap()
     }
 
     fn make_article(id: u64, feed_id: u64, timestamp: i64) -> Article {
