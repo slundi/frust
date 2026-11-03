@@ -42,7 +42,7 @@ serde_json = "1.0.151"
 epub-builder = "0.8.3"
 pulldown-cmark = "0.13.4"
 argh = "0.1.19"
-zip = "8.6"
+zip = "9.3.0"
 
 [dev-dependencies]
 tempfile = "3.27"
