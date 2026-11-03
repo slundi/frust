@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1.53.1", features = ["full"] }
-saphyr = { version = "0.0.9", default-features = false }
+saphyr = { version = "0.3.3", default-features = false }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 anyhow = "1.0"
@@ -29,7 +29,7 @@ futures = "0.3.34"
 reqwest = "0.13.4"
 feed-rs = { version = "2.4.0", features = ["sanitize"] }
 chrono = "0.4.45"
-scraper = "0.27"
+scraper = "0.29"
 htmd = "0.5.4"
 mediatype = "0.21"
 redb = "4.1"
