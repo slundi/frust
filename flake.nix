@@ -63,6 +63,7 @@
           cargo-machete
           cargo-audit
           cargo-deny
+          cargo-outdated # Reports dependencies with newer releases available
           cargo-llvm-cov # Coverage instrumentation via LLVM
           grcov # Coverage report formatter (lcov, html, cobertura)
           jaq # JSON processor (used by coverage-check)
