@@ -27,11 +27,11 @@ url = "2.5.8"
 regex = "1.13.1"
 futures = "0.3.34"
 reqwest = "0.13.4"
-feed-rs = { version = "2.4.0", features = ["sanitize"] }
+feed-rs = { version = "3.0.0", features = ["sanitize"] }
 chrono = "0.4.45"
 scraper = "0.29"
 htmd = "0.5.4"
-mediatype = "0.21"
+mediatype = "0.23.0"
 redb = "4.1"
 rkyv = { version = "0.8.17", features = ["bytecheck"] }
 quick-xml = { version = "0.42", features = ["serialize"] }
