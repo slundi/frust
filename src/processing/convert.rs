@@ -1,6 +1,7 @@
-use twox_hash::XxHash3_64;
-
-use crate::model::{Article, Enclosure};
+use crate::{
+    model::{Article, Enclosure},
+    utils::article_id,
+};
 
 /// Convert a `feed_rs` entry into our internal [`Article`].
 ///
@@ -11,7 +12,7 @@ pub(super) fn entry_to_article(
     feed_id: u64,
     now_ts: i64,
 ) -> Article {
-    let id = XxHash3_64::oneshot(entry.id.as_bytes());
+    let id = article_id(feed_id, &entry.id);
 
     let title = entry
         .title
@@ -93,10 +94,18 @@ mod tests {
     }
 
     #[test]
-    fn test_id_is_xxh3_of_entry_id() {
+    fn test_id_is_scoped_to_feed() {
         let entry = parse_rss("my-unique-id", "Title", "https://example.com/1");
         let article = entry_to_article(&entry, 42, 1000);
-        assert_eq!(article.id, XxHash3_64::oneshot(b"my-unique-id"));
+        assert_eq!(article.id, article_id(42, "my-unique-id"));
+    }
+
+    #[test]
+    fn test_same_guid_in_two_feeds_gives_distinct_ids() {
+        let entry = parse_rss("shared-guid", "Title", "https://example.com/1");
+        let in_a = entry_to_article(&entry, 1, 0);
+        let in_b = entry_to_article(&entry, 2, 0);
+        assert_ne!(in_a.id, in_b.id);
     }
 
     #[test]

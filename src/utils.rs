@@ -1,4 +1,23 @@
 use chrono::{DateTime, Utc};
+use twox_hash::XxHash3_64;
+
+/// Storage id of a feed entry, scoped to its feed so two feeds publishing the
+/// same GUID (YouTube playlists, planets, "all" + "category" feeds, `1`, `2`…)
+/// never share — and overwrite — the same article.
+pub(crate) fn article_id(feed_id: u64, entry_id: &str) -> u64 {
+    scope_guid_hash(feed_id, XxHash3_64::oneshot(entry_id.as_bytes()))
+}
+
+/// Combine a feed id with the XXH3 hash of an entry GUID.
+///
+/// Built from the GUID *hash* rather than the GUID itself so that legacy ids
+/// (plain `xxh3(guid)`, schema v1) can be migrated without the original GUID.
+pub(crate) fn scope_guid_hash(feed_id: u64, guid_hash: u64) -> u64 {
+    let mut buf = [0u8; 16];
+    buf[..8].copy_from_slice(&feed_id.to_le_bytes());
+    buf[8..].copy_from_slice(&guid_hash.to_le_bytes());
+    XxHash3_64::oneshot(&buf)
+}
 
 /// Check if the time elapsed since the last check is greater than the required interval
 pub(crate) fn is_refresh_required(
@@ -16,6 +35,29 @@ pub(crate) fn is_refresh_required(
 mod tests {
     use super::*;
     use chrono::{Duration, Utc};
+
+    #[test]
+    fn test_article_id_is_stable() {
+        assert_eq!(article_id(1, "guid"), article_id(1, "guid"));
+    }
+
+    #[test]
+    fn test_article_id_differs_across_feeds_for_same_guid() {
+        assert_ne!(article_id(1, "guid"), article_id(2, "guid"));
+    }
+
+    #[test]
+    fn test_article_id_differs_across_guids_in_same_feed() {
+        assert_ne!(article_id(1, "a"), article_id(1, "b"));
+    }
+
+    #[test]
+    fn test_article_id_matches_scoped_legacy_hash() {
+        // Migration relies on this: a v1 id (xxh3(guid)) scoped with its
+        // feed_id must equal the id computed from the GUID directly.
+        let legacy = XxHash3_64::oneshot(b"guid");
+        assert_eq!(scope_guid_hash(7, legacy), article_id(7, "guid"));
+    }
 
     #[test]
     fn test_is_refresh_required() {

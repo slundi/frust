@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use twox_hash::XxHash3_64;
 
 use crate::{
     START_TIME,
     model::{Feed, Filter},
+    utils::article_id,
 };
 
 use super::content::apply_content_mode;
@@ -50,10 +50,12 @@ pub(super) fn check_text_match(text: &str, filter: &Filter) -> bool {
 /// Apply content-mode transformation, retention policy and include/exclude filters
 /// to all entries in `fetched_feed`, mutating it in place.
 ///
-/// `existing_ids` is a set of XXH3-hashed entry IDs already in storage; matching
-/// entries are dropped before any expensive content enrichment takes place.
+/// `existing_ids` is the set of article ids already in storage (see
+/// [`article_id`], scoped by `feed_id`); matching entries are dropped before
+/// any expensive content enrichment takes place.
 pub(super) async fn apply_filters_and_retention(
     fetched_feed: &mut feed_rs::model::Feed,
+    feed_id: u64,
     feed_config: &Feed,
     global_filters: &HashMap<u64, Filter>,
     client: &reqwest::Client,
@@ -64,7 +66,7 @@ pub(super) async fn apply_filters_and_retention(
     //    unnecessary HTTP requests (especially costly for ContentMode::Force).
     fetched_feed
         .entries
-        .retain(|entry| !existing_ids.contains(&XxHash3_64::oneshot(entry.id.as_bytes())));
+        .retain(|entry| !existing_ids.contains(&article_id(feed_id, &entry.id)));
 
     // 1. Adjust content according to the configured mode
     for entry in &mut fetched_feed.entries {
@@ -279,6 +281,8 @@ mod tests {
         feed_rs::parser::parse(xml.as_bytes()).unwrap()
     }
 
+    const FEED_ID: u64 = 42;
+
     fn feed_config_with_filter(filter_id: u64) -> crate::model::Feed {
         crate::model::Feed {
             title: "test".into(),
@@ -308,6 +312,7 @@ mod tests {
 
         apply_filters_and_retention(
             &mut feed,
+            FEED_ID,
             &feed_cfg,
             &filters,
             &reqwest::Client::new(),
@@ -335,6 +340,7 @@ mod tests {
 
         apply_filters_and_retention(
             &mut feed,
+            FEED_ID,
             &feed_cfg,
             &filters,
             &reqwest::Client::new(),
@@ -366,6 +372,7 @@ mod tests {
 
         apply_filters_and_retention(
             &mut feed,
+            FEED_ID,
             &feed_cfg,
             &filters,
             &reqwest::Client::new(),
@@ -376,5 +383,40 @@ mod tests {
 
         // keep:true with no matches → everything is dropped.
         assert!(feed.entries.is_empty());
+    }
+
+    // ---- apply_filters_and_retention (dedup against stored ids) ----
+
+    async fn dedup(existing_ids: &HashSet<u64>) -> Vec<String> {
+        init_start_time();
+        let mut feed = feed_with_titles(&["shared", "fresh"]);
+        let mut feed_cfg = feed_config_with_filter(0);
+        feed_cfg.filters.clear();
+
+        apply_filters_and_retention(
+            &mut feed,
+            FEED_ID,
+            &feed_cfg,
+            &HashMap::new(),
+            &reqwest::Client::new(),
+            None,
+            existing_ids,
+        )
+        .await;
+
+        feed.entries.into_iter().map(|e| e.id).collect()
+    }
+
+    #[tokio::test]
+    async fn test_dedup_drops_entries_stored_for_same_feed() {
+        let existing = HashSet::from([article_id(FEED_ID, "shared")]);
+        assert_eq!(dedup(&existing).await, vec!["fresh"]);
+    }
+
+    #[tokio::test]
+    async fn test_dedup_keeps_entries_stored_for_another_feed() {
+        // Same GUID already stored by another feed: must not hide it here.
+        let existing = HashSet::from([article_id(FEED_ID + 1, "shared")]);
+        assert_eq!(dedup(&existing).await, vec!["shared", "fresh"]);
     }
 }

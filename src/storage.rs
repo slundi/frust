@@ -1,5 +1,6 @@
 use crate::error::FrustError;
 use crate::model::{Article, FeedState};
+use crate::utils::scope_guid_hash;
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -11,10 +12,23 @@ const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
 /// `load_articles_for_feed` skip the decompress+deserialize step for the
 /// article payload — only the meta bytes (24 bytes/entry) are read.
 const META_TABLE: TableDefinition<(u64, u64), i64> = TableDefinition::new("article_meta");
+/// On-disk schema version of the articles database (single row).
+const SCHEMA_TABLE: TableDefinition<&str, u32> = TableDefinition::new("schema");
+const SCHEMA_VERSION_KEY: &str = "version";
+/// * v1 (no schema table): article id = `xxh3(guid)`, global across feeds.
+/// * v2: article id scoped by feed, see [`crate::utils::article_id`].
+const SCHEMA_VERSION: u32 = 2;
 
 pub struct Storage {
     articles_db: Database,
     states_db: Database,
+}
+
+fn decode_article(bytes: &[u8]) -> Result<Article, FrustError> {
+    let decompressed = lz4_flex::decompress_size_prepended(bytes)
+        .map_err(|e| FrustError::Serialization(e.to_string()))?;
+    let archived = rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(&decompressed)?;
+    Ok(rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?)
 }
 
 /// Read only the `added_at` field of a stored article by id, if present.
@@ -46,8 +60,63 @@ impl Storage {
             articles_db,
             states_db,
         };
+        storage.migrate_schema()?;
         storage.backfill_meta_if_needed()?;
         Ok(storage)
+    }
+
+    fn schema_version(&self) -> Result<u32, FrustError> {
+        let read_txn = self.articles_db.begin_read()?;
+        match read_txn.open_table(SCHEMA_TABLE) {
+            Ok(table) => Ok(table.get(SCHEMA_VERSION_KEY)?.map_or(1, |v| v.value())),
+            Err(redb::TableError::TableDoesNotExist(_)) => Ok(1),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Upgrade the articles database to [`SCHEMA_VERSION`] in one transaction.
+    ///
+    /// v1 → v2: re-key every article with its feed-scoped id. Legacy GUID
+    /// collisions between feeds had already overwritten one of the articles;
+    /// the survivor is kept under its own feed, the meta index is rebuilt from
+    /// scratch, and the lost one is fetched again on the next run.
+    fn migrate_schema(&self) -> Result<(), FrustError> {
+        if self.schema_version()? >= SCHEMA_VERSION {
+            return Ok(());
+        }
+
+        let write_txn = self.articles_db.begin_write()?;
+        let legacy: Vec<Article> = {
+            let table = write_txn.open_table(ARTICLES_TABLE)?;
+            table
+                .iter()?
+                .map(|item| decode_article(item?.1.value()))
+                .collect::<Result<_, _>>()?
+        };
+        if !legacy.is_empty() {
+            tracing::info!(
+                "Migrating {} article(s) to feed-scoped ids (schema v{})",
+                legacy.len(),
+                SCHEMA_VERSION
+            );
+        }
+        write_txn.delete_table(ARTICLES_TABLE)?;
+        write_txn.delete_table(META_TABLE)?;
+        {
+            let mut articles = write_txn.open_table(ARTICLES_TABLE)?;
+            let mut meta = write_txn.open_table(META_TABLE)?;
+            for mut article in legacy {
+                article.id = scope_guid_hash(article.feed_id, article.id);
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&article)?;
+                let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
+                articles.insert(article.id, compressed.as_slice())?;
+                meta.insert((article.feed_id, article.id), article.timestamp)?;
+            }
+            let mut schema = write_txn.open_table(SCHEMA_TABLE)?;
+            schema.insert(SCHEMA_VERSION_KEY, SCHEMA_VERSION)?;
+        }
+        write_txn.commit()?;
+        Ok(())
     }
 
     /// Build a storage from already-open databases (e.g. custom redb backends).
@@ -62,7 +131,8 @@ impl Storage {
     /// Rebuild META_TABLE from ARTICLES_TABLE when the two are out of sync.
     /// This makes the schema upgrade transparent for databases created before
     /// the secondary index existed — the meta table only gets fully populated
-    /// once, then upsert_articles keeps it in sync.
+    /// once, then upsert_articles keeps it in sync. The table is cleared before
+    /// the rebuild so stale entries cannot keep the lengths apart forever.
     fn backfill_meta_if_needed(&self) -> Result<(), FrustError> {
         let read_txn = self.articles_db.begin_read()?;
         let articles_len = match read_txn.open_table(ARTICLES_TABLE) {
@@ -88,16 +158,13 @@ impl Storage {
         let mut entries: Vec<(u64, u64, i64)> = Vec::with_capacity(articles_len as usize);
         for item in articles_table.iter()? {
             let (_key, bytes) = item?;
-            let decompressed = lz4_flex::decompress_size_prepended(bytes.value())
-                .map_err(|e| FrustError::Serialization(e.to_string()))?;
-            let archived =
-                rkyv::access::<rkyv::Archived<Article>, rkyv::rancor::Error>(&decompressed)?;
-            let article: Article = rkyv::deserialize::<Article, rkyv::rancor::Error>(archived)?;
+            let article = decode_article(bytes.value())?;
             entries.push((article.feed_id, article.id, article.timestamp));
         }
         drop(read_txn);
 
         let write_txn = self.articles_db.begin_write()?;
+        write_txn.delete_table(META_TABLE)?;
         {
             let mut meta = write_txn.open_table(META_TABLE)?;
             for (feed_id, article_id, timestamp) in entries {
@@ -863,5 +930,138 @@ mod tests {
         let arts = storage.load_articles_for_feed(42).unwrap();
         assert_eq!(arts.len(), 1);
         assert_eq!(arts[0].id, 1);
+    }
+
+    fn meta_len(storage: &Storage) -> u64 {
+        let read_txn = storage.articles_db.begin_read().unwrap();
+        read_txn.open_table(META_TABLE).unwrap().len().unwrap()
+    }
+
+    #[test]
+    fn test_backfill_clears_stale_meta_entries() {
+        let articles_path = unique_path("articles");
+        let states_path = unique_path("states");
+        {
+            let storage = Storage::new(&articles_path, &states_path).unwrap();
+            storage
+                .upsert_articles(vec![make_article(1, 42, 1_000)])
+                .unwrap();
+            // Stale index entry pointing feed 99 at article 1.
+            let tx = storage.articles_db.begin_write().unwrap();
+            tx.open_table(META_TABLE)
+                .unwrap()
+                .insert((99, 1), 1_000)
+                .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let storage = Storage::new(&articles_path, &states_path).unwrap();
+        assert_eq!(meta_len(&storage), 1);
+        assert!(storage.load_articles_for_feed(99).unwrap().is_empty());
+        assert_eq!(storage.load_articles_for_feed(42).unwrap().len(), 1);
+    }
+
+    // ---- feed-scoped article ids (B2) ----
+
+    #[test]
+    fn test_same_guid_in_two_feeds_is_stored_separately() {
+        use crate::utils::article_id;
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        let in_a = make_article(article_id(1, "guid"), 1, now - 10 * 86_400);
+        let in_b = make_article(article_id(2, "guid"), 2, now - 10 * 86_400);
+        storage.upsert_articles(vec![in_a, in_b]).unwrap();
+
+        assert_eq!(storage.load_article_ids().unwrap().len(), 2);
+        assert_eq!(meta_len(&storage), 2);
+        let feed_a = storage.load_articles_for_feed(1).unwrap();
+        assert_eq!(feed_a.len(), 1);
+        assert_eq!(feed_a[0].feed_id, 1);
+
+        // Expiring feed 1 must not touch feed 2's copy.
+        let retentions = HashMap::from([(1u64, 7u16)]);
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 1);
+        assert!(storage.load_articles_for_feed(1).unwrap().is_empty());
+        assert_eq!(storage.load_articles_for_feed(2).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_fresh_database_is_at_current_schema() {
+        let storage = make_storage();
+        assert_eq!(storage.schema_version().unwrap(), SCHEMA_VERSION);
+    }
+
+    /// Write a v1 database: global `xxh3(guid)` keys, no schema table, and a
+    /// GUID collision where feed 2 overwrote feed 1's article "c" while the
+    /// meta index kept an entry for both feeds.
+    fn write_v1_database(path: &str) {
+        use twox_hash::XxHash3_64;
+        let legacy = |guid: &str, feed_id: u64| {
+            make_article(XxHash3_64::oneshot(guid.as_bytes()), feed_id, 1_000)
+        };
+        let stored = [legacy("a", 1), legacy("b", 2), legacy("c", 2)];
+        let collided_meta = (1u64, XxHash3_64::oneshot(b"c"));
+
+        let db = Database::builder().create(path).unwrap();
+        let tx = db.begin_write().unwrap();
+        {
+            let mut articles = tx.open_table(ARTICLES_TABLE).unwrap();
+            let mut meta = tx.open_table(META_TABLE).unwrap();
+            for article in &stored {
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(article).unwrap();
+                let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
+                articles.insert(article.id, compressed.as_slice()).unwrap();
+                meta.insert((article.feed_id, article.id), article.timestamp)
+                    .unwrap();
+            }
+            meta.insert(collided_meta, 1_000).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn test_migration_rekeys_v1_articles_by_feed() {
+        use crate::utils::article_id;
+        let articles_path = unique_path("articles");
+        write_v1_database(&articles_path);
+
+        let storage = Storage::new(&articles_path, unique_path("states")).unwrap();
+
+        assert_eq!(storage.schema_version().unwrap(), SCHEMA_VERSION);
+        let expected = HashSet::from([article_id(1, "a"), article_id(2, "b"), article_id(2, "c")]);
+        assert_eq!(storage.load_article_ids().unwrap(), expected);
+        // Stale collided meta entry is gone: feed 1 only sees its own article.
+        assert_eq!(meta_len(&storage), 3);
+        let feed_1: Vec<u64> = storage
+            .load_articles_for_feed(1)
+            .unwrap()
+            .iter()
+            .map(|a| a.id)
+            .collect();
+        assert_eq!(feed_1, vec![article_id(1, "a")]);
+        // The payload id is rewritten too, not only the table key.
+        let feed_2 = storage.load_articles_for_feed(2).unwrap();
+        assert!(feed_2.iter().all(|a| expected.contains(&a.id)));
+        assert_eq!(feed_2.len(), 2);
+    }
+
+    #[test]
+    fn test_migration_runs_only_once() {
+        let articles_path = unique_path("articles");
+        let states_path = unique_path("states");
+        write_v1_database(&articles_path);
+
+        let first = Storage::new(&articles_path, &states_path)
+            .unwrap()
+            .load_article_ids()
+            .unwrap();
+        let second = Storage::new(&articles_path, &states_path)
+            .unwrap()
+            .load_article_ids()
+            .unwrap();
+        assert_eq!(first, second, "re-opening must not re-scope the ids");
     }
 }

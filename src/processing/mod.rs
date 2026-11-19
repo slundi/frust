@@ -219,6 +219,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
 
                 filter::apply_filters_and_retention(
                     &mut fetched_feed,
+                    feed_id,
                     &feed,
                     filters,
                     &client,
