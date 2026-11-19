@@ -16,6 +16,7 @@ use crate::{
     error::FrustError,
     export::{AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter},
     model::{App, Article, Enrichment, ExportStrategy, Feed, FeedState, Group},
+    processing::safe_http::SafeClient,
     storage::Storage,
     utils::is_refresh_required,
 };
@@ -32,6 +33,7 @@ pub(crate) mod content;
 pub(crate) mod convert;
 pub(crate) mod filter;
 pub(crate) mod media;
+pub(crate) mod safe_http;
 
 /// Append a chunk to `buf`, returning `false` if doing so would exceed `max`.
 /// Extracted from `read_bounded_body` so the size-limit invariant is testable
@@ -75,11 +77,15 @@ struct FeedResult {
 /// Main processing entry point: fetches all feeds concurrently, applies
 /// filters/retention, persists new articles, then exports per-group output files.
 pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
-    debug!("Creating HTTP client");
+    debug!("Creating HTTP clients");
+    let timeout = std::time::Duration::from_secs(app.timeout as u64);
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(app.timeout as u64))
+        .timeout(timeout)
         .user_agent(concat!("frust/", env!("CARGO_PKG_VERSION")))
         .build()?;
+    // Feed URLs come from the config and are trusted; page URLs come from the
+    // feeds themselves and go through the SSRF-guarded client.
+    let scrape_client = SafeClient::new(timeout)?;
 
     let now = *START_TIME
         .get()
@@ -134,6 +140,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
     let results: Vec<FeedResult> = stream::iter(feeds_to_process)
         .map(|(feed_id, feed)| {
             let client = client.clone();
+            let scrape_client = scrape_client.clone();
             let min_refresh = app.min_refresh_time;
             let existing_ids = Arc::clone(&existing_ids);
             let states = Arc::clone(&states);
@@ -222,7 +229,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                     feed_id,
                     &feed,
                     filters,
-                    &client,
+                    &scrape_client,
                     feed.selector.clone(),
                     &existing_ids,
                 )

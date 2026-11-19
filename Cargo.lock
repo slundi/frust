@@ -608,6 +608,7 @@ dependencies = [
  "anyhow",
  "argh",
  "chrono",
+ "encoding_rs",
  "epub-builder",
  "feed-rs",
  "futures",

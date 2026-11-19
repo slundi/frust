@@ -38,6 +38,11 @@ pub(crate) enum FrustError {
     #[error("Serialization error: {0}")]
     Serialization(String),
 
+    /// A page fetched from feed content was refused (non-public target,
+    /// error status, non-HTML content, oversized body).
+    #[error("Scrape error: {0}")]
+    Scrape(String),
+
     /// feed-rs XML / Atom parsing failed.
     #[error("Feed parse error: {0}")]
     FeedParse(String),

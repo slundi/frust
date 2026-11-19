@@ -8,7 +8,7 @@ use crate::{
     utils::article_id,
 };
 
-use super::content::apply_content_mode;
+use super::{content::apply_content_mode, safe_http::SafeClient};
 
 /// Returns `true` when the article is older than the retention window.
 /// A retention of `0` means "keep forever".
@@ -58,7 +58,7 @@ pub(super) async fn apply_filters_and_retention(
     feed_id: u64,
     feed_config: &Feed,
     global_filters: &HashMap<u64, Filter>,
-    client: &reqwest::Client,
+    client: &SafeClient,
     selector: Option<String>,
     existing_ids: &HashSet<u64>,
 ) {
@@ -315,7 +315,7 @@ mod tests {
             FEED_ID,
             &feed_cfg,
             &filters,
-            &reqwest::Client::new(),
+            &SafeClient::new(std::time::Duration::from_secs(5)).unwrap(),
             None,
             &HashSet::new(),
         )
@@ -343,7 +343,7 @@ mod tests {
             FEED_ID,
             &feed_cfg,
             &filters,
-            &reqwest::Client::new(),
+            &SafeClient::new(std::time::Duration::from_secs(5)).unwrap(),
             None,
             &HashSet::new(),
         )
@@ -375,7 +375,7 @@ mod tests {
             FEED_ID,
             &feed_cfg,
             &filters,
-            &reqwest::Client::new(),
+            &SafeClient::new(std::time::Duration::from_secs(5)).unwrap(),
             None,
             &HashSet::new(),
         )
@@ -398,7 +398,7 @@ mod tests {
             FEED_ID,
             &feed_cfg,
             &HashMap::new(),
-            &reqwest::Client::new(),
+            &SafeClient::new(std::time::Duration::from_secs(5)).unwrap(),
             None,
             existing_ids,
         )
