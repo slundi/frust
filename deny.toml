@@ -7,7 +7,12 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # flag crates we depend on directly.
 unmaintained = "all"
 yanked = "warn"
-ignore = []
+ignore = [
+    # chrono flagged unmaintained. Not a vulnerability, and feed-rs depends on
+    # it, so it can't be dropped today. frust only uses it for timestamps and
+    # RFC 2822/3339 formatting; revisit (e.g. `jiff`) when feed-rs moves.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained only; required by feed-rs" },
+]
 
 [licenses]
 # `unlicensed` was removed in cargo-deny 0.16: a crate whose license is not in
@@ -23,6 +28,13 @@ allow = [
     "Unicode-DFS-2016",
     "Unicode-3.0",
     "Zlib",
+    # File-level copyleft: only changes to the MPL files themselves must be
+    # shared; compatible with distributing frust's binary under MIT/Apache.
+    # Used by scraper's CSS stack (cssparser, selectors, dtoa-short).
+    "MPL-2.0",
+    # Permissive data license of the Mozilla root certificates bundled by
+    # webpki-root-certs (rustls platform verifier).
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 exceptions = []
