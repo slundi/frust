@@ -43,6 +43,11 @@ pub(crate) enum FrustError {
     #[error("Scrape error: {0}")]
     Scrape(String),
 
+    /// A media asset was refused (unsafe or unknown type, over the size limit).
+    #[error("Media error: {0}")]
+    #[allow(dead_code)] // built by processing::media, not wired into the pipeline yet
+    Media(String),
+
     /// feed-rs XML / Atom parsing failed.
     #[error("Feed parse error: {0}")]
     FeedParse(String),

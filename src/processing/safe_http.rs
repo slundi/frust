@@ -18,7 +18,7 @@ use std::{
 };
 
 use reqwest::{
-    Client, Url,
+    Client, Response, Url,
     dns::{Addrs, Name, Resolve, Resolving},
     header, redirect,
 };
@@ -188,7 +188,7 @@ impl Resolve for GuardedResolver {
 }
 
 /// Split a `Content-Type` value into its lower-cased essence and charset.
-fn parse_content_type(value: &str) -> (String, Option<String>) {
+pub(crate) fn parse_content_type(value: &str) -> (String, Option<String>) {
     let mut parts = value.split(';');
     let essence = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
     let charset = parts.find_map(|param| {
@@ -218,7 +218,7 @@ impl SafeClient {
 
     /// Client that may also reach 127.0.0.1, for tests against a local server.
     #[cfg(test)]
-    fn allowing_loopback(timeout: Duration) -> Result<Self, FrustError> {
+    pub(crate) fn allowing_loopback(timeout: Duration) -> Result<Self, FrustError> {
         Self::with_reach(
             timeout,
             Reach {
@@ -254,7 +254,9 @@ impl SafeClient {
         self.fetch_page_capped(url, MAX_PAGE_BYTES).await
     }
 
-    async fn fetch_page_capped(&self, url: &str, max_bytes: u64) -> Result<String, FrustError> {
+    /// Send a GET, refusing non-public targets and non-2xx responses. The
+    /// caller reads the body and must bound its size.
+    pub(crate) async fn get(&self, url: &str, accept: &str) -> Result<Response, FrustError> {
         let parsed = Url::parse(url).map_err(|e| FrustError::Scrape(format!("{url}: {e}")))?;
         if !self.reach.allows_url(&parsed) {
             return Err(FrustError::Scrape(format!(
@@ -265,16 +267,20 @@ impl SafeClient {
         let response = self
             .http
             .get(parsed)
-            .header(
-                header::ACCEPT,
-                "text/html, application/xhtml+xml;q=0.9, */*;q=0.1",
-            )
+            .header(header::ACCEPT, accept)
             .send()
             .await?;
         let status = response.status();
         if !status.is_success() {
             return Err(FrustError::Scrape(format!("{url}: HTTP {status}")));
         }
+        Ok(response)
+    }
+
+    async fn fetch_page_capped(&self, url: &str, max_bytes: u64) -> Result<String, FrustError> {
+        let response = self
+            .get(url, "text/html, application/xhtml+xml;q=0.9, */*;q=0.1")
+            .await?;
 
         let (essence, charset) = response
             .headers()
@@ -301,10 +307,66 @@ impl SafeClient {
     }
 }
 
+/// Minimal HTTP/1.1 server on 127.0.0.1 for tests, with no extra dependency.
+#[cfg(test)]
+pub(crate) mod test_server {
+    use super::SafeClient;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Raw HTTP response with `Content-Length` and `Connection: close`.
+    pub(crate) fn http_response(status: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
+        let mut out = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            out.push_str(&format!("{name}: {value}\r\n"));
+        }
+        out.push_str("\r\n");
+        let mut bytes = out.into_bytes();
+        bytes.extend_from_slice(body);
+        bytes
+    }
+
+    /// Serve `respond(path, port)` on 127.0.0.1 and return the port.
+    pub(crate) async fn spawn_server(respond: fn(&str, u16) -> Vec<u8>) -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let mut len = 0;
+                    while len < buf.len() {
+                        let read = stream.read(&mut buf[len..]).await.unwrap_or(0);
+                        if read == 0 {
+                            break;
+                        }
+                        len += read;
+                        if buf[..len].windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&buf[..len]);
+                    let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    let _ = stream.write_all(&respond(&path, port)).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+        port
+    }
+
+    pub(crate) fn test_client() -> SafeClient {
+        SafeClient::allowing_loopback(Duration::from_secs(5)).unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_server::{http_response, spawn_server, test_client};
     use super::*;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn is_safe(url: &str) -> bool {
         Url::parse(url).is_ok_and(|u| Reach::PUBLIC.allows_url(&u))
@@ -480,21 +542,6 @@ mod tests {
 
     // --- fetch_page against a local server ---
 
-    /// Raw HTTP response with `Content-Length` and `Connection: close`.
-    fn http_response(status: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
-        let mut out = format!(
-            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n",
-            body.len()
-        );
-        for (name, value) in headers {
-            out.push_str(&format!("{name}: {value}\r\n"));
-        }
-        out.push_str("\r\n");
-        let mut bytes = out.into_bytes();
-        bytes.extend_from_slice(body);
-        bytes
-    }
-
     fn html(body: &str) -> Vec<u8> {
         http_response(
             "200 OK",
@@ -505,39 +552,6 @@ mod tests {
 
     fn redirect_to(location: &str) -> Vec<u8> {
         http_response("302 Found", &[("Location", location)], b"")
-    }
-
-    /// Serve `respond(path, port)` on 127.0.0.1 and return the port.
-    async fn spawn_server(respond: fn(&str, u16) -> Vec<u8>) -> u16 {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        tokio::spawn(async move {
-            while let Ok((mut stream, _)) = listener.accept().await {
-                tokio::spawn(async move {
-                    let mut buf = vec![0u8; 8192];
-                    let mut len = 0;
-                    while len < buf.len() {
-                        let read = stream.read(&mut buf[len..]).await.unwrap_or(0);
-                        if read == 0 {
-                            break;
-                        }
-                        len += read;
-                        if buf[..len].windows(4).any(|w| w == b"\r\n\r\n") {
-                            break;
-                        }
-                    }
-                    let head = String::from_utf8_lossy(&buf[..len]);
-                    let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
-                    let _ = stream.write_all(&respond(&path, port)).await;
-                    let _ = stream.shutdown().await;
-                });
-            }
-        });
-        port
-    }
-
-    fn test_client() -> SafeClient {
-        SafeClient::allowing_loopback(Duration::from_secs(5)).unwrap()
     }
 
     #[tokio::test]
