@@ -2,12 +2,14 @@ use std::{collections::HashMap, fs, path::Path};
 
 use chrono::DateTime;
 use epub_builder::{EpubBuilder, EpubContent, EpubVersion, ZipLibrary};
-use pulldown_cmark::{Parser, html};
 use tracing::info;
 
 use crate::{error::FrustError, model::Article};
 
-use super::{Enrichment, Exporter};
+use super::{
+    Enrichment, Exporter,
+    html::{is_safe_link, markdown_to_safe_html},
+};
 
 pub(crate) struct EpubExporter;
 
@@ -61,8 +63,8 @@ impl Exporter for EpubExporter {
 }
 
 fn article_to_xhtml(article: &Article) -> String {
-    let mut body_html = String::new();
-    html::push_html(&mut body_html, Parser::new(&article.content));
+    // Raw HTML would also make the chapter invalid XHTML for strict readers.
+    let body_html = markdown_to_safe_html(&article.content);
 
     let title = escape_xml(&article.title);
     let date = if article.timestamp == 0 {
@@ -70,9 +72,15 @@ fn article_to_xhtml(article: &Article) -> String {
     } else {
         DateTime::from_timestamp(article.timestamp, 0).map(|dt| dt.format("%Y-%m-%d").to_string())
     };
-    let source_line = match date {
-        Some(d) => format!("<p><a href=\"{}\">{}</a></p>", escape_xml(&article.url), d),
-        None => format!("<p><a href=\"{}\">source</a></p>", escape_xml(&article.url)),
+    let label = date.as_deref().unwrap_or("source");
+    // The URL comes from the feed: no link at all rather than a `javascript:` one.
+    let source_line = if is_safe_link(&article.url) {
+        format!(
+            "<p><a href=\"{}\">{label}</a></p>",
+            escape_xml(&article.url)
+        )
+    } else {
+        format!("<p>{label}</p>")
     };
 
     format!(
@@ -240,5 +248,34 @@ mod tests {
         let article = make_article(1, "No Date", "https://example.com/1", 0);
         let xhtml = article_to_xhtml(&article);
         assert!(xhtml.contains("source</a>"));
+    }
+
+    #[test]
+    fn test_epub_xhtml_drops_javascript_source_link() {
+        let article = make_article(1, "Bad", "javascript:alert(1)", 1_705_276_800);
+        let xhtml = article_to_xhtml(&article);
+        assert!(!xhtml.contains("javascript:"));
+        assert!(xhtml.contains("<p>2024-01-15</p>"));
+    }
+
+    #[test]
+    fn test_epub_xhtml_escapes_raw_html_and_is_well_formed() {
+        let mut article = make_article(1, "Raw", "https://example.com/1", 1_705_276_800);
+        article.content =
+            "Line<br>break\n\n<script>alert(1)</script>\n\n[x](javascript:alert(2))".into();
+        let xhtml = article_to_xhtml(&article);
+
+        assert!(!xhtml.contains("<script"));
+        assert!(!xhtml.contains("javascript:"));
+        assert!(xhtml.contains("&lt;br&gt;"));
+        // The DOCTYPE references an external DTD, so only check well-formedness.
+        let mut reader = quick_xml::Reader::from_str(&xhtml);
+        loop {
+            match reader.read_event() {
+                Ok(quick_xml::events::Event::Eof) => break,
+                Ok(_) => {}
+                Err(e) => panic!("chapter is not well-formed XHTML: {e}\n{xhtml}"),
+            }
+        }
     }
 }

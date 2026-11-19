@@ -1,5 +1,6 @@
 pub(crate) mod atom;
 pub(crate) mod epub;
+pub(crate) mod html;
 pub(crate) mod json;
 pub(crate) mod markdown;
 pub(crate) mod rss;

@@ -6,7 +6,6 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use pulldown_cmark::{Parser, html};
 use serde::Serialize;
 use slug::slugify;
 use tracing::info;
@@ -16,7 +15,7 @@ use crate::{
     model::{Article, ExportStrategy},
 };
 
-use super::{Enrichment, Exporter, render_template};
+use super::{Enrichment, Exporter, html::markdown_to_safe_html, render_template};
 
 pub(crate) struct JsonExporter {
     pub(crate) strategy: ExportStrategy,
@@ -43,7 +42,8 @@ struct ItemDto<'a> {
     #[serde(skip_serializing_if = "str::is_empty")]
     title: &'a str,
     /// Article body rendered from Markdown to HTML — the correct JSON Feed
-    /// 1.1 field for structured content (spec §content_html).
+    /// 1.1 field for structured content (spec §content_html). Raw HTML and
+    /// unsafe link schemes are neutralised, see [`markdown_to_safe_html`].
     #[serde(skip_serializing_if = "String::is_empty")]
     content_html: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,13 +53,6 @@ struct ItemDto<'a> {
     date_published: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     attachments: Vec<AttachmentDto<'a>>,
-}
-
-/// Convert Markdown source to a self-contained HTML fragment via pulldown-cmark.
-fn markdown_to_html(md: &str) -> String {
-    let mut out = String::with_capacity(md.len());
-    html::push_html(&mut out, Parser::new(md));
-    out
 }
 
 /// JSON Feed 1.1 top-level feed object (used for Monolithic strategy)
@@ -99,7 +92,7 @@ fn to_item<'a>(article: &'a Article, enrichment: Option<&Enrichment>) -> ItemDto
     let content_html = if markdown.is_empty() {
         String::new()
     } else {
-        markdown_to_html(&markdown)
+        markdown_to_safe_html(&markdown)
     };
     ItemDto {
         id: &article.url,
@@ -623,5 +616,30 @@ mod tests {
             v["items"][0]["content_html"].is_null(),
             "content_html should be omitted when the body is empty"
         );
+    }
+
+    #[test]
+    fn test_json_content_html_neutralises_raw_html_and_template_links() {
+        // A hostile feed controls both the content and `{{article.url}}`,
+        // which the append template turns into a Markdown link.
+        let mut article = make_article(1, "XSS", "javascript:alert(document.cookie)", 0);
+        article.content = "<script>alert(1)</script>\n\nBody <img src=x onerror=alert(2)>".into();
+        let enrichment = Enrichment {
+            feed_title: "Feed".into(),
+            feed_url: "https://example.com/feed".into(),
+            feed_slug: "feed".into(),
+            feed_page_url: String::new(),
+            prepend: None,
+            append: Some("\n\n[Read more]({{article.url}})".into()),
+        };
+
+        let item = to_item(&article, Some(&enrichment));
+
+        let html = item.content_html;
+        assert!(!html.contains("<script"), "{html}");
+        assert!(!html.contains("<img"), "{html}");
+        assert!(!html.contains("javascript:"), "{html}");
+        assert!(html.contains("&lt;script&gt;"), "{html}");
+        assert!(html.contains("Read more"), "{html}");
     }
 }
