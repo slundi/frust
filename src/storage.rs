@@ -4,6 +4,8 @@ use crate::utils::scope_guid_hash;
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::Path;
 
 const ARTICLES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("articles");
 const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
@@ -19,9 +21,83 @@ const SCHEMA_VERSION_KEY: &str = "version";
 /// * v2: article id scoped by feed, see [`crate::utils::article_id`].
 const SCHEMA_VERSION: u32 = 2;
 
+pub(crate) const ARTICLES_FILE: &str = "articles.redb";
+pub(crate) const STATES_FILE: &str = "states.redb";
+
 pub struct Storage {
     articles_db: Database,
     states_db: Database,
+}
+
+/// Create `dir` and its missing parents, readable by the owner only on Unix.
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
+/// Move a file, falling back to copy + rename + delete across filesystems
+/// (e.g. SD card → internal flash). The copy goes through a temp file so a
+/// crash never leaves a truncated database under its final name.
+fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    match fs::rename(from, to) {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            let tmp = to.with_extension("redb.part");
+            fs::copy(from, &tmp)?;
+            fs::File::open(&tmp)?.sync_all()?;
+            fs::rename(&tmp, to)?;
+            fs::remove_file(from)
+        }
+        other => other,
+    }
+}
+
+/// Create `data_dir` (owner-only) and move databases that older versions left
+/// in `output_dir` into it.
+///
+/// `output_dir` is served by the web server: databases there can be
+/// downloaded by anyone, exposing the subscription list, ETags and history.
+pub fn prepare_data_dir(data_dir: &Path, output_dir: &Path) -> Result<(), FrustError> {
+    create_private_dir(data_dir)?;
+
+    let canonical_data = fs::canonicalize(data_dir)?;
+    if let Ok(canonical_output) = fs::canonicalize(output_dir)
+        && canonical_data.starts_with(&canonical_output)
+    {
+        tracing::warn!(
+            "data_dir {} is inside the output directory {}: the databases may be \
+             publicly downloadable. Set `data_dir` outside of it.",
+            data_dir.display(),
+            output_dir.display()
+        );
+        if canonical_data == canonical_output {
+            return Ok(());
+        }
+    }
+
+    for name in [ARTICLES_FILE, STATES_FILE] {
+        let legacy = output_dir.join(name);
+        if !legacy.is_file() {
+            continue;
+        }
+        let target = data_dir.join(name);
+        if target.exists() {
+            tracing::warn!(
+                "Stale {} is publicly downloadable and no longer used ({} is); delete it",
+                legacy.display(),
+                target.display()
+            );
+            continue;
+        }
+        move_file(&legacy, &target)?;
+        tracing::info!("Moved {} to {}", legacy.display(), target.display());
+    }
+    Ok(())
 }
 
 fn decode_article(bytes: &[u8]) -> Result<Article, FrustError> {
@@ -63,6 +139,12 @@ impl Storage {
         storage.migrate_schema()?;
         storage.backfill_meta_if_needed()?;
         Ok(storage)
+    }
+
+    /// Open (or create) the databases inside `data_dir`, see [`prepare_data_dir`].
+    pub fn open_in(data_dir: impl AsRef<Path>) -> Result<Self, FrustError> {
+        let dir = data_dir.as_ref();
+        Self::new(dir.join(ARTICLES_FILE), dir.join(STATES_FILE))
     }
 
     fn schema_version(&self) -> Result<u32, FrustError> {
@@ -1063,5 +1145,111 @@ mod tests {
             .load_article_ids()
             .unwrap();
         assert_eq!(first, second, "re-opening must not re-scope the ids");
+    }
+
+    // ---- prepare_data_dir (S4) ----
+
+    #[test]
+    fn test_prepare_data_dir_creates_nested_dir() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("state/frust");
+        prepare_data_dir(&data, &root.path().join("www")).unwrap();
+        assert!(data.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_prepare_data_dir_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        prepare_data_dir(&data, root.path()).unwrap();
+        let mode = fs::metadata(&data).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+
+    #[test]
+    fn test_prepare_data_dir_moves_legacy_databases() {
+        let root = tempfile::tempdir().unwrap();
+        let www = root.path().join("www");
+        let data = root.path().join("data");
+        fs::create_dir_all(&www).unwrap();
+        {
+            let legacy = Storage::open_in(&www).unwrap();
+            legacy
+                .upsert_articles(vec![make_article(1, 42, 1_000)])
+                .unwrap();
+            legacy
+                .save_feed_states(&[(
+                    42,
+                    FeedState {
+                        last_etag: Some("\"e\"".into()),
+                        last_check_ts: None,
+                        last_modified_ts: None,
+                        last_http_status: None,
+                    },
+                )])
+                .unwrap();
+        }
+
+        prepare_data_dir(&data, &www).unwrap();
+
+        assert!(!www.join(ARTICLES_FILE).exists());
+        assert!(!www.join(STATES_FILE).exists());
+        let storage = Storage::open_in(&data).unwrap();
+        assert_eq!(storage.load_articles_for_feed(42).unwrap().len(), 1);
+        let states = storage.load_all_states().unwrap();
+        assert_eq!(states[&42].last_etag.as_deref(), Some("\"e\""));
+    }
+
+    #[test]
+    fn test_prepare_data_dir_keeps_existing_data_over_legacy() {
+        let root = tempfile::tempdir().unwrap();
+        let www = root.path().join("www");
+        let data = root.path().join("data");
+        fs::create_dir_all(&www).unwrap();
+        fs::create_dir_all(&data).unwrap();
+        fs::write(www.join(ARTICLES_FILE), b"legacy").unwrap();
+        fs::write(data.join(ARTICLES_FILE), b"current").unwrap();
+
+        prepare_data_dir(&data, &www).unwrap();
+
+        // Nothing is overwritten or deleted; a warning asks the user to clean up.
+        assert_eq!(fs::read(data.join(ARTICLES_FILE)).unwrap(), b"current");
+        assert_eq!(fs::read(www.join(ARTICLES_FILE)).unwrap(), b"legacy");
+    }
+
+    #[test]
+    fn test_prepare_data_dir_same_as_output_leaves_files_in_place() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join(ARTICLES_FILE), b"db").unwrap();
+
+        prepare_data_dir(root.path(), root.path()).unwrap();
+
+        assert_eq!(fs::read(root.path().join(ARTICLES_FILE)).unwrap(), b"db");
+    }
+
+    #[test]
+    fn test_prepare_data_dir_nested_in_output_still_migrates() {
+        // Discouraged (warned about), but the files must still end up in data_dir.
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join(".frust");
+        fs::write(root.path().join(STATES_FILE), b"db").unwrap();
+
+        prepare_data_dir(&data, root.path()).unwrap();
+
+        assert_eq!(fs::read(data.join(STATES_FILE)).unwrap(), b"db");
+        assert!(!root.path().join(STATES_FILE).exists());
+    }
+
+    #[test]
+    fn test_move_file_renames_within_filesystem() {
+        let root = tempfile::tempdir().unwrap();
+        let from = root.path().join("a.redb");
+        let to = root.path().join("b.redb");
+        fs::write(&from, b"x").unwrap();
+        move_file(&from, &to).unwrap();
+        assert!(!from.exists());
+        assert_eq!(fs::read(&to).unwrap(), b"x");
     }
 }

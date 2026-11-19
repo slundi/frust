@@ -92,10 +92,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
         .ok_or(FrustError::NotInitialized("START_TIME"))?;
     let now_ts = now.timestamp();
 
-    let output_dir = Path::new(&app.output);
-    let articles_path = output_dir.join("articles.redb");
-    let states_path = output_dir.join("states.redb");
-    let storage = Storage::new(&articles_path, &states_path)?;
+    let storage = Storage::open_in(&app.data_dir)?;
 
     let existing_ids: Arc<HashSet<u64>> = Arc::new(match storage.load_article_ids() {
         Ok(ids) => {

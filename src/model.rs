@@ -8,6 +8,9 @@ use crate::{DEFAULT_HTTP_TIMEOUT, DEFAULT_RETRIEVE_SERVER_MEDIA};
 #[derive(Debug, Clone)]
 pub(crate) struct App {
     pub(crate) output: String,
+    /// Private directory for the redb databases. Must not be served by the
+    /// web server: it holds the subscription list, ETags and history.
+    pub(crate) data_dir: String,
     /// Timeout in seconds
     pub(crate) timeout: u8,
     pub(crate) retrieve_media_server: bool,
@@ -39,8 +42,15 @@ impl Default for App {
         let workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
+        let data_dir = crate::utils::default_data_dir(
+            std::env::var("XDG_STATE_HOME").ok().as_deref(),
+            std::env::var("HOME").ok().as_deref(),
+        )
+        .display()
+        .to_string();
         Self {
             output,
+            data_dir,
             retrieve_media_server: DEFAULT_RETRIEVE_SERVER_MEDIA,
             timeout: DEFAULT_HTTP_TIMEOUT,
             min_refresh_time: 600,

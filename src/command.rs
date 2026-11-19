@@ -130,6 +130,7 @@ mod tests {
     fn write_config_at(path: &str, output_dir: &str, group_slug: &str) {
         let yaml = format!(
             "output: {out}\n\
+             data_dir: {out}/data\n\
              groups:\n\
              - title: {slug}\n  slug: {slug}\n  output: {slug}.atom\n  \
              feeds:\n  - title: F\n    url: https://example.com/feed.xml\n",

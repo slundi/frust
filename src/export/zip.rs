@@ -13,7 +13,7 @@ use crate::{
     error::FrustError,
     export::atom::write_atom_to,
     model::{Enrichment, Group},
-    storage::Storage,
+    storage::{Storage, prepare_data_dir},
 };
 
 /// Derive the Atom filename that will appear inside the ZIP for a given group.
@@ -35,15 +35,17 @@ fn group_atom_name(group: &Group) -> String {
 /// - one Atom 1.0 file per group (articles from all feeds in the group, newest-first)
 /// - every file from `{app.output}/media/` under a `media/` prefix
 ///
-/// The group/feed structure and the redb paths are derived from the YAML config
-/// at `config_path` (defaults to `"config.yaml"` when called from the CLI).
+/// The group/feed structure and the database directory (`data_dir`) are
+/// derived from the YAML config at `config_path` (defaults to `"config.yaml"`
+/// when called from the CLI).
 pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<(), FrustError> {
     let app = crate::config::load_config_file(config_path.to_string());
 
     let output_dir = Path::new(&app.output);
-    let articles_path = output_dir.join("articles.redb");
-    let states_path = output_dir.join("states.redb");
-    let storage = Storage::new(&articles_path, &states_path)?;
+    // Migrate legacy databases here too: opening an empty `data_dir` first
+    // would otherwise shadow the ones still sitting in the output dir.
+    prepare_data_dir(Path::new(&app.data_dir), output_dir)?;
+    let storage = Storage::open_in(&app.data_dir)?;
 
     if let Some(parent) = Path::new(output_path).parent()
         && !parent.as_os_str().is_empty()
@@ -191,7 +193,12 @@ mod tests {
     /// Write a minimal YAML config to `{out_dir}/config.yaml` and return its path.
     /// `groups` is a slice of `(slug, title, feed_url)`.
     fn write_config(out_dir: &str, groups: &[(&str, &str, &str)]) -> String {
-        let mut lines = vec![format!("output: {}", out_dir), "groups:".to_string()];
+        // Pin data_dir so tests never touch the real XDG state directory.
+        let mut lines = vec![
+            format!("output: {}", out_dir),
+            format!("data_dir: {}", data_dir(out_dir)),
+            "groups:".to_string(),
+        ];
         for (slug, title, url) in groups {
             lines.push(format!("- title: {}", title));
             lines.push(format!("  slug: {}", slug));
@@ -205,6 +212,17 @@ mod tests {
         let path = format!("{}/config.yaml", out_dir);
         fs::write(&path, lines.join("\n")).unwrap();
         path
+    }
+
+    fn data_dir(out_dir: &str) -> String {
+        format!("{}/data", out_dir)
+    }
+
+    /// Open the storage the archive will read, i.e. in the configured data_dir.
+    fn open_data_storage(out_dir: &str) -> Storage {
+        let dir = data_dir(out_dir);
+        fs::create_dir_all(&dir).unwrap();
+        Storage::open_in(&dir).unwrap()
     }
 
     /// Compute the feed_id the same way config loading does: hash the URL.
@@ -316,11 +334,7 @@ mod tests {
         let cfg = write_config(&dir, &[("news", "News", feed_url)]);
 
         let fid = feed_id_for_url(feed_url);
-        let storage = Storage::new(
-            format!("{}/articles.redb", dir),
-            format!("{}/states.redb", dir),
-        )
-        .unwrap();
+        let storage = open_data_storage(&dir);
         storage
             .upsert_articles(vec![make_article(1, fid, "Hello ZIP World", 1_705_276_800)])
             .unwrap();
@@ -338,17 +352,40 @@ mod tests {
     }
 
     #[test]
+    fn test_build_zip_migrates_databases_left_in_output_dir() {
+        // Databases written by an older version sit in the served output dir;
+        // exporting must move them into data_dir, not shadow them with empty ones.
+        let feed_url = "https://linuxfr.org/news.atom";
+        let dir = unique_dir("legacy");
+        let cfg = write_config(&dir, &[("news", "News", feed_url)]);
+        let storage = Storage::open_in(&dir).unwrap();
+        storage
+            .upsert_articles(vec![make_article(
+                1,
+                feed_id_for_url(feed_url),
+                "Legacy Article",
+                1_705_276_800,
+            )])
+            .unwrap();
+        drop(storage);
+
+        let out = format!("{}/archive.zip", dir);
+        build_zip_archive(&out, &cfg).unwrap();
+
+        assert!(zip_entry(&out, "news.atom").contains("Legacy Article"));
+        assert!(!Path::new(&dir).join("articles.redb").exists());
+        assert!(Path::new(&data_dir(&dir)).join("articles.redb").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn test_build_zip_articles_sorted_newest_first() {
         let feed_url = "https://linuxfr.org/news.atom";
         let dir = unique_dir("sort");
         let cfg = write_config(&dir, &[("news", "News", feed_url)]);
 
         let fid = feed_id_for_url(feed_url);
-        let storage = Storage::new(
-            format!("{}/articles.redb", dir),
-            format!("{}/states.redb", dir),
-        )
-        .unwrap();
+        let storage = open_data_storage(&dir);
         storage
             .upsert_articles(vec![
                 make_article(1, fid, "Older Article", 1_700_000_000),

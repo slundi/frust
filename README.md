@@ -53,6 +53,9 @@ Copy and edit [`my-config.yaml`](my-config.yaml):
 
 ```yaml
 output: /var/www/rss          # default output directory
+data_dir: /var/lib/frust      # databases, keep it out of the web root
+                              # (default: $XDG_STATE_HOME/frust, then
+                              # ~/.local/state/frust, then /var/lib/frust)
 timeout: 10                   # HTTP timeout in seconds
 workers: 4                    # parallel fetch workers
 retention: 30                 # days to keep articles (0 = forever)

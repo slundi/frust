@@ -11,7 +11,7 @@ use tracing::info;
 
 use crate::cli::{CliOptions, Command};
 use crate::model::App;
-use crate::storage::Storage;
+use crate::storage::{Storage, prepare_data_dir};
 
 pub(crate) mod cli;
 pub(crate) mod command;
@@ -73,13 +73,15 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
         tracing::error!("Failed to create output directories: {:#}", e);
         return ExitCode::FAILURE;
     }
+    let output_dir = Path::new(&app.output);
+    if let Err(e) = prepare_data_dir(Path::new(&app.data_dir), output_dir) {
+        tracing::error!("Unable to prepare data directory {}: {}", app.data_dir, e);
+        return ExitCode::FAILURE;
+    }
 
     {
         info!("Cleaning up old articles");
-        let output_dir = Path::new(&app.output);
-        let articles_path = output_dir.join("articles.redb");
-        let states_path = output_dir.join("states.redb");
-        if let Ok(storage) = Storage::new(&articles_path, &states_path) {
+        if let Ok(storage) = Storage::open_in(&app.data_dir) {
             let feed_retentions: HashMap<u64, u16> = app
                 .groups
                 .values()

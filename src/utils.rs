@@ -1,5 +1,26 @@
+use std::path::{Path, PathBuf};
+
 use chrono::{DateTime, Utc};
 use twox_hash::XxHash3_64;
+
+/// Default directory for the databases, following the XDG base directory
+/// spec: `$XDG_STATE_HOME/frust`, else `$HOME/.local/state/frust`, else
+/// `/var/lib/frust` (service accounts without a home). Relative values are
+/// ignored, as the spec requires.
+pub(crate) fn default_data_dir(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBuf {
+    let absolute = |value: Option<&str>| {
+        value
+            .filter(|v| Path::new(v).is_absolute())
+            .map(PathBuf::from)
+    };
+    if let Some(state_home) = absolute(xdg_state_home) {
+        return state_home.join("frust");
+    }
+    if let Some(home) = absolute(home) {
+        return home.join(".local/state/frust");
+    }
+    PathBuf::from("/var/lib/frust")
+}
 
 /// Storage id of a feed entry, scoped to its feed so two feeds publishing the
 /// same GUID (YouTube playlists, planets, "all" + "category" feeds, `1`, `2`…)
@@ -35,6 +56,42 @@ pub(crate) fn is_refresh_required(
 mod tests {
     use super::*;
     use chrono::{Duration, Utc};
+
+    #[test]
+    fn test_default_data_dir_prefers_xdg_state_home() {
+        assert_eq!(
+            default_data_dir(Some("/state"), Some("/home/me")),
+            PathBuf::from("/state/frust")
+        );
+    }
+
+    #[test]
+    fn test_default_data_dir_falls_back_to_home() {
+        assert_eq!(
+            default_data_dir(None, Some("/home/me")),
+            PathBuf::from("/home/me/.local/state/frust")
+        );
+    }
+
+    #[test]
+    fn test_default_data_dir_ignores_relative_values() {
+        assert_eq!(
+            default_data_dir(Some("state"), Some("/home/me")),
+            PathBuf::from("/home/me/.local/state/frust")
+        );
+        assert_eq!(
+            default_data_dir(Some(""), Some("home")),
+            PathBuf::from("/var/lib/frust")
+        );
+    }
+
+    #[test]
+    fn test_default_data_dir_without_env_uses_var_lib() {
+        assert_eq!(
+            default_data_dir(None, None),
+            PathBuf::from("/var/lib/frust")
+        );
+    }
 
     #[test]
     fn test_article_id_is_stable() {

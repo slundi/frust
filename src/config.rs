@@ -51,6 +51,10 @@ impl App {
         if let Some(output) = optional_string_field(map, "output") {
             self.output = output;
         }
+        // private database directory (defaults to the XDG state dir)
+        if let Some(data_dir) = optional_string_field(map, "data_dir") {
+            self.data_dir = data_dir;
+        }
         // set the number of workers
         if let Some(value) = map_get(map, "workers") {
             self.workers = usize::try_from(
@@ -802,6 +806,7 @@ groups:
         let app = app_from_yaml(
             r#"
 output: /tmp/frust
+data_dir: /tmp/frust-data
 workers: 4
 timeout: 15
 retention: 45
@@ -812,6 +817,7 @@ min_refresh_time: 900
 "#,
         );
         assert_eq!(app.output, "/tmp/frust");
+        assert_eq!(app.data_dir, "/tmp/frust-data");
         assert_eq!(app.workers, 4);
         assert_eq!(app.timeout, 15);
         assert_eq!(app.retention, 45);

@@ -1,3 +1,5 @@
+# data_dir: /var/lib/frust  # OPTIONAL: databases dir, must NOT be served by the web server.
+#                           # Default $XDG_STATE_HOME/frust, else ~/.local/state/frust, else /var/lib/frust
 # media: false          # OPTIONAL: download assets to media/<hash>.<ext>, default false
 # media_max_size: 0    # OPTIONAL: max asset size in bytes (0 = no limit), default 0
 
@@ -85,9 +87,9 @@ groups:
   - title: "Ikea Hackers"
     url: "http://feeds.feedburner.com/Ikeahacker"  # feed URL
     page_url: "https://ikeahackers.net/"  # OPTIONAL will be matched when feed is read, useless when the feed is in a group
-    # xpath: ""  # OPTIONAL xpath to retrive article content instead of brief in some feeds
+    # xpath: ""  # OPTIONAL xpath to retrieve article content instead of brief in some feeds
     retention: 60  # retention in days
-    # retrieve_server_media: true  # OPTIONAL overide default value
+    # retrieve_server_media: true  # OPTIONAL override default value
     # media: true             # OPTIONAL: override group-level media setting for this feed
     # media_max_size: 5242880 # OPTIONAL: override group-level limit (e.g. 5 MB)
     filters: []  # applied filters, order is important
