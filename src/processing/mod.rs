@@ -268,29 +268,44 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
         .await;
 
     // Phase 2: persist articles and feed states.
-    // Save states first (only reads state, doesn't touch articles) so we can
-    // then move-consume `results` into a single article vec without cloning.
-    for result in &results {
-        if let Err(e) = storage.save_feed_state(result.feed_id, &result.state) {
-            tracing::warn!(
-                "Could not save feed state for feed {}: {}",
-                result.feed_id,
-                e
-            );
-        }
+    persist_results(&storage, results)?;
+
+    // Phase 3: export per-group output files
+    run_group_exports(app, &storage)?;
+
+    Ok(())
+}
+
+/// Persist fetched articles, then the feed states. Returns the number of
+/// articles written.
+///
+/// Order matters: a state carries the new ETag / Last-Modified. Committing it
+/// before the articles would make the next run receive `304 Not Modified` and
+/// lose this fetch's articles for good if the article write failed. So if the
+/// article commit fails, no state is saved and the next run re-fetches.
+/// The reverse failure (articles saved, states not) is harmless: the next run
+/// re-fetches with the old validators and dedups against the stored ids.
+fn persist_results(storage: &Storage, results: Vec<FeedResult>) -> Result<usize, FrustError> {
+    let mut states: Vec<(u64, FeedState)> = Vec::with_capacity(results.len());
+    let mut all_articles: Vec<Article> = Vec::new();
+    for result in results {
+        states.push((result.feed_id, result.state));
+        all_articles.extend(result.articles);
     }
 
-    let all_articles: Vec<Article> = results.into_iter().flat_map(|r| r.articles).collect();
     let new_count = all_articles.len();
     if !all_articles.is_empty() {
         storage.upsert_articles(all_articles)?;
         tracing::info!("Persisted {} new article(s)", new_count);
     }
 
-    // Phase 3: export per-group output files
-    run_group_exports(app, &storage)?;
+    if !states.is_empty()
+        && let Err(e) = storage.save_feed_states(&states)
+    {
+        tracing::warn!("Could not save {} feed state(s): {}", states.len(), e);
+    }
 
-    Ok(())
+    Ok(new_count)
 }
 
 /// Pick an exporter based on the destination file extension.
@@ -377,7 +392,97 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 
 #[cfg(test)]
 mod tests {
-    use super::append_within_cap;
+    use super::{FeedResult, append_within_cap, persist_results};
+    use crate::model::{Article, FeedState};
+    use crate::storage::{Storage, test_support::FailingBackend};
+    use redb::{Database, backends::InMemoryBackend};
+    use std::sync::atomic::Ordering;
+
+    fn make_article(id: u64, feed_id: u64) -> Article {
+        Article {
+            id,
+            feed_id,
+            title: String::from("Title"),
+            url: String::from("http://example.com/a"),
+            content: String::from("Content"),
+            summary: None,
+            timestamp: 1_000,
+            added_at: 1_000,
+            enclosures: Vec::new(),
+        }
+    }
+
+    fn make_result(feed_id: u64, etag: &str, articles: Vec<Article>) -> FeedResult {
+        FeedResult {
+            feed_id,
+            articles,
+            state: FeedState {
+                last_etag: Some(etag.to_string()),
+                last_check_ts: Some(1_000),
+                last_modified_ts: None,
+                last_http_status: Some(200),
+            },
+        }
+    }
+
+    fn in_memory_db() -> Database {
+        Database::builder()
+            .create_with_backend(InMemoryBackend::new())
+            .unwrap()
+    }
+
+    #[test]
+    fn test_persist_results_saves_articles_and_states() {
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let results = vec![
+            make_result(1, "\"v1\"", vec![make_article(10, 1), make_article(11, 1)]),
+            // 304-style result: no articles, state must still be saved
+            make_result(2, "\"v2\"", vec![]),
+        ];
+
+        let written = persist_results(&storage, results).unwrap();
+
+        assert_eq!(written, 2);
+        assert_eq!(storage.load_articles_for_feed(1).unwrap().len(), 2);
+        let states = storage.load_all_states().unwrap();
+        assert_eq!(states[&1].last_etag.as_deref(), Some("\"v1\""));
+        assert_eq!(states[&2].last_etag.as_deref(), Some("\"v2\""));
+    }
+
+    #[test]
+    fn test_persist_results_keeps_old_etag_when_article_write_fails() {
+        let (backend, fail_writes) = FailingBackend::new();
+        let articles_db = Database::builder().create_with_backend(backend).unwrap();
+        let storage = Storage::from_databases(articles_db, in_memory_db());
+        storage
+            .save_feed_states(&[(1, make_result(1, "\"old\"", vec![]).state)])
+            .unwrap();
+
+        // Simulate a full SD card on the articles database.
+        fail_writes.store(true, Ordering::SeqCst);
+        let results = vec![make_result(1, "\"new\"", vec![make_article(10, 1)])];
+
+        assert!(persist_results(&storage, results).is_err());
+
+        // The new ETag must not be committed, otherwise the next run gets a
+        // 304 and the article above is lost for good.
+        let states = storage.load_all_states().unwrap();
+        assert_eq!(states[&1].last_etag.as_deref(), Some("\"old\""));
+    }
+
+    #[test]
+    fn test_persist_results_succeeds_when_state_write_fails() {
+        let (backend, fail_writes) = FailingBackend::new();
+        let states_db = Database::builder().create_with_backend(backend).unwrap();
+        let storage = Storage::from_databases(in_memory_db(), states_db);
+
+        fail_writes.store(true, Ordering::SeqCst);
+        let results = vec![make_result(1, "\"new\"", vec![make_article(10, 1)])];
+
+        // Articles are safe; losing the state only costs a re-fetch.
+        assert_eq!(persist_results(&storage, results).unwrap(), 1);
+        assert!(storage.load_article_ids().unwrap().contains(&10));
+    }
 
     #[test]
     fn test_append_within_cap_accepts_chunk_below_limit() {

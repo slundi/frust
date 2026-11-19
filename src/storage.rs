@@ -50,6 +50,15 @@ impl Storage {
         Ok(storage)
     }
 
+    /// Build a storage from already-open databases (e.g. custom redb backends).
+    #[cfg(test)]
+    pub(crate) fn from_databases(articles_db: Database, states_db: Database) -> Self {
+        Self {
+            articles_db,
+            states_db,
+        }
+    }
+
     /// Rebuild META_TABLE from ARTICLES_TABLE when the two are out of sync.
     /// This makes the schema upgrade transparent for databases created before
     /// the secondary index existed — the meta table only gets fully populated
@@ -99,18 +108,19 @@ impl Storage {
         Ok(())
     }
 
-    /// Save a FeedState using rkyv 0.8
-    pub fn save_feed_state(&self, feed_id: u64, state: &FeedState) -> Result<(), FrustError> {
-        tracing::info!("Saving feed state");
+    /// Save feed states (keyed by feed_id) using rkyv 0.8, in a single
+    /// transaction so the whole batch costs one fsync.
+    pub fn save_feed_states(&self, states: &[(u64, FeedState)]) -> Result<(), FrustError> {
+        tracing::debug!("Saving {} feed state(s)", states.len());
         let write_txn = self.states_db.begin_write()?;
         {
             let mut table = write_txn.open_table(STATE_TABLE)?;
-
-            // rkyv 0.8: to_bytes returns a Pooled<AlignedVec>
-            // We use the default API which requires specifying an error type (rancor::Error)
-            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(state)?;
-
-            table.insert(feed_id, bytes.as_slice())?;
+            for (feed_id, state) in states {
+                // rkyv 0.8: to_bytes returns a Pooled<AlignedVec>
+                // We use the default API which requires specifying an error type (rancor::Error)
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(state)?;
+                table.insert(*feed_id, bytes.as_slice())?;
+            }
         }
         write_txn.commit()?;
         Ok(())
@@ -126,11 +136,13 @@ impl Storage {
         for item in table.iter()? {
             let (id, bytes) = item?;
 
-            // rkyv 0.8: access provides a zero-copy view of the bytes
-            // It requires the Archived version of the struct
-            let bytes_slice = bytes.value();
+            // rkyv 0.8: access requires a buffer aligned for the archived
+            // type, which redb does not guarantee for values stored at
+            // arbitrary offsets within a page — copy into an AlignedVec first.
+            let mut aligned = rkyv::util::AlignedVec::<16>::new();
+            aligned.extend_from_slice(bytes.value());
             let archived =
-                rkyv::access::<rkyv::Archived<FeedState>, rkyv::rancor::Error>(bytes_slice)?;
+                rkyv::access::<rkyv::Archived<FeedState>, rkyv::rancor::Error>(&aligned)?;
 
             // To get an owned FeedState back from the archived view
             let state: FeedState = rkyv::deserialize::<FeedState, rkyv::rancor::Error>(archived)?;
@@ -340,6 +352,66 @@ impl Storage {
     }
 }
 
+/// In-memory redb backend whose writes can be switched to fail, to simulate
+/// a full SD card or an I/O error in the middle of a run.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use redb::{BackendError, StorageBackend, backends::InMemoryBackend};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    #[derive(Debug, Default)]
+    pub(crate) struct FailingBackend {
+        inner: InMemoryBackend,
+        fail_writes: Arc<AtomicBool>,
+    }
+
+    impl FailingBackend {
+        /// Returns the backend and the switch that makes its writes fail.
+        pub(crate) fn new() -> (Self, Arc<AtomicBool>) {
+            let backend = Self::default();
+            let switch = Arc::clone(&backend.fail_writes);
+            (backend, switch)
+        }
+
+        fn check(&self) -> Result<(), BackendError> {
+            if self.fail_writes.load(Ordering::SeqCst) {
+                return Err(BackendError::Io(std::io::Error::other(
+                    "simulated disk full",
+                )));
+            }
+            Ok(())
+        }
+    }
+
+    impl StorageBackend for FailingBackend {
+        fn len(&self) -> Result<u64, BackendError> {
+            self.inner.len()
+        }
+
+        fn read(&self, offset: u64, out: &mut [u8]) -> Result<(), BackendError> {
+            self.inner.read(offset, out)
+        }
+
+        fn set_len(&self, len: u64) -> Result<(), BackendError> {
+            self.check()?;
+            self.inner.set_len(len)
+        }
+
+        fn sync_data(&self) -> Result<(), BackendError> {
+            self.check()?;
+            self.inner.sync_data()
+        }
+
+        fn write(&self, offset: u64, data: &[u8]) -> Result<(), BackendError> {
+            self.check()?;
+            self.inner.write(offset, data)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,6 +558,45 @@ mod tests {
             .delete_expired_articles(now, &retentions, 0)
             .unwrap();
         assert_eq!(deleted, 0);
+    }
+
+    // ---- save_feed_states ----
+
+    fn make_state(etag: &str) -> FeedState {
+        FeedState {
+            last_etag: Some(etag.to_string()),
+            last_check_ts: Some(1_000),
+            last_modified_ts: None,
+            last_http_status: Some(200),
+        }
+    }
+
+    #[test]
+    fn test_save_feed_states_persists_every_state() {
+        let storage = make_storage();
+        storage
+            .save_feed_states(&[(1, make_state("\"a\"")), (2, make_state("\"b\""))])
+            .unwrap();
+
+        let states = storage.load_all_states().unwrap();
+        assert_eq!(states.len(), 2);
+        assert_eq!(states[&1].last_etag.as_deref(), Some("\"a\""));
+        assert_eq!(states[&2].last_etag.as_deref(), Some("\"b\""));
+    }
+
+    #[test]
+    fn test_save_feed_states_overwrites_previous_state() {
+        let storage = make_storage();
+        storage
+            .save_feed_states(&[(1, make_state("\"old\""))])
+            .unwrap();
+        storage
+            .save_feed_states(&[(1, make_state("\"new\""))])
+            .unwrap();
+
+        let states = storage.load_all_states().unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[&1].last_etag.as_deref(), Some("\"new\""));
     }
 
     // ---- upsert_articles / added_at preservation ----
