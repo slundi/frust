@@ -15,8 +15,8 @@
    7) [x] Match filters into the group if applicable
    8) [x] Match filters into the feed if applicable
 5) [x] Create output file structure (`<output>/<feed slug (host like: korben.info)>/<article generated slug>`, ⚠️ filename length). Need folder if we retrieve media, otherwise a single feed file will be enough (with combined old articles with new ones)
-6) [x] Retrive feeds (multiple in the same time [StackOverflow how to](https://stackoverflow.com/questions/51044467/how-can-i-perform-parallel-asynchronous-http-get-requests-with-reqwest))
-7) [x] Apply filters (do not match content if `selector` is specified)
+6) [x] Retrieve feeds (multiple in the same time [StackOverflow how to](https://stackoverflow.com/questions/51044467/how-can-i-perform-parallel-asynchronous-http-get-requests-with-reqwest))
+7) [x] Apply filters (content filters see the final content, scraped page included)
 8)  [x] If applicable, retrieve articles (multiple per source) and its assets
 9)  [x] Exclude already saved articles
 10) [ ] Clean old articles (more than `article_keep_time` value)
@@ -33,7 +33,7 @@
 
 ## Ideas / roadmap
 
-- [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR `filter: { any: ["slug1", "slug2"], all: ["slug3"] }` (ideally equal/not equal/in/not in/starts with or not/regex) 
+- [ ] Filters: global named ones to use them by name on feeds/folders with a syntax of AND and OR `filter: { any: ["slug1", "slug2"], all: ["slug3"] }` (ideally equal/not equal/in/not in/starts with or not/regex)
 - [ ] Print help and version
 - [ ] Handle custom tags like the [Nyaa.si tracker](https://nyaa.si)
 - [x] Feed enrichment to inject data in an article
@@ -43,7 +43,7 @@
 
 ### Dropped ideas
 
-- Run as deamon (`-d`): use the crontab, see doc.
+- Run as daemon (`-d`): use the crontab, see doc.
 - Generate user in DB? prompt password? Exit without processing? (`-u USERNAME`?): Not needed, we do not use the Frust DB
 - Using a DB to store ignored articles, last update and hash
 - web server

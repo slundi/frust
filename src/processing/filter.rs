@@ -104,12 +104,10 @@ pub(super) async fn apply_filters_and_retention(
                     is_match = true;
                 }
 
-                // Skip content matching when a CSS selector is configured: the feed
-                // content will be replaced by the scraped page, so it is not the
-                // final text to filter on.
+                // The content mode ran in step 1, so this is the final content
+                // (the scraped page in Force mode), whatever the selector.
                 if !is_match
                     && filter.filter_in_content
-                    && feed_config.selector.is_none()
                     && let Some(content) = &entry.content
                     && let Some(body) = &content.body
                     && check_text_match(body, filter)
@@ -417,5 +415,41 @@ mod tests {
         // Same GUID already stored by another feed: must not hide it here.
         let existing = HashSet::from([article_id(FEED_ID + 1, "shared")]);
         assert_eq!(dedup(&existing).await, vec!["shared", "fresh"]);
+    }
+
+    // ---- content filter (B5) ----
+
+    #[tokio::test]
+    async fn test_content_filter_applies_when_selector_is_set() {
+        init_start_time();
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+            <channel><title>T</title><link>https://example.com</link>
+                <item><guid>ad</guid><title>One</title>
+                    <content:encoded><![CDATA[<p>A sponsored post</p>]]></content:encoded></item>
+                <item><guid>ok</guid><title>Two</title>
+                    <content:encoded><![CDATA[<p>A real post</p>]]></content:encoded></item>
+            </channel></rss>"#;
+        let mut feed = feed_rs::parser::parse(xml.as_bytes()).unwrap();
+        let mut filter = make_plain_filter(&["sponsored"], false, false);
+        filter.filter_in_title = false;
+        filter.filter_in_summary = false;
+        let filters = HashMap::from([(7u64, filter)]);
+        let mut feed_cfg = feed_config_with_filter(7);
+        feed_cfg.selector = Some("article".into());
+
+        apply_filters_and_retention(
+            &mut feed,
+            FEED_ID,
+            &feed_cfg,
+            &filters,
+            &SafeClient::new(std::time::Duration::from_secs(5)).unwrap(),
+            feed_cfg.selector.clone(),
+            &HashSet::new(),
+        )
+        .await;
+
+        let ids: Vec<&str> = feed.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["ok"], "the content filter must not be skipped");
     }
 }
