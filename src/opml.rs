@@ -7,6 +7,7 @@ use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 
 use crate::error::FrustError;
 use crate::model::{App, Group};
+use crate::utils::yaml_quote;
 
 // ---------------------------------------------------------------------------
 // OPML import helpers
@@ -187,12 +188,6 @@ fn parse_opml_str(content: &str) -> Result<Vec<ParsedGroup>, FrustError> {
 pub(crate) fn parse_opml(path: &str) -> Result<Vec<ParsedGroup>, FrustError> {
     let content = fs::read_to_string(path)?;
     parse_opml_str(&content)
-}
-
-/// Double-quote a YAML scalar, escaping backslashes and double-quotes.
-fn yaml_quote(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
 }
 
 /// Serialise the parsed groups into a minimal YAML config skeleton.

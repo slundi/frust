@@ -22,6 +22,28 @@ pub(crate) fn default_data_dir(xdg_state_home: Option<&str>, home: Option<&str>)
     PathBuf::from("/var/lib/frust")
 }
 
+/// Double-quote a YAML scalar. Escapes `\`, `"`, and control and line
+/// separator characters: a raw newline in a feed title would end the string
+/// and let the feed inject keys into the generated YAML.
+pub(crate) fn yaml_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('"');
+    for character in value.chars() {
+        match character {
+            '\\' => quoted.push_str("\\\\"),
+            '"' => quoted.push_str("\\\""),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            '\u{2028}' | '\u{2029}' => quoted.push_str(&format!("\\u{:04x}", character as u32)),
+            other if other.is_control() => quoted.push_str(&format!("\\u{:04x}", other as u32)),
+            other => quoted.push(other),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
 /// Storage id of a feed entry, scoped to its feed so two feeds publishing the
 /// same GUID (YouTube playlists, planets, "all" + "category" feeds, `1`, `2`…)
 /// never share — and overwrite — the same article.
@@ -91,6 +113,41 @@ mod tests {
             default_data_dir(None, None),
             PathBuf::from("/var/lib/frust")
         );
+    }
+
+    // ---- yaml_quote (B15) ----
+
+    fn yaml_round_trip(value: &str) -> String {
+        use saphyr::{LoadableYamlNode, Yaml};
+        let doc = format!("key: {}\nnext: 1\n", yaml_quote(value));
+        let docs = Yaml::load_from_str(&doc).unwrap_or_else(|e| panic!("{e}: {doc}"));
+        let map = docs[0].as_mapping().unwrap();
+        assert_eq!(map.len(), 2, "no key injected: {doc}");
+        docs[0]["key"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn test_yaml_quote_round_trips_special_characters() {
+        for value in [
+            "plain",
+            "C:\\foo\\",
+            "Say \"hi\"",
+            "a: b # not a comment",
+            "line\ninjected: true",
+            "cr\rtab\tend",
+            "bell\u{7}nul\u{0}",
+            "sep\u{2028}para\u{2029}",
+            "Été à 5 € 🎸",
+            "",
+        ] {
+            assert_eq!(yaml_round_trip(value), value);
+        }
+    }
+
+    #[test]
+    fn test_yaml_quote_keeps_output_on_one_line() {
+        assert_eq!(yaml_quote("a\nb"), "\"a\\nb\"");
+        assert!(!yaml_quote("x\r\n\u{2028}y").contains(['\n', '\r', '\u{2028}']));
     }
 
     #[test]

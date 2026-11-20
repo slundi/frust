@@ -12,6 +12,7 @@ use tracing::info;
 use crate::{
     error::FrustError,
     model::{Article, ExportStrategy},
+    utils::yaml_quote,
 };
 
 use super::{Enrichment, Exporter, write_atomically};
@@ -42,11 +43,12 @@ fn article_to_md(article: &Article) -> String {
     let date = DateTime::<Utc>::from_timestamp(article.timestamp, 0)
         .unwrap_or_default()
         .to_rfc3339();
-    // Escape double-quotes inside the title for valid YAML inline strings
-    let escaped_title = article.title.replace('"', "\\\"");
+    // Both come from the feed: quote and escape them fully (backslashes,
+    // newlines that would inject keys, " #" or ": " in URLs).
     let mut s = format!(
-        "---\ntitle: \"{escaped_title}\"\nurl: {}\ndate: {date}\n---\n\n",
-        article.url
+        "---\ntitle: {}\nurl: {}\ndate: {date}\n---\n\n",
+        yaml_quote(&article.title),
+        yaml_quote(&article.url)
     );
     if !article.content.is_empty() {
         s.push_str(&article.content);
@@ -156,6 +158,27 @@ mod tests {
         }
     }
 
+    // ---- front-matter (B15) ----
+
+    #[test]
+    fn test_front_matter_survives_hostile_title_and_url() {
+        use saphyr::{LoadableYamlNode, Yaml};
+        let title = "C:\\foo\\ \"quoted\"\nlayout: evil";
+        let url = "https://x.org/a?b=1 #frag: c";
+        let md = article_to_md(&make_article(1, title, url, 1_705_276_800, "Body"));
+
+        let front_matter = md
+            .strip_prefix("---\n")
+            .and_then(|rest| rest.split_once("\n---\n"))
+            .map(|(yaml, _)| yaml)
+            .expect("front-matter block");
+        let docs = Yaml::load_from_str(front_matter).expect("valid YAML");
+        let map = docs[0].as_mapping().unwrap();
+        assert_eq!(map.len(), 3, "no injected key: {front_matter}");
+        assert_eq!(docs[0]["title"].as_str(), Some(title));
+        assert_eq!(docs[0]["url"].as_str(), Some(url));
+    }
+
     #[test]
     fn test_monolithic_empty_articles() {
         let dir = TempDir::new().unwrap();
@@ -200,7 +223,7 @@ mod tests {
         .unwrap();
         let content = fs::read_to_string(&dest).unwrap();
         assert!(content.contains("title: \"Hello World\""));
-        assert!(content.contains("url: https://example.com/1"));
+        assert!(content.contains("url: \"https://example.com/1\""));
         assert!(content.contains("Some content here."));
     }
 
@@ -302,7 +325,7 @@ mod tests {
         let path = dest.join("2024-01-15-my-article.md");
         let content = fs::read_to_string(path).unwrap();
         assert!(content.contains("title: \"My Article\""));
-        assert!(content.contains("url: https://example.com/my-article"));
+        assert!(content.contains("url: \"https://example.com/my-article\""));
         assert!(content.contains("Body text."));
     }
 
