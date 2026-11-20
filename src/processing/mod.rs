@@ -189,6 +189,123 @@ pub(crate) async fn with_deadline<T>(
         .map_err(|_| FrustError::RunTimeout(deadline.as_secs()))?
 }
 
+/// Fetch one feed and turn its new entries into articles.
+///
+/// Returns `None` when the feed was checked recently enough to be skipped,
+/// otherwise the articles to store and the feed state to record.
+async fn fetch_feed(
+    ctx: &RunContext<'_>,
+    feed_id: u64,
+    feed: &Feed,
+) -> Result<Option<FeedResult>, FrustError> {
+    let now_ts = ctx.now.timestamp();
+    let stored_state = ctx.states.get(&feed_id);
+
+    let last_check = stored_state
+        .and_then(|s| s.last_check_ts)
+        .and_then(|ts| DateTime::from_timestamp(ts, 0));
+    if !is_refresh_required(last_check, ctx.now, ctx.min_refresh) {
+        info!("Refresh not needed for {}", feed.title);
+        return Ok(None);
+    }
+
+    let mut req = ctx.client.get(&feed.url);
+    if let Some(etag) = stored_state.and_then(|s| s.last_etag.as_deref()) {
+        req = req.header(header::IF_NONE_MATCH, etag);
+    }
+    if let Some(last_mod) = stored_state
+        .and_then(|s| s.last_modified_ts)
+        .and_then(|ts| DateTime::from_timestamp(ts, 0))
+    {
+        req = req.header(header::IF_MODIFIED_SINCE, last_mod.to_rfc2822());
+    }
+
+    debug!("Sending request for {} to {}", feed.title, feed.url);
+    let response = req.send().await?;
+    let http_status = response.status().as_u16();
+
+    if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+        tracing::info!("Feed '{}' not modified (304)", feed.title);
+        return Ok(Some(FeedResult {
+            feed_id,
+            articles: vec![],
+            state: checked_state(stored_state, now_ts, http_status),
+        }));
+    }
+
+    let new_etag = response
+        .headers()
+        .get(header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let new_last_mod = response
+        .headers()
+        .get(header::LAST_MODIFIED)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+
+    let bytes = match read_bounded_body(response, MAX_FEED_BYTES).await? {
+        Some(b) => b,
+        None => {
+            tracing::warn!(
+                "Feed '{}' body exceeds {} bytes cap; skipping this refresh",
+                feed.title,
+                MAX_FEED_BYTES
+            );
+            // Keep the old validators: with the new ETag, the next
+            // run would get a 304 and never retry this content.
+            return Ok(Some(FeedResult {
+                feed_id,
+                articles: vec![],
+                state: checked_state(stored_state, now_ts, http_status),
+            }));
+        }
+    };
+    let mut fetched_feed = parser::Builder::new()
+        .sanitize_content(true)
+        .build()
+        .parse(bytes.as_slice())
+        .map_err(|e| FrustError::FeedParse(e.to_string()))?;
+
+    filter::apply_filters_and_retention(
+        &mut fetched_feed,
+        feed_id,
+        feed,
+        ctx.filters,
+        &ctx.scrape_client,
+        feed.selector.clone(),
+        &ctx.existing_ids,
+    )
+    .await;
+
+    let articles: Vec<Article> = fetched_feed
+        .entries
+        .iter()
+        .map(|entry| convert::entry_to_article(entry, feed_id, now_ts))
+        .collect();
+
+    tracing::info!(
+        "Feed '{}': {} new article(s) after filtering",
+        feed.title,
+        articles.len()
+    );
+
+    let state = FeedState {
+        last_etag: new_etag,
+        last_check_ts: Some(now_ts),
+        last_modified_ts: new_last_mod.map(|dt| dt.timestamp()),
+        last_http_status: Some(http_status),
+    };
+
+    Ok(Some(FeedResult {
+        feed_id,
+        articles,
+        state,
+    }))
+}
+
 /// Main processing entry point: fetches all feeds concurrently, applies
 /// filters/retention, persists new articles, then exports per-group output files.
 pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
@@ -199,7 +316,6 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
     let storage = Storage::open_in(&app.data_dir)?;
     let ctx = RunContext::new(app, &storage, now)?;
     let ctx = &ctx;
-    let now_ts = now.timestamp();
 
     let feeds_to_process = unique_feeds(app);
 
@@ -211,115 +327,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
 
     // Phase 1: fetch → filter → convert to Articles (runs concurrently)
     let results: Vec<FeedResult> = stream::iter(feeds_to_process)
-        .map(|(feed_id, feed)| {
-            async move {
-                let stored_state = ctx.states.get(&feed_id);
-
-                let last_check = stored_state
-                    .and_then(|s| s.last_check_ts)
-                    .and_then(|ts| DateTime::from_timestamp(ts, 0));
-                if !is_refresh_required(last_check, ctx.now, ctx.min_refresh) {
-                    info!("Refresh not needed for {}", feed.title);
-                    return Ok(None);
-                }
-
-                let mut req = ctx.client.get(&feed.url);
-                if let Some(etag) = stored_state.and_then(|s| s.last_etag.as_deref()) {
-                    req = req.header(header::IF_NONE_MATCH, etag);
-                }
-                if let Some(last_mod) = stored_state
-                    .and_then(|s| s.last_modified_ts)
-                    .and_then(|ts| DateTime::from_timestamp(ts, 0))
-                {
-                    req = req.header(header::IF_MODIFIED_SINCE, last_mod.to_rfc2822());
-                }
-
-                debug!("Sending request for {} to {}", feed.title, feed.url);
-                let response = req.send().await?;
-                let http_status = response.status().as_u16();
-
-                if response.status() == reqwest::StatusCode::NOT_MODIFIED {
-                    tracing::info!("Feed '{}' not modified (304)", feed.title);
-                    return Ok(Some(FeedResult {
-                        feed_id,
-                        articles: vec![],
-                        state: checked_state(stored_state, now_ts, http_status),
-                    }));
-                }
-
-                let new_etag = response
-                    .headers()
-                    .get(header::ETAG)
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.to_string());
-
-                let new_last_mod = response
-                    .headers()
-                    .get(header::LAST_MODIFIED)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
-                    .map(|dt| dt.with_timezone(&Utc));
-
-                let bytes = match read_bounded_body(response, MAX_FEED_BYTES).await? {
-                    Some(b) => b,
-                    None => {
-                        tracing::warn!(
-                            "Feed '{}' body exceeds {} bytes cap; skipping this refresh",
-                            feed.title,
-                            MAX_FEED_BYTES
-                        );
-                        // Keep the old validators: with the new ETag, the next
-                        // run would get a 304 and never retry this content.
-                        return Ok(Some(FeedResult {
-                            feed_id,
-                            articles: vec![],
-                            state: checked_state(stored_state, now_ts, http_status),
-                        }));
-                    }
-                };
-                let mut fetched_feed = parser::Builder::new()
-                    .sanitize_content(true)
-                    .build()
-                    .parse(bytes.as_slice())
-                    .map_err(|e| FrustError::FeedParse(e.to_string()))?;
-
-                filter::apply_filters_and_retention(
-                    &mut fetched_feed,
-                    feed_id,
-                    &feed,
-                    ctx.filters,
-                    &ctx.scrape_client,
-                    feed.selector.clone(),
-                    &ctx.existing_ids,
-                )
-                .await;
-
-                let articles: Vec<Article> = fetched_feed
-                    .entries
-                    .iter()
-                    .map(|entry| convert::entry_to_article(entry, feed_id, now_ts))
-                    .collect();
-
-                tracing::info!(
-                    "Feed '{}': {} new article(s) after filtering",
-                    feed.title,
-                    articles.len()
-                );
-
-                let state = FeedState {
-                    last_etag: new_etag,
-                    last_check_ts: Some(now_ts),
-                    last_modified_ts: new_last_mod.map(|dt| dt.timestamp()),
-                    last_http_status: Some(http_status),
-                };
-
-                Ok::<_, FrustError>(Some(FeedResult {
-                    feed_id,
-                    articles,
-                    state,
-                }))
-            }
-        })
+        .map(|(feed_id, feed)| async move { fetch_feed(ctx, feed_id, &feed).await })
         .buffer_unordered(app.workers.get())
         .filter_map(|res| async move {
             match res {
@@ -480,11 +488,12 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FeedResult, RunContext, append_within_cap, checked_state, persist_results,
+        FeedResult, RunContext, append_within_cap, checked_state, fetch_feed, persist_results,
         run_group_exports, unique_feeds, with_deadline,
     };
     use crate::error::FrustError;
     use crate::model::{App, Article, FeedState, Group};
+    use crate::processing::safe_http::test_server::{http_response, spawn_server_with_head};
     use crate::storage::{Storage, test_support::FailingBackend};
     use redb::{Database, backends::InMemoryBackend};
     use std::collections::HashMap;
@@ -689,6 +698,150 @@ mod tests {
 
         assert!(ctx.existing_ids.is_empty());
         assert!(ctx.states.is_empty());
+    }
+
+    // ---- fetch_feed ----
+
+    const RSS_BODY: &[u8] = br#"<?xml version="1.0"?>
+<rss version="2.0"><channel><title>T</title><link>http://example.com/</link>
+<item><guid>a</guid><title>First</title><link>http://example.com/a</link>
+<pubDate>Mon, 02 Jan 2023 10:00:00 GMT</pubDate><description>One</description></item>
+<item><guid>b</guid><title>Second</title><link>http://example.com/b</link>
+<pubDate>Tue, 03 Jan 2023 10:00:00 GMT</pubDate><description>Two</description></item>
+</channel></rss>"#;
+
+    const LAST_MODIFIED: &str = "Wed, 04 Jan 2023 10:00:00 GMT";
+    const LAST_MODIFIED_TS: i64 = 1_672_826_400;
+
+    /// 304 when the client sent `If-None-Match: "v1"`, otherwise the feed.
+    fn conditional_feed(head: &str, _port: u16) -> Vec<u8> {
+        if head.to_ascii_lowercase().contains("if-none-match: \"v1\"") {
+            return http_response("304 Not Modified", &[], b"");
+        }
+        http_response(
+            "200 OK",
+            &[("ETag", "\"v1\""), ("Last-Modified", LAST_MODIFIED)],
+            RSS_BODY,
+        )
+    }
+
+    /// Serve a feed with `respond` and return its URL.
+    async fn feed_url(respond: fn(&str, u16) -> Vec<u8>) -> String {
+        // The retention filter reads the process-wide run start.
+        let _ = crate::START_TIME.set(chrono::Utc::now());
+        let port = spawn_server_with_head(respond).await;
+        format!("http://127.0.0.1:{port}/feed.xml")
+    }
+
+    fn stored_state(etag: &str, last_check_ts: i64) -> FeedState {
+        FeedState {
+            last_etag: Some(etag.to_string()),
+            last_check_ts: Some(last_check_ts),
+            last_modified_ts: Some(900),
+            last_http_status: Some(200),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_feed_skips_recently_checked_feed() {
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let app = App {
+            min_refresh_time: 600,
+            ..App::default()
+        };
+        let mut ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+        ctx.states.insert(1, stored_state("\"v1\"", 2_000 - 10));
+
+        // Nothing listens on port 9: a request would fail the test.
+        let result = fetch_feed(&ctx, 1, &feed("http://127.0.0.1:9/")).await;
+
+        assert!(result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_feed_converts_entries_and_records_new_validators() {
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let app = App::default();
+        let ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+        let url = feed_url(conditional_feed).await;
+
+        let result = fetch_feed(&ctx, 1, &feed(&url)).await.unwrap().unwrap();
+
+        assert_eq!(result.feed_id, 1);
+        let titles: Vec<&str> = result.articles.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(titles, vec!["First", "Second"]);
+        assert!(result.articles.iter().all(|a| a.feed_id == 1));
+        assert_eq!(result.state.last_etag.as_deref(), Some("\"v1\""));
+        assert_eq!(result.state.last_modified_ts, Some(LAST_MODIFIED_TS));
+        assert_eq!(result.state.last_check_ts, Some(2_000));
+        assert_eq!(result.state.last_http_status, Some(200));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_feed_sends_validators_and_keeps_them_on_304() {
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let app = App::default();
+        let mut ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+        ctx.states.insert(1, stored_state("\"v1\"", 0));
+        let url = feed_url(conditional_feed).await;
+
+        let result = fetch_feed(&ctx, 1, &feed(&url)).await.unwrap().unwrap();
+
+        assert!(result.articles.is_empty());
+        assert_eq!(result.state.last_etag.as_deref(), Some("\"v1\""));
+        assert_eq!(result.state.last_modified_ts, Some(900));
+        assert_eq!(result.state.last_check_ts, Some(2_000));
+        assert_eq!(result.state.last_http_status, Some(304));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_feed_drops_already_stored_articles() {
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let app = App::default();
+        let mut ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+        let url = feed_url(conditional_feed).await;
+        let first = fetch_feed(&ctx, 1, &feed(&url)).await.unwrap().unwrap();
+        ctx.existing_ids.insert(first.articles[0].id);
+
+        let second = fetch_feed(&ctx, 1, &feed(&url)).await.unwrap().unwrap();
+
+        let titles: Vec<&str> = second.articles.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(titles, vec!["Second"]);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_feed_keeps_old_validators_when_body_is_oversized() {
+        fn oversized(_head: &str, _port: u16) -> Vec<u8> {
+            // Announced length over the cap: rejected before reading the body.
+            b"HTTP/1.1 200 OK\r\nContent-Length: 40000000\r\nETag: \"v2\"\r\nConnection: close\r\n\r\n"
+                .to_vec()
+        }
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let app = App::default();
+        let mut ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+        ctx.states.insert(1, stored_state("\"v1\"", 0));
+        let url = feed_url(oversized).await;
+
+        let result = fetch_feed(&ctx, 1, &feed(&url)).await.unwrap().unwrap();
+
+        assert!(result.articles.is_empty());
+        assert_eq!(result.state.last_etag.as_deref(), Some("\"v1\""));
+        assert_eq!(result.state.last_check_ts, Some(2_000));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_feed_reports_unparsable_body() {
+        fn garbage(_head: &str, _port: u16) -> Vec<u8> {
+            http_response("200 OK", &[], b"this is not a feed")
+        }
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let app = App::default();
+        let ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+        let url = feed_url(garbage).await;
+
+        let result = fetch_feed(&ctx, 1, &feed(&url)).await;
+
+        assert!(matches!(result, Err(FrustError::FeedParse(_))));
     }
 
     // ---- checked_state (B18) ----

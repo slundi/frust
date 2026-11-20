@@ -1,3 +1,5 @@
 [default.extend-words]
 # OEBPS package document (content.opf), not a typo of "of"
 opf = "opf"
+# "café" as Latin-1 bytes (b"caf\xe9") in the charset decoding tests
+caf = "caf"

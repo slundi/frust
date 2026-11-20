@@ -331,6 +331,20 @@ pub(crate) mod test_server {
 
     /// Serve `respond(path, port)` on 127.0.0.1 and return the port.
     pub(crate) async fn spawn_server(respond: fn(&str, u16) -> Vec<u8>) -> u16 {
+        spawn_server_with_head(move |head, port| {
+            let path = head.split_whitespace().nth(1).unwrap_or("/");
+            respond(path, port)
+        })
+        .await
+    }
+
+    /// Serve `respond(request_head, port)` on 127.0.0.1 and return the port.
+    /// The head is the request line and headers, for tests that check what
+    /// the client sent.
+    pub(crate) async fn spawn_server_with_head<F>(respond: F) -> u16
+    where
+        F: Fn(&str, u16) -> Vec<u8> + Copy + Send + 'static,
+    {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
@@ -349,8 +363,7 @@ pub(crate) mod test_server {
                         }
                     }
                     let head = String::from_utf8_lossy(&buf[..len]);
-                    let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
-                    let _ = stream.write_all(&respond(&path, port)).await;
+                    let _ = stream.write_all(&respond(&head, port)).await;
                     let _ = stream.shutdown().await;
                 });
             }
