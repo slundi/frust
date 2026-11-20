@@ -9,7 +9,10 @@ use std::{
 use chrono::{DateTime, Utc};
 use feed_rs::parser;
 use futures::{StreamExt, stream};
-use reqwest::{Client, header};
+use reqwest::{
+    Client,
+    header::{self, HeaderMap, HeaderValue},
+};
 use tracing::{debug, info};
 
 use crate::{
@@ -189,6 +192,80 @@ pub(crate) async fn with_deadline<T>(
         .map_err(|_| FrustError::RunTimeout(deadline.as_secs()))?
 }
 
+/// `If-None-Match` / `If-Modified-Since` headers from the stored validators,
+/// so an unchanged feed answers `304 Not Modified`.
+fn conditional_headers(stored: Option<&FeedState>) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    if let Some(etag) = stored
+        .and_then(|state| state.last_etag.as_deref())
+        .and_then(|etag| HeaderValue::from_str(etag).ok())
+    {
+        headers.insert(header::IF_NONE_MATCH, etag);
+    }
+    if let Some(last_mod) = stored
+        .and_then(|state| state.last_modified_ts)
+        .and_then(|ts| DateTime::from_timestamp(ts, 0))
+        .and_then(|date| HeaderValue::from_str(&date.to_rfc2822()).ok())
+    {
+        headers.insert(header::IF_MODIFIED_SINCE, last_mod);
+    }
+    headers
+}
+
+/// State of a feed whose new content is taken in: record the check and the
+/// response's ETag and Last-Modified for the next conditional request.
+/// Unreadable validators are dropped (the next request is unconditional).
+fn fetched_state(headers: &HeaderMap, now_ts: i64, http_status: u16) -> FeedState {
+    let last_etag = headers
+        .get(header::ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let last_modified_ts = headers
+        .get(header::LAST_MODIFIED)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| DateTime::parse_from_rfc2822(value).ok())
+        .map(|date| date.timestamp());
+    FeedState {
+        last_etag,
+        last_check_ts: Some(now_ts),
+        last_modified_ts,
+        last_http_status: Some(http_status),
+    }
+}
+
+/// Parse a feed body, drop stored, expired and filtered-out entries, and
+/// convert the rest into articles.
+async fn parse_and_convert(
+    ctx: &RunContext<'_>,
+    feed_id: u64,
+    feed: &Feed,
+    bytes: &[u8],
+) -> Result<Vec<Article>, FrustError> {
+    let mut fetched_feed = parser::Builder::new()
+        .sanitize_content(true)
+        .build()
+        .parse(bytes)
+        .map_err(|e| FrustError::FeedParse(e.to_string()))?;
+
+    filter::apply_filters_and_retention(
+        &mut fetched_feed,
+        feed_id,
+        feed,
+        ctx.filters,
+        &ctx.scrape_client,
+        feed.selector.clone(),
+        &ctx.existing_ids,
+    )
+    .await;
+
+    let now_ts = ctx.now.timestamp();
+    Ok(fetched_feed
+        .entries
+        .iter()
+        .map(|entry| convert::entry_to_article(entry, feed_id, now_ts))
+        .collect())
+}
+
 /// Fetch one feed and turn its new entries into articles.
 ///
 /// Returns `None` when the feed was checked recently enough to be skipped,
@@ -209,19 +286,13 @@ async fn fetch_feed(
         return Ok(None);
     }
 
-    let mut req = ctx.client.get(&feed.url);
-    if let Some(etag) = stored_state.and_then(|s| s.last_etag.as_deref()) {
-        req = req.header(header::IF_NONE_MATCH, etag);
-    }
-    if let Some(last_mod) = stored_state
-        .and_then(|s| s.last_modified_ts)
-        .and_then(|ts| DateTime::from_timestamp(ts, 0))
-    {
-        req = req.header(header::IF_MODIFIED_SINCE, last_mod.to_rfc2822());
-    }
-
     debug!("Sending request for {} to {}", feed.title, feed.url);
-    let response = req.send().await?;
+    let response = ctx
+        .client
+        .get(&feed.url)
+        .headers(conditional_headers(stored_state))
+        .send()
+        .await?;
     let http_status = response.status().as_u16();
 
     if response.status() == reqwest::StatusCode::NOT_MODIFIED {
@@ -233,18 +304,7 @@ async fn fetch_feed(
         }));
     }
 
-    let new_etag = response
-        .headers()
-        .get(header::ETAG)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-
-    let new_last_mod = response
-        .headers()
-        .get(header::LAST_MODIFIED)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
-        .map(|dt| dt.with_timezone(&Utc));
+    let state = fetched_state(response.headers(), now_ts, http_status);
 
     let bytes = match read_bounded_body(response, MAX_FEED_BYTES).await? {
         Some(b) => b,
@@ -263,41 +323,13 @@ async fn fetch_feed(
             }));
         }
     };
-    let mut fetched_feed = parser::Builder::new()
-        .sanitize_content(true)
-        .build()
-        .parse(bytes.as_slice())
-        .map_err(|e| FrustError::FeedParse(e.to_string()))?;
-
-    filter::apply_filters_and_retention(
-        &mut fetched_feed,
-        feed_id,
-        feed,
-        ctx.filters,
-        &ctx.scrape_client,
-        feed.selector.clone(),
-        &ctx.existing_ids,
-    )
-    .await;
-
-    let articles: Vec<Article> = fetched_feed
-        .entries
-        .iter()
-        .map(|entry| convert::entry_to_article(entry, feed_id, now_ts))
-        .collect();
+    let articles = parse_and_convert(ctx, feed_id, feed, &bytes).await?;
 
     tracing::info!(
         "Feed '{}': {} new article(s) after filtering",
         feed.title,
         articles.len()
     );
-
-    let state = FeedState {
-        last_etag: new_etag,
-        last_check_ts: Some(now_ts),
-        last_modified_ts: new_last_mod.map(|dt| dt.timestamp()),
-        last_http_status: Some(http_status),
-    };
 
     Ok(Some(FeedResult {
         feed_id,
@@ -488,14 +520,16 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FeedResult, RunContext, append_within_cap, checked_state, fetch_feed, persist_results,
-        run_group_exports, unique_feeds, with_deadline,
+        FeedResult, RunContext, append_within_cap, checked_state, conditional_headers, fetch_feed,
+        fetched_state, parse_and_convert, persist_results, run_group_exports, unique_feeds,
+        with_deadline,
     };
     use crate::error::FrustError;
     use crate::model::{App, Article, FeedState, Group};
     use crate::processing::safe_http::test_server::{http_response, spawn_server_with_head};
     use crate::storage::{Storage, test_support::FailingBackend};
     use redb::{Database, backends::InMemoryBackend};
+    use reqwest::header::{self, HeaderMap, HeaderValue};
     use std::collections::HashMap;
     use std::sync::atomic::Ordering;
 
@@ -840,6 +874,125 @@ mod tests {
         let url = feed_url(garbage).await;
 
         let result = fetch_feed(&ctx, 1, &feed(&url)).await;
+
+        assert!(matches!(result, Err(FrustError::FeedParse(_))));
+    }
+
+    // ---- conditional_headers ----
+
+    #[test]
+    fn test_conditional_headers_without_stored_state_is_empty() {
+        assert!(conditional_headers(None).is_empty());
+    }
+
+    #[test]
+    fn test_conditional_headers_sends_stored_validators() {
+        let stored = FeedState {
+            last_etag: Some("\"v1\"".to_string()),
+            last_check_ts: Some(1_000),
+            last_modified_ts: Some(LAST_MODIFIED_TS),
+            last_http_status: Some(200),
+        };
+
+        let headers = conditional_headers(Some(&stored));
+
+        assert_eq!(headers[header::IF_NONE_MATCH], "\"v1\"");
+        let since = headers[header::IF_MODIFIED_SINCE].to_str().unwrap();
+        let since = chrono::DateTime::parse_from_rfc2822(since).unwrap();
+        assert_eq!(since.timestamp(), LAST_MODIFIED_TS);
+    }
+
+    #[test]
+    fn test_conditional_headers_skips_missing_and_invalid_validators() {
+        let stored = FeedState {
+            // A newline cannot go in a header value.
+            last_etag: Some("\"bad\nvalue\"".to_string()),
+            last_check_ts: Some(1_000),
+            last_modified_ts: None,
+            last_http_status: Some(200),
+        };
+
+        assert!(conditional_headers(Some(&stored)).is_empty());
+    }
+
+    // ---- fetched_state ----
+
+    #[test]
+    fn test_fetched_state_records_response_validators() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ETAG, HeaderValue::from_static("\"v2\""));
+        headers.insert(
+            header::LAST_MODIFIED,
+            HeaderValue::from_static(LAST_MODIFIED),
+        );
+
+        let state = fetched_state(&headers, 2_000, 200);
+
+        assert_eq!(state.last_etag.as_deref(), Some("\"v2\""));
+        assert_eq!(state.last_modified_ts, Some(LAST_MODIFIED_TS));
+        assert_eq!(state.last_check_ts, Some(2_000));
+        assert_eq!(state.last_http_status, Some(200));
+    }
+
+    #[test]
+    fn test_fetched_state_without_validators_has_none() {
+        let state = fetched_state(&HeaderMap::new(), 2_000, 200);
+
+        assert!(state.last_etag.is_none());
+        assert!(state.last_modified_ts.is_none());
+        assert_eq!(state.last_check_ts, Some(2_000));
+    }
+
+    #[test]
+    fn test_fetched_state_drops_unreadable_validators() {
+        let mut headers = HeaderMap::new();
+        // Not visible ASCII: `to_str` refuses it.
+        headers.insert(
+            header::ETAG,
+            HeaderValue::from_bytes(b"\"caf\xe9\"").unwrap(),
+        );
+        headers.insert(header::LAST_MODIFIED, HeaderValue::from_static("yesterday"));
+
+        let state = fetched_state(&headers, 2_000, 200);
+
+        assert!(state.last_etag.is_none());
+        assert!(state.last_modified_ts.is_none());
+    }
+
+    // ---- parse_and_convert ----
+
+    #[tokio::test]
+    async fn test_parse_and_convert_applies_feed_filters() {
+        let _ = crate::START_TIME.set(chrono::Utc::now());
+        let exclude_second = crate::model::Filter {
+            expressions: vec!["second".to_string()],
+            filter_in_title: true,
+            keep: false,
+            ..crate::model::Filter::default()
+        };
+        let app = App {
+            filters: HashMap::from([(7, exclude_second)]),
+            ..App::default()
+        };
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+        let mut source = feed("http://example.com/feed.xml");
+        source.filters = vec![7];
+
+        let articles = parse_and_convert(&ctx, 1, &source, RSS_BODY).await.unwrap();
+
+        let titles: Vec<&str> = articles.iter().map(|a| a.title.as_str()).collect();
+        assert_eq!(titles, vec!["First"]);
+        assert!(articles.iter().all(|a| a.added_at == 2_000));
+    }
+
+    #[tokio::test]
+    async fn test_parse_and_convert_rejects_invalid_feed() {
+        let app = App::default();
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+
+        let result = parse_and_convert(&ctx, 1, &feed("http://example.com/"), b"<html>").await;
 
         assert!(matches!(result, Err(FrustError::FeedParse(_))));
     }
