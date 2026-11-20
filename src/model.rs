@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroUsize};
 
 use regex::RegexSet;
 use rkyv::{Archive, Deserialize, Serialize};
@@ -17,7 +17,8 @@ pub(crate) struct App {
     /// min refresh time in second
     pub(crate) min_refresh_time: i64,
     // https://stackoverflow.com/questions/22155130/
-    pub(crate) workers: usize,
+    /// Concurrent feed fetches; never 0, which would hang the run.
+    pub(crate) workers: NonZeroUsize,
     /// List of filters, the u64 key is a XXH3 of the slug
     pub(crate) filters: HashMap<u64, Filter>,
     /// All groups, the key is a xxh3 of the slug
@@ -39,9 +40,7 @@ impl Default for App {
         let output = std::env::current_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| ".".to_string());
-        let workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        let workers = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
         let data_dir = crate::utils::default_data_dir(
             std::env::var("XDG_STATE_HOME").ok().as_deref(),
             std::env::var("HOME").ok().as_deref(),

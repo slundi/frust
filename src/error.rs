@@ -56,6 +56,10 @@ pub(crate) enum FrustError {
     #[error("Export error: {0}")]
     Export(String),
 
+    /// The whole run took longer than its deadline and was aborted.
+    #[error("Run aborted after {0} s")]
+    RunTimeout(u64),
+
     /// A process-global (START_TIME, HTTP client) was accessed before it was set.
     #[error("{0} not initialized")]
     NotInitialized(&'static str),

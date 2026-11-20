@@ -102,7 +102,9 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
         }
     }
 
-    if let Err(e) = crate::processing::start(&app).await {
+    let run = crate::processing::start(&app);
+    if let Err(e) = crate::processing::with_deadline(crate::processing::MAX_RUN_DURATION, run).await
+    {
         tracing::error!("Processing failed: {}", e);
         exit_code = ExitCode::FAILURE;
     }

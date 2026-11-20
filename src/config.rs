@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::TryFrom};
+use std::{collections::HashMap, convert::TryFrom, num::NonZeroUsize};
 
 use regex::{RegexSet, RegexSetBuilder};
 use saphyr::{LoadableYamlNode, Mapping, Yaml};
@@ -123,14 +123,13 @@ impl App {
         if let Some(data_dir) = optional_string_field(map, "data_dir") {
             self.data_dir = data_dir;
         }
-        // set the number of workers
+        // set the number of workers; 0 would never start a fetch and hang
         if let Some(value) = map_get(map, "workers") {
-            self.workers = usize::try_from(
-                value
-                    .as_integer()
-                    .expect("Invalid data in config file: workers"),
-            )
-            .expect("Invalid data in config file: workers");
+            self.workers = value
+                .as_integer()
+                .and_then(|workers| usize::try_from(workers).ok())
+                .and_then(NonZeroUsize::new)
+                .expect("Invalid data in config file: workers must be at least 1");
         }
         // set if we should retrieve media from server
         if let Some(value) = map_get(map, "retrieve_server_media") {
@@ -956,7 +955,7 @@ min_refresh_time: 900
         );
         assert_eq!(app.output, "/tmp/frust");
         assert_eq!(app.data_dir, "/tmp/frust-data");
-        assert_eq!(app.workers, 4);
+        assert_eq!(app.workers.get(), 4);
         assert_eq!(app.timeout, 15);
         assert_eq!(app.retention, 45);
         assert!(app.media);
@@ -1257,6 +1256,19 @@ groups:
     }
 
     #[test]
+    #[should_panic(expected = "workers must be at least 1")]
+    fn test_zero_workers_is_rejected() {
+        // buffer_unordered(0) never polls a fetch: the run would hang forever.
+        app_from_yaml("workers: 0\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "workers must be at least 1")]
+    fn test_negative_workers_is_rejected() {
+        app_from_yaml("workers: -2\n");
+    }
+
+    #[test]
     fn test_quoted_and_unquoted_string_keys_both_work() {
         // saphyr's scalar resolution differs slightly from yaml-rust for
         // ambiguous scalars; make sure both quoted and bare keys still map
@@ -1268,6 +1280,6 @@ workers: 2
 "#,
         );
         assert_eq!(app.output, "/tmp/quoted");
-        assert_eq!(app.workers, 2);
+        assert_eq!(app.workers.get(), 2);
     }
 }

@@ -1,8 +1,10 @@
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
+    future::Future,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use chrono::{DateTime, Utc};
@@ -28,6 +30,11 @@ type StatesMap = Arc<HashMap<u64, FeedState>>;
 /// hostile. Reading unbounded would OOM the router-class targets this tool is
 /// meant to run on.
 const MAX_FEED_BYTES: u64 = 32 * 1024 * 1024; // 32 MiB
+
+/// Upper bound on a whole run. Every request already has its own timeout,
+/// but a stuck run would hold the exclusive redb lock and make every
+/// following cron run fail.
+pub(crate) const MAX_RUN_DURATION: Duration = Duration::from_secs(60 * 60);
 
 pub(crate) mod content;
 pub(crate) mod convert;
@@ -74,11 +81,22 @@ struct FeedResult {
     state: FeedState,
 }
 
+/// Run `work`, aborting it (and dropping what it holds, such as the storage
+/// lock) once `deadline` has passed.
+pub(crate) async fn with_deadline<T>(
+    deadline: Duration,
+    work: impl Future<Output = Result<T, FrustError>>,
+) -> Result<T, FrustError> {
+    tokio::time::timeout(deadline, work)
+        .await
+        .map_err(|_| FrustError::RunTimeout(deadline.as_secs()))?
+}
+
 /// Main processing entry point: fetches all feeds concurrently, applies
 /// filters/retention, persists new articles, then exports per-group output files.
 pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
     debug!("Creating HTTP clients");
-    let timeout = std::time::Duration::from_secs(app.timeout as u64);
+    let timeout = Duration::from_secs(app.timeout as u64);
     let client = Client::builder()
         .timeout(timeout)
         .user_agent(concat!("frust/", env!("CARGO_PKG_VERSION")))
@@ -258,7 +276,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                 }))
             }
         })
-        .buffer_unordered(app.workers)
+        .buffer_unordered(app.workers.get())
         .filter_map(|res| async move {
             match res {
                 Ok(Some(r)) => Some(r),
@@ -397,7 +415,8 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FeedResult, append_within_cap, persist_results};
+    use super::{FeedResult, append_within_cap, persist_results, with_deadline};
+    use crate::error::FrustError;
     use crate::model::{Article, FeedState};
     use crate::storage::{Storage, test_support::FailingBackend};
     use redb::{Database, backends::InMemoryBackend};
@@ -487,6 +506,20 @@ mod tests {
         // Articles are safe; losing the state only costs a re-fetch.
         assert_eq!(persist_results(&storage, results).unwrap(), 1);
         assert!(storage.load_article_ids().unwrap().contains(&10));
+    }
+
+    #[tokio::test]
+    async fn test_with_deadline_aborts_stuck_work() {
+        let stuck = std::future::pending::<Result<(), FrustError>>();
+        let result = with_deadline(std::time::Duration::from_millis(10), stuck).await;
+        assert!(matches!(result, Err(FrustError::RunTimeout(_))));
+    }
+
+    #[tokio::test]
+    async fn test_with_deadline_passes_through_result() {
+        let done = async { Ok::<_, FrustError>(7) };
+        let result = with_deadline(std::time::Duration::from_secs(5), done).await;
+        assert_eq!(result.unwrap(), 7);
     }
 
     #[test]
