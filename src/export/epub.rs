@@ -15,8 +15,7 @@
 
 use std::{
     collections::HashMap,
-    fs,
-    io::{BufWriter, Seek, Write},
+    io::{Seek, Write},
     path::Path,
 };
 
@@ -30,6 +29,7 @@ use crate::{error::FrustError, model::Article};
 use super::{
     Enrichment, Exporter,
     html::{is_safe_link, markdown_to_safe_html},
+    write_atomically,
 };
 
 pub(crate) struct EpubExporter;
@@ -51,9 +51,6 @@ impl Exporter for EpubExporter {
         _enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to EPUB");
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)?;
-        }
 
         // Oldest-first on purpose: EPUB is read start-to-end like a book, so the
         // natural order is chronological. RSS/Atom exports sort newest-first for
@@ -61,11 +58,10 @@ impl Exporter for EpubExporter {
         let mut sorted: Vec<&Article> = articles.iter().collect();
         sorted.sort_by_key(|a| a.timestamp);
 
-        let out = BufWriter::new(fs::File::create(destination)?);
-        let out = write_epub(out, title, &sorted)?;
-        // Surface flush errors instead of losing them in BufWriter's Drop.
-        out.into_inner().map_err(|e| e.into_error())?.sync_all()?;
-        Ok(())
+        write_atomically(destination, |out| {
+            write_epub(out, title, &sorted)?;
+            Ok(())
+        })
     }
 }
 
@@ -277,6 +273,8 @@ fn escape_xml(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::export::Enrichment;
     use std::path::PathBuf;

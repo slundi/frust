@@ -1,10 +1,11 @@
-use std::fs;
-use std::io::BufWriter;
+use std::io::Write;
+use std::path::Path;
 
 use quick_xml::Writer;
 
 use crate::cli::{ExportOpts, ImportOpts};
 use crate::error::FrustError;
+use crate::export::write_atomically;
 use crate::opml::{ParsedGroup, build_yaml, parse_opml, write_opml};
 
 /// `frust export OUTPUT`
@@ -67,13 +68,7 @@ pub fn import_opml(opts: &ImportOpts) -> Result<(), FrustError> {
     }
 
     let yaml = build_yaml(&all_groups);
-
-    if let Some(parent) = std::path::Path::new(output).parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(output, yaml)?;
+    write_atomically(Path::new(output), |out| Ok(out.write_all(yaml.as_bytes())?))?;
     tracing::info!(
         "Config written to {} ({} group(s))",
         output,
@@ -97,15 +92,9 @@ pub fn export_opml(opts: &ExportOpts) -> Result<(), FrustError> {
     tracing::info!("Loading config from {}", config_file);
     let app = crate::config::load_config_file(config_file.to_string());
 
-    if let Some(parent) = std::path::Path::new(output).parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-
-    let file = fs::File::create(output)?;
-    let mut writer = Writer::new_with_indent(BufWriter::new(file), b' ', 2);
-    write_opml(&mut writer, &app)?;
+    write_atomically(Path::new(output), |out| {
+        write_opml(&mut Writer::new_with_indent(out, b' ', 2), &app)
+    })?;
 
     tracing::info!("OPML written to {}", output);
     Ok(())
@@ -113,6 +102,8 @@ pub fn export_opml(opts: &ExportOpts) -> Result<(), FrustError> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use std::{io::Read, path::Path};
 
     use zip::ZipArchive;

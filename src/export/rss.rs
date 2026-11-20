@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io::BufWriter, path::Path};
+use std::{collections::HashMap, path::Path};
 
 use quick_xml::{
     Writer,
@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::{error::FrustError, model::Article};
 
-use super::{Enrichment, Exporter, render_template};
+use super::{Enrichment, Exporter, render_template, write_atomically};
 
 pub(crate) struct RssExporter;
 
@@ -22,49 +22,61 @@ impl Exporter for RssExporter {
         enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to RSS");
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let file = fs::File::create(destination)?;
-        let mut writer = Writer::new_with_indent(BufWriter::new(file), b' ', 2);
-
-        writer
-            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        // <rss version="2.0">
-        let mut rss_tag = BytesStart::new("rss");
-        rss_tag.push_attribute(("version", "2.0"));
-        writer
-            .write_event(Event::Start(rss_tag))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        // <channel>
-        writer
-            .write_event(Event::Start(BytesStart::new("channel")))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        write_text_element(&mut writer, "title", title)?;
-        write_text_element(&mut writer, "link", link)?;
-        write_text_element(&mut writer, "description", title)?;
-
-        for article in articles {
-            write_item(&mut writer, article, enrichments.get(&article.feed_id))?;
-        }
-
-        // </channel>
-        writer
-            .write_event(Event::End(BytesEnd::new("channel")))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        // </rss>
-        writer
-            .write_event(Event::End(BytesEnd::new("rss")))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-
-        Ok(())
+        write_atomically(destination, |out| {
+            write_rss_to(
+                &mut Writer::new_with_indent(out, b' ', 2),
+                articles,
+                title,
+                link,
+                enrichments,
+            )
+        })
     }
+}
+
+/// Write a complete RSS 2.0 channel to any `Write` sink.
+fn write_rss_to<W: std::io::Write>(
+    writer: &mut Writer<W>,
+    articles: &[Article],
+    title: &str,
+    link: &str,
+    enrichments: &HashMap<u64, Enrichment>,
+) -> Result<(), FrustError> {
+    writer
+        .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    // <rss version="2.0">
+    let mut rss_tag = BytesStart::new("rss");
+    rss_tag.push_attribute(("version", "2.0"));
+    writer
+        .write_event(Event::Start(rss_tag))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    // <channel>
+    writer
+        .write_event(Event::Start(BytesStart::new("channel")))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    write_text_element(writer, "title", title)?;
+    write_text_element(writer, "link", link)?;
+    write_text_element(writer, "description", title)?;
+
+    for article in articles {
+        write_item(writer, article, enrichments.get(&article.feed_id))?;
+    }
+
+    // </channel>
+    writer
+        .write_event(Event::End(BytesEnd::new("channel")))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    // </rss>
+    writer
+        .write_event(Event::End(BytesEnd::new("rss")))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+
+    Ok(())
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -155,6 +167,8 @@ fn write_item<W: std::io::Write>(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use std::path::PathBuf;
     use tempfile::TempDir;

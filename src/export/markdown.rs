@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
-    io::{BufWriter, Write},
+    io::Write,
     path::Path,
 };
 
@@ -14,7 +14,7 @@ use crate::{
     model::{Article, ExportStrategy},
 };
 
-use super::{Enrichment, Exporter};
+use super::{Enrichment, Exporter, write_atomically};
 
 pub(crate) struct MarkdownExporter {
     pub(crate) strategy: ExportStrategy,
@@ -75,17 +75,14 @@ fn monolithic(
     link: &str,
     destination: &Path,
 ) -> Result<(), FrustError> {
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let file = fs::File::create(destination)?;
-    let mut w = BufWriter::new(file);
-    writeln!(w, "# {title}")?;
-    writeln!(w, "\nSource: {link}\n")?;
-    for article in articles {
-        writeln!(w, "{}", article_to_md(article))?;
-    }
-    Ok(())
+    write_atomically(destination, |w| {
+        writeln!(w, "# {title}")?;
+        writeln!(w, "\nSource: {link}\n")?;
+        for article in articles {
+            writeln!(w, "{}", article_to_md(article))?;
+        }
+        Ok(())
+    })
 }
 
 fn individual(articles: &[Article], destination: &Path) -> Result<(), FrustError> {
@@ -102,7 +99,9 @@ fn individual(articles: &[Article], destination: &Path) -> Result<(), FrustError
             format!("{stem}-{idx}.md")
         };
         *idx += 1;
-        fs::write(destination.join(filename), article_to_md(article))?;
+        write_atomically(&destination.join(filename), |w| {
+            Ok(w.write_all(article_to_md(article).as_bytes())?)
+        })?;
     }
     Ok(())
 }
@@ -120,12 +119,13 @@ fn daily(articles: &[Article], destination: &Path) -> Result<(), FrustError> {
     }
     for (day, day_articles) in &by_day {
         let path = destination.join(format!("{day}.md"));
-        let file = fs::File::create(&path)?;
-        let mut w = BufWriter::new(file);
-        writeln!(w, "# {day}\n")?;
-        for article in day_articles {
-            writeln!(w, "{}", article_to_md(article))?;
-        }
+        write_atomically(&path, |w| {
+            writeln!(w, "# {day}\n")?;
+            for article in day_articles {
+                writeln!(w, "{}", article_to_md(article))?;
+            }
+            Ok(())
+        })?;
     }
     Ok(())
 }

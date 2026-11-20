@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
-    io::BufWriter,
     path::Path,
 };
 
@@ -15,7 +14,7 @@ use crate::{
     model::{Article, ExportStrategy},
 };
 
-use super::{Enrichment, Exporter, html::markdown_to_safe_html, render_template};
+use super::{Enrichment, Exporter, html::markdown_to_safe_html, render_template, write_atomically};
 
 pub(crate) struct JsonExporter {
     pub(crate) strategy: ExportStrategy,
@@ -128,12 +127,9 @@ fn article_filename(article: &Article) -> String {
 }
 
 fn write_json<T: Serialize>(value: &T, path: &Path) -> Result<(), FrustError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let file = fs::File::create(path)?;
-    serde_json::to_writer_pretty(BufWriter::new(file), value)
-        .map_err(|e| FrustError::Export(e.to_string()))
+    write_atomically(path, |out| {
+        serde_json::to_writer_pretty(out, value).map_err(|e| FrustError::Export(e.to_string()))
+    })
 }
 
 // ── strategies ────────────────────────────────────────────────────────────────
@@ -197,12 +193,7 @@ fn individual(
         };
         *idx += 1;
         let path = destination.join(filename);
-        let file = fs::File::create(&path)?;
-        serde_json::to_writer_pretty(
-            BufWriter::new(file),
-            &to_item(article, enrichments.get(&article.feed_id)),
-        )
-        .map_err(|e| FrustError::Export(e.to_string()))?;
+        write_json(&to_item(article, enrichments.get(&article.feed_id)), &path)?;
     }
     Ok(())
 }
@@ -224,13 +215,11 @@ fn daily(
     }
     for (day, day_articles) in &by_day {
         let path = destination.join(format!("{day}.json"));
-        let file = fs::File::create(&path)?;
         let items: Vec<ItemDto> = day_articles
             .iter()
             .map(|a| to_item(a, enrichments.get(&a.feed_id)))
             .collect();
-        serde_json::to_writer_pretty(BufWriter::new(file), &items)
-            .map_err(|e| FrustError::Export(e.to_string()))?;
+        write_json(&items, &path)?;
     }
     Ok(())
 }

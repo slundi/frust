@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io::BufWriter, path::Path};
+use std::{collections::HashMap, path::Path};
 
 use chrono::{DateTime, Utc};
 use quick_xml::{
@@ -12,7 +12,7 @@ use crate::{
     model::{Article, Enrichment},
 };
 
-use super::{Exporter, render_template};
+use super::{Exporter, render_template, write_atomically};
 
 pub(crate) struct AtomExporter;
 
@@ -26,12 +26,10 @@ impl Exporter for AtomExporter {
         enrichments: &HashMap<u64, Enrichment>,
     ) -> Result<(), FrustError> {
         info!("Exporting to Atom");
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let file = fs::File::create(destination)?;
-        let mut writer = Writer::new_with_indent(BufWriter::new(file), b' ', 2);
-        write_atom_to(&mut writer, articles, title, link, enrichments)
+        write_atomically(destination, |out| {
+            let mut writer = Writer::new_with_indent(out, b' ', 2);
+            write_atom_to(&mut writer, articles, title, link, enrichments)
+        })
     }
 }
 
@@ -207,6 +205,8 @@ fn write_entry<W: std::io::Write>(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use std::path::PathBuf;
     use tempfile::TempDir;

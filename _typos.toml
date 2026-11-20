@@ -1,0 +1,3 @@
+[default.extend-words]
+# OEBPS package document (content.opf), not a typo of "of"
+opf = "opf"

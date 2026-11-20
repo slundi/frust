@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{self, BufReader, BufWriter, Write},
+    io::{self, BufReader, Write},
     path::Path,
 };
 
@@ -11,7 +11,7 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use crate::{
     error::FrustError,
-    export::atom::write_atom_to,
+    export::{atom::write_atom_to, write_atomically},
     model::{Enrichment, Group},
     storage::{Storage, prepare_data_dir},
 };
@@ -47,91 +47,87 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
     prepare_data_dir(Path::new(&app.data_dir), output_dir)?;
     let storage = Storage::open_in(&app.data_dir)?;
 
-    if let Some(parent) = Path::new(output_path).parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
+    write_atomically(Path::new(output_path), |out| {
+        let mut zip = ZipWriter::new(out);
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
-    let zip_file = fs::File::create(output_path)?;
-    let mut zip = ZipWriter::new(BufWriter::new(zip_file));
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        // ── one Atom file per group ───────────────────────────────────────────────
+        for group in app.groups.values() {
+            let mut articles = Vec::new();
+            let mut enrichments: HashMap<u64, Enrichment> = HashMap::new();
 
-    // ── one Atom file per group ───────────────────────────────────────────────
-    for group in app.groups.values() {
-        let mut articles = Vec::new();
-        let mut enrichments: HashMap<u64, Enrichment> = HashMap::new();
-
-        for (feed_id, feed) in &group.feeds {
-            let mut feed_articles = storage.load_articles_for_feed(*feed_id)?;
-            enrichments.insert(
-                *feed_id,
-                Enrichment {
-                    feed_title: feed.title.clone(),
-                    feed_url: feed.url.clone(),
-                    feed_slug: feed.slug.clone(),
-                    feed_page_url: feed.page_url.clone(),
-                    prepend: feed.enrichment_prepend.clone(),
-                    append: feed.enrichment_append.clone(),
-                },
-            );
-            articles.append(&mut feed_articles);
-        }
-
-        // newest first
-        articles.sort_by_key(|a| std::cmp::Reverse(a.timestamp));
-
-        // generate Atom XML in memory
-        let buf = Vec::<u8>::new();
-        let mut writer = Writer::new_with_indent(buf, b' ', 2);
-        write_atom_to(
-            &mut writer,
-            &articles,
-            &group.title,
-            &group.output,
-            &enrichments,
-        )?;
-        let xml_bytes = writer.into_inner();
-
-        let atom_name = group_atom_name(group);
-        info!("zip: adding {} ({} articles)", atom_name, articles.len());
-        zip.start_file(&atom_name, opts)
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-        zip.write_all(&xml_bytes)?;
-    }
-
-    // ── media assets ─────────────────────────────────────────────────────────
-    let media_dir = output_dir.join("media");
-    if media_dir.is_dir() {
-        for entry in fs::read_dir(&media_dir)? {
-            let entry = entry?;
-            // DirEntry::file_type uses symlink_metadata semantics, so a symlink
-            // is detected as a symlink rather than as its target. Skip them —
-            // otherwise a symlink under media/ could pull arbitrary host files
-            // (e.g. /etc/passwd) into the archive.
-            let file_type = entry.file_type()?;
-            if file_type.is_symlink() {
-                tracing::warn!("Skipping symlink in media dir: {}", entry.path().display());
-                continue;
+            for (feed_id, feed) in &group.feeds {
+                let mut feed_articles = storage.load_articles_for_feed(*feed_id)?;
+                enrichments.insert(
+                    *feed_id,
+                    Enrichment {
+                        feed_title: feed.title.clone(),
+                        feed_url: feed.url.clone(),
+                        feed_slug: feed.slug.clone(),
+                        feed_page_url: feed.page_url.clone(),
+                        prepend: feed.enrichment_prepend.clone(),
+                        append: feed.enrichment_append.clone(),
+                    },
+                );
+                articles.append(&mut feed_articles);
             }
-            if !file_type.is_file() {
-                continue;
-            }
-            let path = entry.path();
-            let name = format!("media/{}", entry.file_name().to_string_lossy());
-            info!("zip: adding {}", name);
-            zip.start_file(&name, opts)
+
+            // newest first
+            articles.sort_by_key(|a| std::cmp::Reverse(a.timestamp));
+
+            // generate Atom XML in memory
+            let buf = Vec::<u8>::new();
+            let mut writer = Writer::new_with_indent(buf, b' ', 2);
+            write_atom_to(
+                &mut writer,
+                &articles,
+                &group.title,
+                &group.output,
+                &enrichments,
+            )?;
+            let xml_bytes = writer.into_inner();
+
+            let atom_name = group_atom_name(group);
+            info!("zip: adding {} ({} articles)", atom_name, articles.len());
+            zip.start_file(&atom_name, opts)
                 .map_err(|e| FrustError::Export(e.to_string()))?;
-            // Stream the file straight into the zip writer instead of reading
-            // the whole payload into memory — critical on router-class hosts
-            // when enclosures (podcasts, videos) get large.
-            let mut src = BufReader::new(fs::File::open(&path)?);
-            io::copy(&mut src, &mut zip)?;
+            zip.write_all(&xml_bytes)?;
         }
-    }
 
-    zip.finish()
-        .map_err(|e| FrustError::Export(e.to_string()))?;
+        // ── media assets ─────────────────────────────────────────────────────────
+        let media_dir = output_dir.join("media");
+        if media_dir.is_dir() {
+            for entry in fs::read_dir(&media_dir)? {
+                let entry = entry?;
+                // DirEntry::file_type uses symlink_metadata semantics, so a symlink
+                // is detected as a symlink rather than as its target. Skip them —
+                // otherwise a symlink under media/ could pull arbitrary host files
+                // (e.g. /etc/passwd) into the archive.
+                let file_type = entry.file_type()?;
+                if file_type.is_symlink() {
+                    tracing::warn!("Skipping symlink in media dir: {}", entry.path().display());
+                    continue;
+                }
+                if !file_type.is_file() {
+                    continue;
+                }
+                let path = entry.path();
+                let name = format!("media/{}", entry.file_name().to_string_lossy());
+                info!("zip: adding {}", name);
+                zip.start_file(&name, opts)
+                    .map_err(|e| FrustError::Export(e.to_string()))?;
+                // Stream the file straight into the zip writer instead of reading
+                // the whole payload into memory — critical on router-class hosts
+                // when enclosures (podcasts, videos) get large.
+                let mut src = BufReader::new(fs::File::open(&path)?);
+                io::copy(&mut src, &mut zip)?;
+            }
+        }
+
+        zip.finish()
+            .map_err(|e| FrustError::Export(e.to_string()))?;
+        Ok(())
+    })?;
     info!("zip archive written to {}", output_path);
     Ok(())
 }

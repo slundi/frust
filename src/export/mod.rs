@@ -12,12 +12,58 @@ pub(crate) use json::JsonExporter;
 pub(crate) use markdown::MarkdownExporter;
 pub(crate) use rss::RssExporter;
 
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    ffi::OsString,
+    fs::{self, File},
+    io::BufWriter,
+    path::Path,
+};
 
 use crate::{
     error::FrustError,
     model::{Article, Enrichment},
 };
+
+/// Write `destination` atomically: `write` fills a hidden temporary file in
+/// the same directory (`.<name>.tmp`), which is flushed, synced, then renamed
+/// over `destination`.
+///
+/// The web server never serves a half-written file, a failed export leaves
+/// the previous one in place, and write errors (full SD card) are reported
+/// instead of being lost in `BufWriter`'s drop.
+pub(crate) fn write_atomically<T>(
+    destination: &Path,
+    write: impl FnOnce(&mut BufWriter<File>) -> Result<T, FrustError>,
+) -> Result<T, FrustError> {
+    let file_name = destination.file_name().ok_or_else(|| {
+        FrustError::Export(format!("{} is not a file path", destination.display()))
+    })?;
+    let parent = destination
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    fs::create_dir_all(parent)?;
+    let mut tmp_name = OsString::from(".");
+    tmp_name.push(file_name);
+    tmp_name.push(".tmp");
+    let tmp_path = parent.join(tmp_name);
+
+    let result = (|| {
+        let mut writer = BufWriter::new(File::create(&tmp_path)?);
+        let value = write(&mut writer)?;
+        writer
+            .into_inner()
+            .map_err(|e| e.into_error())?
+            .sync_all()?;
+        fs::rename(&tmp_path, destination)?;
+        Ok(value)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
+    }
+    result
+}
 
 /// Substitute `{{key}}` placeholders in `template` using feed + article data.
 pub(crate) fn render_template(template: &str, e: &Enrichment, article: &Article) -> String {
@@ -53,6 +99,71 @@ pub(crate) trait Exporter {
 mod tests {
     use super::*;
     use crate::model::Article;
+    use std::io::Write;
+
+    // ---- write_atomically (B9) ----
+
+    fn dir_entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn test_write_atomically_writes_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("feed.atom");
+        let value = write_atomically(&dest, |out| {
+            out.write_all(b"<feed/>")?;
+            Ok(42)
+        })
+        .unwrap();
+        assert_eq!(value, 42);
+        assert_eq!(fs::read(&dest).unwrap(), b"<feed/>");
+        assert_eq!(dir_entries(dir.path()), vec!["feed.atom"]);
+    }
+
+    #[test]
+    fn test_write_atomically_keeps_previous_file_on_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("feed.atom");
+        fs::write(&dest, b"previous").unwrap();
+
+        let result: Result<(), FrustError> = write_atomically(&dest, |out| {
+            out.write_all(b"<feed><entry>half")?;
+            Err(FrustError::Export("boom".into()))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&dest).unwrap(), b"previous", "never truncated");
+        assert_eq!(dir_entries(dir.path()), vec!["feed.atom"], "temp removed");
+    }
+
+    #[test]
+    fn test_write_atomically_replaces_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("feed.rss");
+        fs::write(&dest, b"old content that is longer").unwrap();
+        write_atomically(&dest, |out| Ok(out.write_all(b"new")?)).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"new");
+    }
+
+    #[test]
+    fn test_write_atomically_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("a/b/feed.json");
+        write_atomically(&dest, |out| Ok(out.write_all(b"{}")?)).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"{}");
+    }
+
+    #[test]
+    fn test_write_atomically_rejects_path_without_file_name() {
+        let result = write_atomically(Path::new("/"), |out| Ok(out.write_all(b"x")?));
+        assert!(matches!(result, Err(FrustError::Export(_))));
+    }
 
     fn make_enrichment(prepend: Option<&str>, append: Option<&str>) -> Enrichment {
         Enrichment {
