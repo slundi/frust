@@ -269,9 +269,10 @@ impl App {
                     // pattern needs.
                     const REGEX_SIZE_LIMIT: usize = 256 * 1024;
                     const REGEX_DFA_SIZE_LIMIT: usize = 1024 * 1024;
+                    // No ignore_whitespace: spaces in a pattern are literal
+                    // ("Iron Maiden"); users can opt in with `(?x)`.
                     match RegexSetBuilder::new(expressions.clone())
                         .case_insensitive(true)
-                        .ignore_whitespace(true)
                         .unicode(true)
                         .size_limit(REGEX_SIZE_LIMIT)
                         .dfa_size_limit(REGEX_DFA_SIZE_LIMIT)
@@ -831,6 +832,36 @@ filters:
         assert_eq!(filter.expressions[0], "\\bRust\\b");
         assert!(filter.regexes.is_match("I love Rust"));
         assert!(!filter.regexes.is_match("crustacean"));
+    }
+
+    #[test]
+    fn test_filter_regex_spaces_are_literal() {
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: bands
+  expressions: ["Iron Maiden", "E standard"]
+  is_regex: true
+"#,
+        );
+        let filter = app.filters.values().next().expect("filter present");
+        assert!(filter.regexes.is_match("Iron Maiden live"));
+        assert!(filter.regexes.is_match("tuned to e standard"));
+        assert!(!filter.regexes.is_match("ironmaiden"));
+    }
+
+    #[test]
+    fn test_filter_regex_verbose_mode_is_opt_in() {
+        let app = app_from_yaml(
+            r#"
+filters:
+- slug: verbose
+  expressions: ["(?x) Iron \\s Maiden  # comment"]
+  is_regex: true
+"#,
+        );
+        let filter = app.filters.values().next().expect("filter present");
+        assert!(filter.regexes.is_match("iron maiden"));
     }
 
     #[test]
