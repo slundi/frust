@@ -328,8 +328,10 @@ impl App {
                     });
                 warn_unknown_keys(m, GROUP_KEYS, &format!("group '{}'", slug));
 
+                // Relative to `output`. Defaulting to `output` itself made the
+                // destination the output directory, which cannot be written.
                 let group_output =
-                    optional_string_field(m, "output").unwrap_or_else(|| self.output.clone());
+                    optional_string_field(m, "output").unwrap_or_else(|| format!("{slug}.atom"));
 
                 let mut group_obj = Group {
                     title: title.unwrap_or_else(|| slug.clone()),
@@ -1108,6 +1110,19 @@ groups:
         let group = app.groups.values().next().unwrap();
         assert_eq!(group.title, "My Group");
         assert_eq!(group.slug, "g");
+    }
+
+    #[test]
+    fn test_group_output_defaults_to_slug_atom() {
+        // Used to default to the output directory itself: unwritable.
+        let app = app_from_yaml("output: /srv/www\ngroups:\n- slug: tech\n");
+        assert_eq!(app.groups.values().next().unwrap().output, "tech.atom");
+    }
+
+    #[test]
+    fn test_group_output_is_kept_when_set() {
+        let app = app_from_yaml("groups:\n- slug: tech\n  output: news/tech.rss\n");
+        assert_eq!(app.groups.values().next().unwrap().output, "news/tech.rss");
     }
 
     #[test]
