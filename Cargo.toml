@@ -43,7 +43,7 @@ pulldown-cmark = "0.13.4"
 argh = "0.1.19"
 # Writing Deflate archives (EPUB, ZIP export) is all we need: no bzip2, lzma,
 # zstd, ppmd, AES or zopfli (smaller binary, no bzip2/CC0 licenses).
-zip = { version = "9.7.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 encoding_rs = "0.8"
 
 [dev-dependencies]
