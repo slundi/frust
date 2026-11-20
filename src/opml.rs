@@ -2,6 +2,7 @@ use std::fs;
 
 use quick_xml::Reader;
 use quick_xml::Writer;
+use quick_xml::XmlVersion;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 
 use crate::error::FrustError;
@@ -36,7 +37,12 @@ fn extract_outline_attrs(
 
     for attr in e.attributes().flatten() {
         let key = attr.key.as_ref().to_lowercase();
-        let val = attr.value.into_owned();
+        // Decode entities: `xmlUrl="https://x.org/f?a=1&amp;b=2"` must give
+        // `...?a=1&b=2`. On an invalid entity, keep the raw text.
+        let val = match attr.normalized_value(XmlVersion::Implicit1_0) {
+            Ok(value) => value.into_owned(),
+            Err(_) => attr.value.into_owned(),
+        };
         match key.as_str() {
             "type" => outline_type = val,
             "text" => text = val,
@@ -199,9 +205,10 @@ pub(crate) fn build_yaml(groups: &[ParsedGroup]) -> String {
         out.push_str("  feeds:\n");
         for f in &g.feeds {
             out.push_str(&format!("  - title: {}\n", yaml_quote(&f.title)));
-            out.push_str(&format!("    url: {}\n", f.url));
+            // Quoted: a URL with " #" or ": " is not a valid plain scalar.
+            out.push_str(&format!("    url: {}\n", yaml_quote(&f.url)));
             if !f.page_url.is_empty() {
-                out.push_str(&format!("    page_url: {}\n", f.page_url));
+                out.push_str(&format!("    page_url: {}\n", yaml_quote(&f.page_url)));
             }
         }
     }
@@ -613,8 +620,48 @@ mod tests {
         assert!(yaml.contains("slug: tech"));
         assert!(yaml.contains("output: tech.atom"));
         assert!(yaml.contains("slug: music"));
-        assert!(yaml.contains("url: https://blog.rust-lang.org/feed.xml"));
-        assert!(yaml.contains("page_url: https://blog.rust-lang.org/"));
+        assert!(yaml.contains("url: \"https://blog.rust-lang.org/feed.xml\""));
+        assert!(yaml.contains("page_url: \"https://blog.rust-lang.org/\""));
+    }
+
+    // -----------------------------------------------------------------------
+    // import: XML entities and YAML round trip (B8)
+    // -----------------------------------------------------------------------
+
+    const ENTITIES_OPML: &str = r#"<?xml version="1.0"?>
+<opml version="2.0">
+  <head><title>t</title></head>
+  <body>
+    <outline text="Sci &amp; Tech">
+      <outline type="rss" text="&#201;t&#233; #1: news"
+               xmlUrl="https://x.org/f?a=1&amp;b=2 #frag"
+               htmlUrl="https://x.org/?p=1&amp;q=a: b"/>
+    </outline>
+  </body>
+</opml>"#;
+
+    #[test]
+    fn test_parse_opml_decodes_entities() {
+        let groups = parse_opml_str(ENTITIES_OPML).unwrap();
+        assert_eq!(groups[0].title, "Sci & Tech");
+        let feed = &groups[0].feeds[0];
+        assert_eq!(feed.title, "Été #1: news");
+        assert_eq!(feed.url, "https://x.org/f?a=1&b=2 #frag");
+        assert_eq!(feed.page_url, "https://x.org/?p=1&q=a: b");
+    }
+
+    #[test]
+    fn test_build_yaml_round_trips_through_yaml_parser() {
+        use saphyr::{LoadableYamlNode, Yaml};
+        let yaml = build_yaml(&parse_opml_str(ENTITIES_OPML).unwrap());
+        let docs = Yaml::load_from_str(&yaml).expect("generated YAML must parse");
+        let group = &docs[0]["groups"][0];
+        assert_eq!(group["title"].as_str(), Some("Sci & Tech"));
+        let feed = &group["feeds"][0];
+        assert_eq!(feed["title"].as_str(), Some("Été #1: news"));
+        // Unquoted, " #frag" would be a comment and ": " a mapping.
+        assert_eq!(feed["url"].as_str(), Some("https://x.org/f?a=1&b=2 #frag"));
+        assert_eq!(feed["page_url"].as_str(), Some("https://x.org/?p=1&q=a: b"));
     }
 
     #[test]
