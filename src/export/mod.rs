@@ -13,6 +13,7 @@ pub(crate) use markdown::MarkdownExporter;
 pub(crate) use rss::RssExporter;
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     ffi::OsString,
     fs::{self, File},
@@ -113,6 +114,56 @@ pub(crate) fn render_template(template: &str, e: &Enrichment, article: &Article)
         .replace("{{article.title}}", &article.title)
         .replace("{{article.url}}", &article.url)
         .replace("{{article.id}}", &article.id.to_string())
+}
+
+/// Stable id of an article in every export (Atom `<id>`, RSS `<guid>`,
+/// JSON `id`). Unlike the URL, it survives tracking parameters, redirects
+/// and http→https moves, so readers never see the same article twice.
+pub(crate) fn article_urn(article: &Article) -> String {
+    format!("urn:xxh3:{:016x}", article.id)
+}
+
+/// Date of an article: its feed date, or when frust first saw it for the
+/// articles stored dateless (0) by older versions.
+pub(crate) fn article_date(article: &Article) -> i64 {
+    if article.timestamp != 0 {
+        article.timestamp
+    } else {
+        article.added_at
+    }
+}
+
+/// Article content (Markdown) wrapped with the feed's prepend/append
+/// templates, if any.
+pub(crate) fn enriched_markdown<'a>(
+    article: &'a Article,
+    enrichment: Option<&Enrichment>,
+) -> Cow<'a, str> {
+    let Some(enrichment) = enrichment else {
+        return Cow::Borrowed(&article.content);
+    };
+    let render = |template: Option<&str>| {
+        template
+            .map(|template| render_template(template, enrichment, article))
+            .unwrap_or_default()
+    };
+    Cow::Owned(format!(
+        "{}{}{}",
+        render(enrichment.prepend.as_deref()),
+        article.content,
+        render(enrichment.append.as_deref())
+    ))
+}
+
+/// [`enriched_markdown`] rendered to sanitized HTML; empty when there is
+/// nothing to render.
+pub(crate) fn enriched_html(article: &Article, enrichment: Option<&Enrichment>) -> String {
+    let markdown = enriched_markdown(article, enrichment);
+    if markdown.is_empty() {
+        String::new()
+    } else {
+        html::markdown_to_safe_html(&markdown)
+    }
 }
 
 pub(crate) trait Exporter {

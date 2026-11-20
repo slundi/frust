@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
+use chrono::{DateTime, Utc};
 use quick_xml::{
     Writer,
     events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event},
@@ -8,7 +9,10 @@ use tracing::info;
 
 use crate::{error::FrustError, model::Article};
 
-use super::{Enrichment, Exporter, is_absolute_url, render_template, write_atomically};
+use super::{
+    Enrichment, Exporter, article_date, article_urn, enriched_html, is_absolute_url,
+    write_atomically,
+};
 
 pub(crate) struct RssExporter;
 
@@ -50,6 +54,7 @@ fn write_rss_to<W: std::io::Write>(
     let mut rss_tag = BytesStart::new("rss");
     rss_tag.push_attribute(("version", "2.0"));
     rss_tag.push_attribute(("xmlns:atom", "http://www.w3.org/2005/Atom"));
+    rss_tag.push_attribute(("xmlns:content", "http://purl.org/rss/1.0/modules/content/"));
     writer
         .write_event(Event::Start(rss_tag))
         .map_err(|e| FrustError::Export(e.to_string()))?;
@@ -121,37 +126,41 @@ fn write_item<W: std::io::Write>(
 
     write_text_element(writer, "title", &article.title)?;
     write_text_element(writer, "link", &article.url)?;
-    write_text_element(writer, "guid", &article.url)?;
+    // Same stable id as Atom/JSON: the URL changes (tracking parameters,
+    // http→https), which made readers show the article twice.
+    let mut guid = BytesStart::new("guid");
+    guid.push_attribute(("isPermaLink", "false"));
+    writer
+        .write_event(Event::Start(guid))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+    writer
+        .write_event(Event::Text(BytesText::new(&article_urn(article))))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+    writer
+        .write_event(Event::End(BytesEnd::new("guid")))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
 
-    let base = article.summary.as_deref().unwrap_or(&article.content);
-    if !base.is_empty() || enrichment.is_some() {
-        let description = match enrichment {
-            Some(e) => {
-                let pre = e
-                    .prepend
-                    .as_deref()
-                    .map(|t| render_template(t, e, article))
-                    .unwrap_or_default();
-                let app = e
-                    .append
-                    .as_deref()
-                    .map(|t| render_template(t, e, article))
-                    .unwrap_or_default();
-                format!("{pre}{base}{app}")
+    // RSS expects HTML here; the content is Markdown, rendered and sanitized.
+    // <description> is the feed's summary (already HTML) when there is one,
+    // the full content otherwise; with a summary, the content goes to
+    // <content:encoded>.
+    let content = enriched_html(article, enrichment);
+    match article.summary.as_deref() {
+        Some(summary) => {
+            write_text_element(writer, "description", summary)?;
+            if !content.is_empty() {
+                write_text_element(writer, "content:encoded", &content)?;
             }
-            None => base.to_string(),
-        };
-        write_text_element(writer, "description", &description)?;
+        }
+        None if !content.is_empty() => write_text_element(writer, "description", &content)?,
+        None => {}
     }
 
     // pubDate in RFC 2822 format
-    if article.timestamp != 0 {
-        use chrono::{DateTime, Utc};
-        let dt = DateTime::<Utc>::from_timestamp(article.timestamp, 0)
-            .unwrap_or_default()
-            .to_rfc2822();
-        write_text_element(writer, "pubDate", &dt)?;
-    }
+    let date = DateTime::<Utc>::from_timestamp(article_date(article), 0)
+        .unwrap_or_default()
+        .to_rfc2822();
+    write_text_element(writer, "pubDate", &date)?;
 
     // enclosures
     for enc in &article.enclosures {
@@ -228,6 +237,69 @@ mod tests {
         assert!(xml.contains("<title>Empty Feed</title>"));
         assert!(xml.contains("<link>https://example.com</link>"));
         assert!(!xml.contains("<item>"));
+    }
+
+    // ---- ids and HTML content (B14) ----
+
+    fn rss_of(article: Article) -> String {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.rss");
+        RssExporter
+            .generate(
+                &[article],
+                "F",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
+            .unwrap();
+        read_xml(&dest)
+    }
+
+    #[test]
+    fn test_rss_guid_is_stable_urn() {
+        let xml = rss_of(make_article(42, "T", "https://example.com/a?utm=1", 0));
+        assert!(xml.contains("<guid isPermaLink=\"false\">urn:xxh3:000000000000002a</guid>"));
+        // Same id, different URL: same guid.
+        let moved = rss_of(make_article(42, "T", "https://example.com/a", 0));
+        assert!(moved.contains("urn:xxh3:000000000000002a"));
+    }
+
+    #[test]
+    fn test_rss_description_is_rendered_html() {
+        let mut article = make_article(1, "T", "https://example.com/1", 0);
+        article.content = "Full **bold** text".to_string();
+        let xml = rss_of(article);
+        assert!(
+            xml.contains("<description>&lt;p&gt;Full &lt;strong&gt;bold&lt;/strong&gt; text"),
+            "{xml}"
+        );
+        assert!(!xml.contains("**bold**"));
+    }
+
+    #[test]
+    fn test_rss_summary_in_description_content_encoded() {
+        let mut article = make_article(1, "T", "https://example.com/1", 0);
+        article.summary = Some("Short".to_string());
+        article.content = "Long body".to_string();
+        let xml = rss_of(article);
+        assert!(xml.contains("xmlns:content=\"http://purl.org/rss/1.0/modules/content/\""));
+        assert!(xml.contains("<description>Short</description>"));
+        assert!(
+            xml.contains("<content:encoded>&lt;p&gt;Long body&lt;/p&gt;"),
+            "{xml}"
+        );
+    }
+
+    #[test]
+    fn test_rss_pubdate_falls_back_to_added_at() {
+        let mut article = make_article(1, "T", "https://example.com/1", 0);
+        article.added_at = 1_705_276_800;
+        let xml = rss_of(article);
+        assert!(
+            xml.contains("<pubDate>Mon, 15 Jan 2024 00:00:00 +0000</pubDate>"),
+            "{xml}"
+        );
     }
 
     // ---- channel links (B13) ----
@@ -363,7 +435,11 @@ mod tests {
             xml.contains("News &amp; Media"),
             "channel title not escaped"
         );
-        assert!(xml.contains("5 &lt; 10 &amp; ok"), "content not escaped");
+        // HTML-rendered content, itself escaped in the XML text node.
+        assert!(
+            xml.contains("5 &amp;lt; 10 &amp;amp; ok"),
+            "content not escaped"
+        );
         // Raw special chars must NOT leak through
         assert!(!xml.contains("AT&T"), "raw '&' leaked into output: {}", xml);
     }

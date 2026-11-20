@@ -14,7 +14,7 @@ use crate::{
     model::{Article, ExportStrategy},
 };
 
-use super::{Enrichment, Exporter, html::markdown_to_safe_html, render_template, write_atomically};
+use super::{Enrichment, Exporter, article_date, article_urn, enriched_html, write_atomically};
 
 pub(crate) struct JsonExporter {
     pub(crate) strategy: ExportStrategy,
@@ -34,15 +34,15 @@ struct AttachmentDto<'a> {
 /// JSON Feed 1.1 item object
 #[derive(Serialize)]
 struct ItemDto<'a> {
-    /// Unique string identifier for the item; we use the article URL.
-    id: &'a str,
+    /// Unique string identifier for the item, see [`article_urn`].
+    id: String,
     #[serde(skip_serializing_if = "str::is_empty")]
     url: &'a str,
     #[serde(skip_serializing_if = "str::is_empty")]
     title: &'a str,
     /// Article body rendered from Markdown to HTML — the correct JSON Feed
     /// 1.1 field for structured content (spec §content_html). Raw HTML and
-    /// unsafe link schemes are neutralised, see [`markdown_to_safe_html`].
+    /// unsafe link schemes are neutralised, see [`super::html::markdown_to_safe_html`].
     #[serde(skip_serializing_if = "String::is_empty")]
     content_html: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,37 +69,13 @@ struct FeedDto<'a> {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn to_item<'a>(article: &'a Article, enrichment: Option<&Enrichment>) -> ItemDto<'a> {
-    let date_published = if article.timestamp != 0 {
-        DateTime::<Utc>::from_timestamp(article.timestamp, 0).map(|dt| dt.to_rfc3339())
-    } else {
-        None
-    };
-    let markdown = match enrichment {
-        Some(e) => {
-            let pre = e
-                .prepend
-                .as_deref()
-                .map(|t| render_template(t, e, article))
-                .unwrap_or_default();
-            let app = e
-                .append
-                .as_deref()
-                .map(|t| render_template(t, e, article))
-                .unwrap_or_default();
-            format!("{pre}{}{app}", article.content)
-        }
-        None => article.content.clone(),
-    };
-    let content_html = if markdown.is_empty() {
-        String::new()
-    } else {
-        markdown_to_safe_html(&markdown)
-    };
+    let date_published =
+        DateTime::<Utc>::from_timestamp(article_date(article), 0).map(|dt| dt.to_rfc3339());
     ItemDto {
-        id: &article.url,
+        id: article_urn(article),
         url: &article.url,
         title: &article.title,
-        content_html,
+        content_html: enriched_html(article, enrichment),
         summary: article.summary.as_deref(),
         date_published,
         attachments: article
@@ -305,7 +281,7 @@ mod tests {
         .unwrap();
         let v = parse(&dest);
         let item = &v["items"][0];
-        assert_eq!(item["id"].as_str().unwrap(), "https://example.com/42");
+        assert_eq!(item["id"].as_str().unwrap(), "urn:xxh3:000000000000002a");
         assert_eq!(item["url"].as_str().unwrap(), "https://example.com/42");
         assert_eq!(item["title"].as_str().unwrap(), "Test Article");
         assert_eq!(
@@ -401,6 +377,16 @@ mod tests {
     }
 
     #[test]
+    fn test_item_id_does_not_change_with_url() {
+        let tracked = make_article(9, "T", "https://example.com/a?utm=x", 1);
+        let clean = make_article(9, "T", "https://example.com/a", 1);
+        let first = to_item(&tracked, None);
+        let moved = to_item(&clean, None);
+        assert_eq!(first.id, "urn:xxh3:0000000000000009");
+        assert_eq!(first.id, moved.id);
+    }
+
+    #[test]
     fn test_individual_file_is_single_object() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("articles");
@@ -423,7 +409,7 @@ mod tests {
         .unwrap();
         let path = dest.join("2024-01-15-my-article.json");
         let v = parse(&path);
-        assert_eq!(v["id"].as_str().unwrap(), "https://example.com/my-article");
+        assert_eq!(v["id"].as_str().unwrap(), "urn:xxh3:0000000000000007");
         assert_eq!(v["title"].as_str().unwrap(), "My Article");
     }
 

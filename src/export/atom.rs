@@ -13,7 +13,9 @@ use crate::{
     model::{Article, Enrichment},
 };
 
-use super::{Exporter, is_absolute_url, render_template, write_atomically};
+use super::{
+    Exporter, article_date, article_urn, enriched_html, is_absolute_url, write_atomically,
+};
 
 pub(crate) struct AtomExporter;
 
@@ -77,8 +79,7 @@ pub(crate) fn write_atom_to<W: std::io::Write>(
     // <updated> — most recent article timestamp, or now
     let updated = articles
         .iter()
-        .filter(|a| a.timestamp != 0)
-        .map(|a| a.timestamp)
+        .map(article_date)
         .max()
         .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
         .unwrap_or_else(Utc::now);
@@ -114,6 +115,26 @@ fn write_text_element<W: std::io::Write>(
     Ok(())
 }
 
+/// `<tag type="html">escaped HTML</tag>`
+fn write_html_element<W: std::io::Write>(
+    writer: &mut Writer<W>,
+    tag: &str,
+    html: &str,
+) -> Result<(), FrustError> {
+    let mut start = BytesStart::new(tag);
+    start.push_attribute(("type", "html"));
+    writer
+        .write_event(Event::Start(start))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+    writer
+        .write_event(Event::Text(BytesText::new(html)))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+    writer
+        .write_event(Event::End(BytesEnd::new(tag)))
+        .map_err(|e| FrustError::Export(e.to_string()))?;
+    Ok(())
+}
+
 fn write_entry<W: std::io::Write>(
     writer: &mut Writer<W>,
     article: &Article,
@@ -124,10 +145,8 @@ fn write_entry<W: std::io::Write>(
         .map_err(|e| FrustError::Export(e.to_string()))?;
 
     write_text_element(writer, "title", &article.title)?;
-    // Atom entry <id> must be a permanent IRI (RFC 4287 §4.2.6). article.url
-    // can change (redirects, tracking-param churn, https migrations), so use
-    // a URN built from the stable XXH3 id instead.
-    write_text_element(writer, "id", &format!("urn:xxh3:{:016x}", article.id))?;
+    // Atom entry <id> must be a permanent IRI (RFC 4287 §4.2.6).
+    write_text_element(writer, "id", &article_urn(article))?;
 
     // <link rel="alternate" href="..."/>
     {
@@ -139,51 +158,23 @@ fn write_entry<W: std::io::Write>(
             .map_err(|e| FrustError::Export(e.to_string()))?;
     }
 
-    // <updated> and <published> in RFC 3339
-    if article.timestamp != 0
-        && let Some(dt) = DateTime::<Utc>::from_timestamp(article.timestamp, 0)
-    {
-        let ts = dt.to_rfc3339();
-        write_text_element(writer, "published", &ts)?;
-        write_text_element(writer, "updated", &ts)?;
-    }
+    // <updated> (required, RFC 4287 §4.1.2) and <published> in RFC 3339
+    let date = DateTime::<Utc>::from_timestamp(article_date(article), 0)
+        .unwrap_or_default()
+        .to_rfc3339();
+    write_text_element(writer, "published", &date)?;
+    write_text_element(writer, "updated", &date)?;
 
-    // <summary>
+    // <summary type="html">: the feed's own summary, HTML sanitized by feed-rs
     if let Some(ref summary) = article.summary {
-        write_text_element(writer, "summary", summary)?;
+        write_html_element(writer, "summary", summary)?;
     }
 
-    // <content type="text"> — full markdown content, optionally enriched
-    let enriched;
-    let content: &str = if let Some(e) = enrichment {
-        let pre = e
-            .prepend
-            .as_deref()
-            .map(|t| render_template(t, e, article))
-            .unwrap_or_default();
-        let app = e
-            .append
-            .as_deref()
-            .map(|t| render_template(t, e, article))
-            .unwrap_or_default();
-        enriched = format!("{pre}{}{app}", article.content);
-        &enriched
-    } else {
-        &article.content
-    };
-
+    // <content type="html">: the Markdown content rendered to sanitized HTML,
+    // optionally enriched; as type="text", readers showed raw Markdown.
+    let content = enriched_html(article, enrichment);
     if !content.is_empty() {
-        let mut content_tag = BytesStart::new("content");
-        content_tag.push_attribute(("type", "text"));
-        writer
-            .write_event(Event::Start(content_tag))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-        writer
-            .write_event(Event::Text(BytesText::new(content)))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
-        writer
-            .write_event(Event::End(BytesEnd::new("content")))
-            .map_err(|e| FrustError::Export(e.to_string()))?;
+        write_html_element(writer, "content", &content)?;
     }
 
     // enclosures as <link rel="enclosure" .../>
@@ -261,6 +252,52 @@ mod tests {
         assert!(xml.contains("<title>Empty Feed</title>"));
         assert!(xml.contains("<id>https://example.com</id>"));
         assert!(!xml.contains("<entry>"));
+    }
+
+    // ---- entry compliance (B14) ----
+
+    #[test]
+    fn test_atom_entry_always_has_updated() {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.atom");
+        // Stored dateless by an older version: dated by added_at.
+        let mut article = make_article(1, "T", "https://example.com/1", 0);
+        article.added_at = 1_705_276_800;
+        AtomExporter
+            .generate(
+                &[article],
+                "F",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
+            .unwrap();
+        let xml = read_xml(&dest);
+        let entry = &xml[xml.find("<entry>").unwrap()..];
+        assert!(
+            entry.contains("<updated>2024-01-15T00:00:00+00:00</updated>"),
+            "{entry}"
+        );
+    }
+
+    #[test]
+    fn test_atom_content_is_sanitized_html() {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.atom");
+        let mut article = make_article(1, "T", "https://example.com/1", 0);
+        article.content = "[x](javascript:alert(1)) <script>bad()</script>".to_string();
+        AtomExporter
+            .generate(
+                &[article],
+                "F",
+                "https://example.com",
+                &dest,
+                &no_enrichment(),
+            )
+            .unwrap();
+        let xml = read_xml(&dest);
+        assert!(!xml.contains("javascript:"), "{xml}");
+        assert!(!xml.contains("&lt;script"), "{xml}");
     }
 
     // ---- channel links (B13) ----
@@ -440,9 +477,11 @@ mod tests {
             )
             .unwrap();
         let xml = read_xml(&dest);
-        assert!(xml.contains("<summary>Short summary</summary>"));
-        assert!(xml.contains("type=\"text\""));
-        assert!(xml.contains("Full **markdown** content"));
+        assert!(xml.contains("<summary type=\"html\">Short summary</summary>"));
+        // Markdown rendered to HTML, escaped once in the XML.
+        assert!(xml.contains(
+            "<content type=\"html\">&lt;p&gt;Full &lt;strong&gt;markdown&lt;/strong&gt; content"
+        ));
     }
 
     #[test]
@@ -490,7 +529,11 @@ mod tests {
         assert!(xml.contains("&lt;News&gt;"), "title angle not escaped");
         assert!(xml.contains("News &amp; Media"), "feed title not escaped");
         assert!(xml.contains("Sum &amp; &lt;sub&gt;"), "summary not escaped");
-        assert!(xml.contains("5 &lt; 10 &amp; ok"), "content not escaped");
+        // HTML-rendered content, itself escaped in the XML text node.
+        assert!(
+            xml.contains("5 &amp;lt; 10 &amp;amp; ok"),
+            "content not escaped"
+        );
         // Attribute values (href) escaped
         assert!(
             xml.contains("a=1&amp;b=2"),
