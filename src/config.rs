@@ -5,7 +5,74 @@ use saphyr::{LoadableYamlNode, Mapping, Yaml};
 use slug::slugify;
 use twox_hash::XxHash3_64;
 
-use crate::model::{App, Feed, Filter, Group};
+use crate::model::{App, ContentMode, Feed, Filter, Group};
+
+const APP_KEYS: &[&str] = &[
+    "output",
+    "data_dir",
+    "workers",
+    "retrieve_server_media",
+    "media",
+    "media_max_size",
+    "timeout",
+    "retention",
+    "min_refresh_time",
+    "enrichment_prepend",
+    "enrichment_append",
+    "filters",
+    "groups",
+];
+const FILTER_KEYS: &[&str] = &[
+    "slug",
+    "expressions",
+    "is_regex",
+    "filter_in_title",
+    "filter_in_summary",
+    "filter_in_content",
+    "must_match_all",
+    "keep",
+];
+const GROUP_KEYS: &[&str] = &[
+    "title",
+    "slug",
+    "output",
+    "retention",
+    "media",
+    "media_max_size",
+    "enrichment_prepend",
+    "enrichment_append",
+    "filters",
+    "feeds",
+];
+const FEED_KEYS: &[&str] = &[
+    "title",
+    "url",
+    "page_url",
+    "content_mode",
+    "selector",
+    "retention",
+    "media",
+    "media_max_size",
+    "enrichment_prepend",
+    "enrichment_append",
+    "filters",
+];
+
+/// Keys of `map` that are not in `known`, in file order.
+fn unknown_keys<'a>(map: &'a Mapping<'_>, known: &[&str]) -> Vec<&'a str> {
+    map.keys()
+        .filter_map(|key| key.as_str())
+        .filter(|key| !known.contains(key))
+        .collect()
+}
+
+/// Warn about keys the loader ignores (typos, options that don't exist),
+/// which would otherwise silently fall back to their defaults.
+fn warn_unknown_keys(map: &Mapping<'_>, known: &[&str], yaml_path: &str) {
+    for key in unknown_keys(map, known) {
+        tracing::warn!("Unknown key '{}' in {}, ignored", key, yaml_path);
+    }
+}
 
 /// Concatenates two optional enrichment template strings.
 /// If both are `Some`, they are joined without any separator.
@@ -47,6 +114,7 @@ fn required_string_field(map: &Mapping<'_>, field: &str, yaml_path: Option<&str>
 
 impl App {
     fn load_globals(&mut self, map: &Mapping<'_>) {
+        warn_unknown_keys(map, APP_KEYS, "the top level");
         // load output folder
         if let Some(output) = optional_string_field(map, "output") {
             self.output = output;
@@ -128,6 +196,7 @@ impl App {
                     .expect("Invalid data in config file: filters");
                 // process filter name
                 let slug = required_string_field(m, "slug", Some(&format!("filters[{}].slug", i)));
+                warn_unknown_keys(m, FILTER_KEYS, &format!("filter '{}'", slug));
                 let h = XxHash3_64::oneshot(slug.as_bytes());
                 // process filter expressions/sentences
                 let value = map_get(m, "expressions");
@@ -244,14 +313,27 @@ impl App {
         if let Some(groups) = map_get(map, "groups") {
             let provided = groups.as_vec().expect("Invalid groups");
 
-            for g in provided.iter() {
+            for (i, g) in provided.iter().enumerate() {
                 let m = g.as_mapping().expect("Invalid group hash");
+
+                // Either may be omitted: the slug is derived from the title,
+                // and the title (shown in every export) falls back to the slug.
+                let title = optional_string_field(m, "title");
+                let slug = optional_string_field(m, "slug")
+                    .or_else(|| title.as_deref().map(slugify))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Field missing in config file: groups[{i}].slug (or groups[{i}].title)"
+                        )
+                    });
+                warn_unknown_keys(m, GROUP_KEYS, &format!("group '{}'", slug));
 
                 let group_output =
                     optional_string_field(m, "output").unwrap_or_else(|| self.output.clone());
 
                 let mut group_obj = Group {
-                    slug: required_string_field(m, "slug", None),
+                    title: title.unwrap_or_else(|| slug.clone()),
+                    slug,
                     output: group_output,
                     // Group retention or global if missing
                     retention: map_get(m, "retention")
@@ -308,23 +390,31 @@ impl Group {
         if let Some(feeds) = map_get(map, "feeds") {
             let provided = feeds.as_vec().expect("Invalid feeds");
 
-            for f in provided.iter() {
+            for (i, f) in provided.iter().enumerate() {
                 let m = f.as_mapping().expect("Invalid feed hash");
+                let yaml_path = format!("group '{}' feeds[{}]", self.slug, i);
+                warn_unknown_keys(m, FEED_KEYS, &yaml_path);
+
+                let content_mode = match optional_string_field(m, "content_mode") {
+                    None => ContentMode::Default,
+                    Some(value) => value.parse::<ContentMode>().unwrap_or_else(|e| {
+                        panic!("Invalid data in config file: {yaml_path}.content_mode: {e}")
+                    }),
+                };
 
                 // --- Feed inheritance ---
                 let mut feed_obj = Feed {
-                    title: required_string_field(m, "title", None),
-                    url: required_string_field(m, "url", None),
+                    title: required_string_field(m, "title", Some(&format!("{yaml_path}.title"))),
+                    url: required_string_field(m, "url", Some(&format!("{yaml_path}.url"))),
                     slug: String::new(), // will be computed later
-                    output: optional_string_field(m, "output").unwrap_or_default(),
                     retention: map_get(m, "retention")
                         .and_then(Yaml::as_integer)
                         .map(|v| v as u16)
                         .unwrap_or(self.retention), // inherited from group
                     filters: self.filters.clone(), // starts with group filters
-                    content_mode: crate::model::ContentMode::Default,
-                    selector: optional_string_field(m, "selector"),
-                    page_url: String::new(),
+                    selector: load_selector(m, &yaml_path, &content_mode),
+                    content_mode,
+                    page_url: optional_string_field(m, "page_url").unwrap_or_default(),
                     media: map_get(m, "media")
                         .and_then(Yaml::as_bool)
                         .unwrap_or(self.media), // inherited from group
@@ -345,12 +435,6 @@ impl Group {
                             .filter(|s| !s.is_empty()),
                     ),
                 };
-
-                // If feed does not have output, use the one from the group
-                // that may have taken it from global
-                if feed_obj.output.is_empty() {
-                    feed_obj.output = self.output.clone();
-                }
 
                 // Add feed filters to the one inherited from the group
                 if let Some(f_list) = map_get(m, "filters") {
@@ -397,6 +481,29 @@ impl Group {
             tracing::info!("Loaded feeds: {} (group: {})", self.feeds.len(), self.slug);
         }
     }
+}
+
+/// Read the CSS `selector` of a feed. An invalid selector is dropped with a
+/// warning instead of failing every Force-mode fetch of the feed; a selector
+/// on a feed that is not in Force mode is kept but reported as unused.
+fn load_selector(map: &Mapping<'_>, yaml_path: &str, mode: &ContentMode) -> Option<String> {
+    let selector = optional_string_field(map, "selector")?;
+    if let Err(e) = scraper::Selector::parse(&selector) {
+        tracing::warn!(
+            "Invalid CSS selector '{}' in {}: {}; ignored",
+            selector,
+            yaml_path,
+            e
+        );
+        return None;
+    }
+    if *mode != ContentMode::Force {
+        tracing::warn!(
+            "selector in {} is only used with `content_mode: force`",
+            yaml_path
+        );
+    }
+    Some(selector)
 }
 
 pub(crate) fn load_config_file(config_file: String) -> App {
@@ -954,6 +1061,168 @@ groups:
 "#
         ));
         assert!(first_feed(&app).selector.is_none());
+    }
+
+    // --- fields that used to be ignored (B4) ---
+
+    #[test]
+    fn test_group_title_is_loaded() {
+        let app = app_from_yaml(
+            r#"
+groups:
+- title: My Group
+  slug: g
+  output: g.atom
+"#,
+        );
+        let group = app.groups.values().next().unwrap();
+        assert_eq!(group.title, "My Group");
+        assert_eq!(group.slug, "g");
+    }
+
+    #[test]
+    fn test_group_title_defaults_to_slug() {
+        let app = app_from_yaml("groups:\n- slug: tech\n  output: tech.atom\n");
+        assert_eq!(app.groups.values().next().unwrap().title, "tech");
+    }
+
+    #[test]
+    fn test_group_slug_derived_from_title() {
+        let app = app_from_yaml("groups:\n- title: My Group Name\n  output: x.xml\n");
+        assert_eq!(app.groups.values().next().unwrap().slug, "my-group-name");
+    }
+
+    #[test]
+    #[should_panic(expected = "groups[0].slug")]
+    fn test_group_without_slug_nor_title_names_the_field() {
+        app_from_yaml("groups:\n- output: x.xml\n");
+    }
+
+    #[test]
+    fn test_feed_page_url_is_loaded() {
+        let app = app_from_yaml(&format!(
+            "groups:\n- slug: g\n  feeds:\n  - title: F\n    url: {FEED_URL}\n    page_url: https://example.com/\n"
+        ));
+        assert_eq!(first_feed(&app).page_url, "https://example.com/");
+    }
+
+    fn feed_with_mode(mode: &str) -> Feed {
+        let app = app_from_yaml(&format!(
+            "groups:\n- slug: g\n  feeds:\n  - title: F\n    url: {FEED_URL}\n    content_mode: {mode}\n"
+        ));
+        first_feed(&app).clone()
+    }
+
+    #[test]
+    fn test_feed_content_mode_is_loaded() {
+        assert_eq!(feed_with_mode("default").content_mode, ContentMode::Default);
+        assert_eq!(feed_with_mode("no").content_mode, ContentMode::No);
+        assert_eq!(feed_with_mode("brief").content_mode, ContentMode::Brief);
+        assert_eq!(feed_with_mode("force").content_mode, ContentMode::Force);
+        assert_eq!(
+            feed_with_mode("links_only").content_mode,
+            ContentMode::LinksOnly
+        );
+    }
+
+    #[test]
+    fn test_feed_content_mode_defaults_to_default() {
+        let app = app_from_yaml(&format!(
+            "groups:\n- slug: g\n  feeds:\n  - title: F\n    url: {FEED_URL}\n"
+        ));
+        assert_eq!(first_feed(&app).content_mode, ContentMode::Default);
+    }
+
+    #[test]
+    #[should_panic(expected = "content_mode: unknown content_mode 'full'")]
+    fn test_feed_content_mode_typo_is_reported() {
+        feed_with_mode("full");
+    }
+
+    #[test]
+    fn test_feed_valid_selector_is_kept() {
+        let app = app_from_yaml(&format!(
+            "groups:\n- slug: g\n  feeds:\n  - title: F\n    url: {FEED_URL}\n    content_mode: force\n    selector: \"div.post > p\"\n"
+        ));
+        assert_eq!(first_feed(&app).selector.as_deref(), Some("div.post > p"));
+    }
+
+    #[test]
+    fn test_feed_invalid_selector_is_dropped() {
+        let app = app_from_yaml(&format!(
+            "groups:\n- slug: g\n  feeds:\n  - title: F\n    url: {FEED_URL}\n    content_mode: force\n    selector: \"div[\"\n"
+        ));
+        assert!(first_feed(&app).selector.is_none());
+    }
+
+    #[test]
+    fn test_unknown_keys_are_detected() {
+        let docs = Yaml::load_from_str("url: x\nxpath: y\nis_include: true\n").unwrap();
+        let map = docs[0].as_mapping().unwrap();
+        assert_eq!(unknown_keys(map, FEED_KEYS), vec!["xpath", "is_include"]);
+    }
+
+    /// Unknown keys of an example config file, at every level.
+    fn example_unknown_keys(path: &str) -> Vec<String> {
+        let raw = std::fs::read_to_string(path).unwrap();
+        let docs = Yaml::load_from_str(&raw).unwrap();
+        let root = docs[0].as_mapping().unwrap();
+        let entries = |key: &str| -> Vec<&Mapping<'_>> {
+            map_get(root, key)
+                .and_then(Yaml::as_vec)
+                .map(|items| items.iter().filter_map(Yaml::as_mapping).collect())
+                .unwrap_or_default()
+        };
+        let mut found: Vec<String> = unknown_keys(root, APP_KEYS)
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        for filter in entries("filters") {
+            found.extend(
+                unknown_keys(filter, FILTER_KEYS)
+                    .into_iter()
+                    .map(str::to_string),
+            );
+        }
+        for group in entries("groups") {
+            found.extend(
+                unknown_keys(group, GROUP_KEYS)
+                    .into_iter()
+                    .map(str::to_string),
+            );
+            for feed in map_get(group, "feeds")
+                .and_then(Yaml::as_vec)
+                .into_iter()
+                .flatten()
+                .filter_map(Yaml::as_mapping)
+            {
+                found.extend(
+                    unknown_keys(feed, FEED_KEYS)
+                        .into_iter()
+                        .map(str::to_string),
+                );
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn test_example_configs_only_use_known_keys() {
+        for path in ["config.yaml", "my-config.yaml"] {
+            assert_eq!(example_unknown_keys(path), Vec::<String>::new(), "{path}");
+        }
+    }
+
+    #[test]
+    fn test_example_configs_load() {
+        let app = load_config_file("config.yaml".to_string());
+        let group = app.groups.values().next().unwrap();
+        assert_eq!(group.title, "My group name");
+        assert_eq!(group.slug, "my-group-name");
+        assert_eq!(
+            load_config_file("my-config.yaml".to_string()).groups.len(),
+            5
+        );
     }
 
     #[test]

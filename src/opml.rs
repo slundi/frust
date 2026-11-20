@@ -291,7 +291,6 @@ mod tests {
             content_mode: ContentMode::Default,
             selector: None,
             filters: Vec::new(),
-            output: String::new(),
             retention: 0,
             media: false,
             media_max_size: 0,

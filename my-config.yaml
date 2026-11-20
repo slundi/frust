@@ -8,11 +8,10 @@ filters:
   # sentences or regexes should be defined
   expressions: ["guitar", "E standard"]  # match words/sentences of this list
   is_regex: false
-  is_include: false  # if the article must match the filter, default it is false to exclude
   must_match_all: false  # OPTIONAL default `false`: if all defined sentences and regexes should match, default a result is valid when one of the regexes/sentences match
   filter_in_title: true  # default true
   filter_in_summary: true  # default true
-  filter_in_content: false  # default false
+  filter_in_content: false  # default true
   keep: false  # `true` to only keep article matching otherwise `false` to exclude
 - slug: "favorite-bands"
   expressions: ["Ghost", "Iron Maiden", "Judas Priest" ]
@@ -86,11 +85,11 @@ groups:
   feeds:
   - title: "Ikea Hackers"
     url: "http://feeds.feedburner.com/Ikeahacker"  # feed URL
-    page_url: "https://ikeahackers.net/"  # OPTIONAL will be matched when feed is read, useless when the feed is in a group
-    # xpath: ""  # OPTIONAL xpath to retrieve article content instead of brief in some feeds
+    page_url: "https://ikeahackers.net/"  # OPTIONAL website, available as {{feed.page_url}} and exported to OPML
+    # content_mode: default  # OPTIONAL default, no, brief, force (scrape the article page) or links_only
+    # selector: "article"    # OPTIONAL CSS selector of the article body, with `content_mode: force`
     retention: 60  # retention in days
-    # retrieve_server_media: true  # OPTIONAL override default value
-    # media: true             # OPTIONAL: override group-level media setting for this feed
+    # media: true            # OPTIONAL: override group-level media setting for this feed
     # media_max_size: 5242880 # OPTIONAL: override group-level limit (e.g. 5 MB)
     filters: []  # applied filters, order is important
   - title: Blog Habitat Durable

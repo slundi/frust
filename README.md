@@ -68,11 +68,15 @@ filters:
     keep: false               # exclude matching articles
 
 groups:
-  - slug: tech
+  - title: Tech               # title of the exported feed
+    slug: tech                # optional, derived from the title
     output: /var/www/rss/tech.atom
     feeds:
       - title: "Example Blog"
         url: https://example.com/feed.xml
+        page_url: https://example.com/
+        content_mode: force   # default, no, brief, force or links_only
+        selector: "article"   # CSS selector of the article body (force)
         filters: [no-ads]
 ```
 

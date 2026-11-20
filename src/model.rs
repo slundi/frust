@@ -89,6 +89,7 @@ pub(crate) struct Group {
     pub(crate) enrichment_append: Option<String>,
 }
 
+/// `content_mode` of a feed, written in snake_case in the config file.
 #[repr(u8)]
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum ContentMode {
@@ -106,6 +107,23 @@ pub(crate) enum ContentMode {
     LinksOnly,
 }
 
+impl std::str::FromStr for ContentMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "default" => Ok(Self::Default),
+            "no" => Ok(Self::No),
+            "brief" => Ok(Self::Brief),
+            "force" => Ok(Self::Force),
+            "links_only" => Ok(Self::LinksOnly),
+            other => Err(format!(
+                "unknown content_mode '{other}', expected one of: default, no, brief, force, links_only"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct Feed {
     pub(crate) title: String,
@@ -121,8 +139,6 @@ pub(crate) struct Feed {
     // pub(crate) group: Option<u64>,
     /// Applied filter, from the first in the list to the last
     pub(crate) filters: Vec<u64>,
-    /// Output file
-    pub(crate) output: String,
     /// Article retention in days
     pub(crate) retention: u16,
     /// Download media assets (images, audio, video) to `media/<xxh3>.<ext>`

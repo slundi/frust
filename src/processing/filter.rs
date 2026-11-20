@@ -292,7 +292,6 @@ mod tests {
             content_mode: crate::model::ContentMode::Default,
             selector: None,
             filters: vec![filter_id],
-            output: String::new(),
             retention: 0,
             media: false,
             media_max_size: 0,
