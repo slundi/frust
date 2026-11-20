@@ -28,7 +28,7 @@ groups:
   # media_max_size: 0   # OPTIONAL: override app-level media_max_size for this group
   feeds:
   - title: "Lindsey Stirling"
-    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCZvo8TZtUZkLgiH3rJsj-Ow
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCyC_4jvPzLiSkJkLIkA7B8g
     page_url: https://www.youtube.com/channel/UCyC_4jvPzLiSkJkLIkA7B8g
   - title: "Nantes Philharmonie"
     url: https://philhar.com/feed/

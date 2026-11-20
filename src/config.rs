@@ -383,8 +383,42 @@ impl App {
                 self.groups.insert(group_code, group_obj);
             }
             tracing::info!("Loaded groups: {}", self.groups.len());
+            for (url, slugs) in shared_feeds(&self.groups) {
+                tracing::warn!(
+                    "Feed {} is in groups {}: it is fetched once, with the settings \
+                     (filters, retention, content mode) of group '{}'",
+                    url,
+                    slugs.join(", "),
+                    slugs[0]
+                );
+            }
         }
     }
+}
+
+/// Feed URLs listed in more than one group, with the slugs of those groups,
+/// sorted. The first slug is the group whose feed settings are used, see
+/// `processing::unique_feeds`.
+fn shared_feeds(groups: &HashMap<u64, Group>) -> Vec<(String, Vec<String>)> {
+    let mut by_url: HashMap<&str, Vec<String>> = HashMap::new();
+    for group in groups.values() {
+        for feed in group.feeds.values() {
+            by_url
+                .entry(feed.url.as_str())
+                .or_default()
+                .push(group.slug.clone());
+        }
+    }
+    let mut shared: Vec<(String, Vec<String>)> = by_url
+        .into_iter()
+        .filter(|(_, slugs)| slugs.len() > 1)
+        .map(|(url, mut slugs)| {
+            slugs.sort();
+            (url.to_string(), slugs)
+        })
+        .collect();
+    shared.sort();
+    shared
 }
 
 impl Group {
@@ -1113,6 +1147,32 @@ groups:
     }
 
     #[test]
+    fn test_shared_feeds_lists_urls_in_several_groups() {
+        let app = app_from_yaml(&format!(
+            r#"
+groups:
+- slug: music
+  feeds:
+  - title: A
+    url: {FEED_URL}
+- slug: guitar
+  feeds:
+  - title: B
+    url: {FEED_URL}
+  - title: C
+    url: https://other.example/feed
+"#
+        ));
+        assert_eq!(
+            shared_feeds(&app.groups),
+            vec![(
+                FEED_URL.to_string(),
+                vec!["guitar".to_string(), "music".to_string()]
+            )]
+        );
+    }
+
+    #[test]
     fn test_group_output_defaults_to_slug_atom() {
         // Used to default to the output directory itself: unwritable.
         let app = app_from_yaml("output: /srv/www\ngroups:\n- slug: tech\n");
@@ -1264,10 +1324,9 @@ groups:
         let group = app.groups.values().next().unwrap();
         assert_eq!(group.title, "My group name");
         assert_eq!(group.slug, "my-group-name");
-        assert_eq!(
-            load_config_file("my-config.yaml".to_string()).groups.len(),
-            5
-        );
+        let example = load_config_file("my-config.yaml".to_string());
+        assert_eq!(example.groups.len(), 5);
+        assert!(shared_feeds(&example.groups).is_empty());
     }
 
     #[test]

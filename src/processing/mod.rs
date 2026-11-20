@@ -81,6 +81,24 @@ struct FeedResult {
     state: FeedState,
 }
 
+/// Every feed of every group, once per feed id (hash of the URL).
+///
+/// A feed listed in several groups is fetched once, with the settings of the
+/// first group by slug (deterministic); fetching it once per group ran the
+/// same download, state save and insert in parallel. Its articles are stored
+/// once and exported in each of its groups.
+fn unique_feeds(app: &App) -> Vec<(u64, Feed)> {
+    let mut groups: Vec<&Group> = app.groups.values().collect();
+    groups.sort_by(|left, right| left.slug.cmp(&right.slug));
+    let mut feeds: HashMap<u64, Feed> = HashMap::new();
+    for group in groups {
+        for (feed_id, feed) in &group.feeds {
+            feeds.entry(*feed_id).or_insert_with(|| feed.clone());
+        }
+    }
+    feeds.into_iter().collect()
+}
+
 /// Run `work`, aborting it (and dropping what it holds, such as the storage
 /// lock) once `deadline` has passed.
 pub(crate) async fn with_deadline<T>(
@@ -137,11 +155,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
         }
     });
 
-    let feeds_to_process: Vec<_> = app
-        .groups
-        .values()
-        .flat_map(|group| group.feeds.iter().map(|(id, feed)| (*id, feed.clone())))
-        .collect();
+    let feeds_to_process = unique_feeds(app);
 
     tracing::info!(
         "Starting processing {} feeds with {} workers",
@@ -435,7 +449,10 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FeedResult, append_within_cap, persist_results, run_group_exports, with_deadline};
+    use super::{
+        FeedResult, append_within_cap, persist_results, run_group_exports, unique_feeds,
+        with_deadline,
+    };
     use crate::error::FrustError;
     use crate::model::{App, Article, FeedState, Group};
     use crate::storage::{Storage, test_support::FailingBackend};
@@ -604,6 +621,38 @@ mod tests {
 
         run_group_exports(&app, &storage).unwrap();
         assert!(dir.path().join("a.atom").is_file());
+    }
+
+    // ---- unique_feeds (B12) ----
+
+    #[test]
+    fn test_unique_feeds_fetches_shared_feed_once_with_first_group_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        // Same feed id 1 in both groups, with different retention.
+        let mut app = app_with_groups(
+            dir.path(),
+            &[("music", "m.atom", 1), ("guitar", "g.atom", 1)],
+        );
+        for group in app.groups.values_mut() {
+            let retention = if group.slug == "guitar" { 30 } else { 90 };
+            group.feeds.get_mut(&1).unwrap().retention = retention;
+        }
+        app.groups
+            .values_mut()
+            .find(|group| group.slug == "music")
+            .unwrap()
+            .feeds
+            .insert(2, feed("other"));
+
+        let mut feeds = unique_feeds(&app);
+        feeds.sort_by_key(|(feed_id, _)| *feed_id);
+
+        let ids: Vec<u64> = feeds.iter().map(|(feed_id, _)| *feed_id).collect();
+        assert_eq!(ids, vec![1, 2]);
+        assert_eq!(
+            feeds[0].1.retention, 30,
+            "settings of 'guitar', first by slug"
+        );
     }
 
     #[tokio::test]
