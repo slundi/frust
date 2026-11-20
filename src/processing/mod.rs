@@ -84,6 +84,19 @@ struct FeedResult {
     state: FeedState,
 }
 
+/// State of a feed checked without taking in new content (304, or a body
+/// over the size cap): record the check, but keep the stored ETag and
+/// Last-Modified so the next conditional request still asks for the content
+/// that was not processed.
+fn checked_state(stored: Option<&FeedState>, now_ts: i64, http_status: u16) -> FeedState {
+    FeedState {
+        last_etag: stored.and_then(|state| state.last_etag.clone()),
+        last_check_ts: Some(now_ts),
+        last_modified_ts: stored.and_then(|state| state.last_modified_ts),
+        last_http_status: Some(http_status),
+    }
+}
+
 /// Every feed of every group, once per feed id (hash of the URL).
 ///
 /// A feed listed in several groups is fetched once, with the settings of the
@@ -208,12 +221,7 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                     return Ok(Some(FeedResult {
                         feed_id,
                         articles: vec![],
-                        state: FeedState {
-                            last_etag: stored_state.and_then(|s| s.last_etag.clone()),
-                            last_check_ts: Some(now_ts),
-                            last_modified_ts: stored_state.and_then(|s| s.last_modified_ts),
-                            last_http_status: Some(http_status),
-                        },
+                        state: checked_state(stored_state, now_ts, http_status),
                     }));
                 }
 
@@ -234,19 +242,16 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                     Some(b) => b,
                     None => {
                         tracing::warn!(
-                            "Feed '{}' body exceeds {} bytes cap; skipping this refresh but recording state",
+                            "Feed '{}' body exceeds {} bytes cap; skipping this refresh",
                             feed.title,
                             MAX_FEED_BYTES
                         );
+                        // Keep the old validators: with the new ETag, the next
+                        // run would get a 304 and never retry this content.
                         return Ok(Some(FeedResult {
                             feed_id,
                             articles: vec![],
-                            state: FeedState {
-                                last_etag: new_etag,
-                                last_check_ts: Some(now_ts),
-                                last_modified_ts: new_last_mod.map(|dt| dt.timestamp()),
-                                last_http_status: Some(http_status),
-                            },
+                            state: checked_state(stored_state, now_ts, http_status),
                         }));
                     }
                 };
@@ -453,8 +458,8 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FeedResult, append_within_cap, persist_results, run_group_exports, unique_feeds,
-        with_deadline,
+        FeedResult, append_within_cap, checked_state, persist_results, run_group_exports,
+        unique_feeds, with_deadline,
     };
     use crate::error::FrustError;
     use crate::model::{App, Article, FeedState, Group};
@@ -624,6 +629,33 @@ mod tests {
 
         run_group_exports(&app, &storage).unwrap();
         assert!(dir.path().join("a.atom").is_file());
+    }
+
+    // ---- checked_state (B18) ----
+
+    #[test]
+    fn test_checked_state_keeps_stored_validators() {
+        let stored = FeedState {
+            last_etag: Some("\"old\"".to_string()),
+            last_check_ts: Some(1_000),
+            last_modified_ts: Some(900),
+            last_http_status: Some(200),
+        };
+        let state = checked_state(Some(&stored), 2_000, 200);
+        assert_eq!(state.last_etag.as_deref(), Some("\"old\""));
+        assert_eq!(state.last_modified_ts, Some(900));
+        assert_eq!(state.last_check_ts, Some(2_000));
+        assert_eq!(state.last_http_status, Some(200));
+    }
+
+    #[test]
+    fn test_checked_state_without_stored_state_has_no_validators() {
+        // First fetch of an oversized feed: no ETag recorded, so the next run
+        // sends an unconditional request and retries the content.
+        let state = checked_state(None, 2_000, 200);
+        assert!(state.last_etag.is_none());
+        assert!(state.last_modified_ts.is_none());
+        assert_eq!(state.last_check_ts, Some(2_000));
     }
 
     // ---- unique_feeds (B12) ----
