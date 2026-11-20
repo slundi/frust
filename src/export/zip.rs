@@ -1,11 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::{self, BufReader, Write},
     path::Path,
 };
 
 use quick_xml::Writer;
+use slug::slugify;
 use tracing::info;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -16,19 +17,32 @@ use crate::{
     storage::{Storage, prepare_data_dir},
 };
 
-/// Derive the Atom filename that will appear inside the ZIP for a given group.
+/// Atom file names of the groups inside the ZIP, in the same order:
+/// `{slug}.atom`, with `-2`, `-3`… appended on a collision.
 ///
-/// Uses the basename of the configured `output` path (e.g. `divers.atom`) when
-/// set, otherwise falls back to `{slug}.atom`.
-fn group_atom_name(group: &Group) -> String {
-    if !group.output.is_empty() {
-        Path::new(&group.output)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format!("{}.atom", group.slug))
-    } else {
-        format!("{}.atom", group.slug)
-    }
+/// The basename of `output` used before collided for `a/feed.atom` and
+/// `b/feed.atom` (and `zip.start_file` refuses duplicates, failing the whole
+/// archive), and named Atom content `x.rss`. The slug is slugified so it
+/// cannot create directories or `..` entries in the archive.
+fn group_atom_names(groups: &[&Group]) -> Vec<String> {
+    let mut used: HashSet<String> = HashSet::new();
+    groups
+        .iter()
+        .map(|group| {
+            let base = match slugify(&group.slug) {
+                slug if slug.is_empty() => "group".to_string(),
+                slug => slug,
+            };
+            let mut name = format!("{base}.atom");
+            let mut suffix = 2;
+            while used.contains(&name) {
+                name = format!("{base}-{suffix}.atom");
+                suffix += 1;
+            }
+            used.insert(name.clone());
+            name
+        })
+        .collect()
 }
 
 /// Build a ZIP archive at `output_path` containing:
@@ -52,7 +66,11 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
         // ── one Atom file per group ───────────────────────────────────────────────
-        for group in app.groups.values() {
+        // Sorted so the archive layout (and any collision suffix) is stable.
+        let mut groups: Vec<&Group> = app.groups.values().collect();
+        groups.sort_by(|left, right| left.slug.cmp(&right.slug));
+        let atom_names = group_atom_names(&groups);
+        for (group, atom_name) in groups.into_iter().zip(atom_names) {
             let mut articles = Vec::new();
             let mut enrichments: HashMap<u64, Enrichment> = HashMap::new();
 
@@ -87,7 +105,6 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
             )?;
             let xml_bytes = writer.into_inner();
 
-            let atom_name = group_atom_name(group);
             info!("zip: adding {} ({} articles)", atom_name, articles.len());
             zip.start_file(&atom_name, opts)
                 .map_err(|e| FrustError::Export(e.to_string()))?;
@@ -136,7 +153,7 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, io::Read};
+    use std::io::Read;
 
     use twox_hash::XxHash3_64;
     use zip::ZipArchive;
@@ -145,7 +162,7 @@ mod tests {
 
     use super::*;
 
-    // ── group_atom_name ───────────────────────────────────────────────────────
+    // ── group_atom_names (B17) ────────────────────────────────────────────────
 
     fn make_group(slug: &str, output: &str) -> Group {
         Group {
@@ -155,25 +172,41 @@ mod tests {
         }
     }
 
+    fn names_for(groups: &[(&str, &str)]) -> Vec<String> {
+        let groups: Vec<Group> = groups
+            .iter()
+            .map(|(slug, output)| make_group(slug, output))
+            .collect();
+        group_atom_names(&groups.iter().collect::<Vec<_>>())
+    }
+
     #[test]
-    fn test_group_atom_name_uses_output_field() {
+    fn test_group_atom_names_use_slug_not_output() {
+        // Same basename in two directories, and Atom content in a .rss file.
         assert_eq!(
-            group_atom_name(&make_group("tech", "tech.atom")),
-            "tech.atom"
+            names_for(&[
+                ("tech", "a/feed.atom"),
+                ("news", "b/feed.atom"),
+                ("misc", "x.rss")
+            ]),
+            vec!["tech.atom", "news.atom", "misc.atom"]
         );
     }
 
     #[test]
-    fn test_group_atom_name_strips_directory_components() {
+    fn test_group_atom_names_suffix_collisions() {
         assert_eq!(
-            group_atom_name(&make_group("tech", "/some/path/tech.atom")),
-            "tech.atom"
+            names_for(&[("Tech", ""), ("tech", ""), ("TECH", "")]),
+            vec!["tech.atom", "tech-2.atom", "tech-3.atom"]
         );
     }
 
     #[test]
-    fn test_group_atom_name_falls_back_to_slug() {
-        assert_eq!(group_atom_name(&make_group("my-feed", "")), "my-feed.atom");
+    fn test_group_atom_names_cannot_escape_the_archive_root() {
+        assert_eq!(
+            names_for(&[("../etc/passwd", ""), ("", "")]),
+            vec!["etc-passwd.atom", "group.atom"]
+        );
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
