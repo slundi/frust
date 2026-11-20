@@ -59,6 +59,29 @@ const FEED_KEYS: &[&str] = &[
     "filters",
 ];
 
+const TOP_LEVEL: &str = "the top level";
+
+/// Read an integer field that must fit in `T`. Out-of-range and non-integer
+/// values are config errors instead of being wrapped silently
+/// (`retention: -1` used to mean 65535 days, `media_max_size: -1` no limit).
+fn integer_field<T: TryFrom<i64>>(map: &Mapping<'_>, field: &str, yaml_path: &str) -> Option<T> {
+    let value = map_get(map, field)?;
+    let number = value.as_integer();
+    Some(
+        number
+            .and_then(|number| T::try_from(number).ok())
+            .unwrap_or_else(|| {
+                let found =
+                    number.map_or_else(|| "a non-integer value".to_string(), |n| n.to_string());
+                panic!(
+                    "Invalid data in config file: {field} in {yaml_path} must be an integer \
+                     that fits in {}, got {found}",
+                    std::any::type_name::<T>()
+                )
+            }),
+    )
+}
+
 /// Keys of `map` that are not in `known`, in file order.
 fn unknown_keys<'a>(map: &'a Mapping<'_>, known: &[&str]) -> Vec<&'a str> {
     map.keys()
@@ -115,7 +138,7 @@ fn required_string_field(map: &Mapping<'_>, field: &str, yaml_path: Option<&str>
 
 impl App {
     fn load_globals(&mut self, map: &Mapping<'_>) {
-        warn_unknown_keys(map, APP_KEYS, "the top level");
+        warn_unknown_keys(map, APP_KEYS, TOP_LEVEL);
         // load output folder
         if let Some(output) = optional_string_field(map, "output") {
             self.output = output;
@@ -154,35 +177,20 @@ impl App {
             self.media = value.as_bool().expect("Invalid data in config file: media");
         }
         // max asset size in bytes (0 = no limit)
-        if let Some(value) = map_get(map, "media_max_size") {
-            self.media_max_size = value
-                .as_integer()
-                .expect("Invalid data in config file: media_max_size")
-                as u64;
+        if let Some(value) = integer_field(map, "media_max_size", TOP_LEVEL) {
+            self.media_max_size = value;
         }
         // set the timeout for HTTP queries
-        if let Some(value) = map_get(map, "timeout") {
-            self.timeout = u8::try_from(
-                value
-                    .as_integer()
-                    .expect("Invalid data in config file: timeout"),
-            )
-            .expect("Invalid data in config file: timeout");
+        if let Some(value) = integer_field(map, "timeout", TOP_LEVEL) {
+            self.timeout = value;
         }
         // article retention in days (0 = keep forever); groups/feeds inherit this
-        if let Some(value) = map_get(map, "retention") {
-            self.retention = u16::try_from(
-                value
-                    .as_integer()
-                    .expect("Invalid data in config file: retention"),
-            )
-            .expect("Invalid data in config file: retention");
+        if let Some(value) = integer_field(map, "retention", TOP_LEVEL) {
+            self.retention = value;
         }
         // minimum interval between refreshes for a given feed, in seconds
-        if let Some(value) = map_get(map, "min_refresh_time") {
-            self.min_refresh_time = value
-                .as_integer()
-                .expect("Invalid data in config file: min_refresh_time");
+        if let Some(value) = integer_field::<u32>(map, "min_refresh_time", TOP_LEVEL) {
+            self.min_refresh_time = i64::from(value);
         }
         // app-level enrichment templates
         self.enrichment_prepend = map_get(map, "enrichment_prepend")
@@ -344,24 +352,20 @@ impl App {
                 // destination the output directory, which cannot be written.
                 let group_output =
                     optional_string_field(m, "output").unwrap_or_else(|| format!("{slug}.atom"));
+                let group_path = format!("group '{slug}'");
 
                 let mut group_obj = Group {
                     title: title.unwrap_or_else(|| slug.clone()),
-                    slug,
-                    output: group_output,
                     // Group retention or global if missing
-                    retention: map_get(m, "retention")
-                        .and_then(Yaml::as_integer)
-                        .map(|v| v as u16)
-                        .unwrap_or(self.retention),
+                    retention: integer_field(m, "retention", &group_path).unwrap_or(self.retention),
                     // Group media settings, inherit from app if missing
                     media: map_get(m, "media")
                         .and_then(Yaml::as_bool)
                         .unwrap_or(self.media),
-                    media_max_size: map_get(m, "media_max_size")
-                        .and_then(Yaml::as_integer)
-                        .map(|v| v as u64)
+                    media_max_size: integer_field(m, "media_max_size", &group_path)
                         .unwrap_or(self.media_max_size),
+                    slug,
+                    output: group_output,
                     // Group enrichment templates: concatenate app-level + group's own value
                     enrichment_prepend: concat_enrichment(
                         self.enrichment_prepend.as_deref(),
@@ -461,10 +465,7 @@ impl Group {
                     title: required_string_field(m, "title", Some(&format!("{yaml_path}.title"))),
                     url: required_string_field(m, "url", Some(&format!("{yaml_path}.url"))),
                     slug: String::new(), // will be computed later
-                    retention: map_get(m, "retention")
-                        .and_then(Yaml::as_integer)
-                        .map(|v| v as u16)
-                        .unwrap_or(self.retention), // inherited from group
+                    retention: integer_field(m, "retention", &yaml_path).unwrap_or(self.retention), // inherited from group
                     filters: self.filters.clone(), // starts with group filters
                     selector: load_selector(m, &yaml_path, &content_mode),
                     content_mode,
@@ -472,9 +473,7 @@ impl Group {
                     media: map_get(m, "media")
                         .and_then(Yaml::as_bool)
                         .unwrap_or(self.media), // inherited from group
-                    media_max_size: map_get(m, "media_max_size")
-                        .and_then(Yaml::as_integer)
-                        .map(|v| v as u64)
+                    media_max_size: integer_field(m, "media_max_size", &yaml_path)
                         .unwrap_or(self.media_max_size), // inherited from group
                     enrichment_prepend: concat_enrichment(
                         self.enrichment_prepend.as_deref(),
@@ -1362,6 +1361,64 @@ groups:
         let example = load_config_file("my-config.yaml".to_string());
         assert_eq!(example.groups.len(), 5);
         assert!(shared_feeds(&example.groups).is_empty());
+    }
+
+    // ---- numeric ranges (B16) ----
+
+    #[test]
+    #[should_panic(
+        expected = "retention in group 'g' must be an integer that fits in u16, got 70000"
+    )]
+    fn test_group_retention_overflow_is_rejected() {
+        // `as u16` used to turn this into 4464 days.
+        app_from_yaml("groups:\n- slug: g\n  retention: 70000\n");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "retention in group 'g' feeds[0] must be an integer that fits in u16, got -1"
+    )]
+    fn test_feed_negative_retention_is_rejected() {
+        // `as u16` used to turn this into 65535 days.
+        app_from_yaml(&format!(
+            "groups:\n- slug: g\n  feeds:\n  - title: F\n    url: {FEED_URL}\n    retention: -1\n"
+        ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "media_max_size in group 'g' must be an integer that fits in u64, got -1"
+    )]
+    fn test_negative_media_max_size_is_rejected() {
+        // `as u64` used to turn this into u64::MAX, i.e. no limit.
+        app_from_yaml("groups:\n- slug: g\n  media_max_size: -1\n");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "min_refresh_time in the top level must be an integer that fits in u32, got -5"
+    )]
+    fn test_negative_min_refresh_time_is_rejected() {
+        app_from_yaml("min_refresh_time: -5\n");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "timeout in the top level must be an integer that fits in u8, got a non-integer value"
+    )]
+    fn test_non_integer_value_is_rejected() {
+        app_from_yaml("timeout: soon\n");
+    }
+
+    #[test]
+    fn test_integer_bounds_are_accepted() {
+        let app = app_from_yaml(&format!(
+            "retention: 65535\ntimeout: 255\nmedia_max_size: 0\ngroups:\n- slug: g\n  retention: 0\n  feeds:\n  - title: F\n    url: {FEED_URL}\n    retention: 65535\n"
+        ));
+        assert_eq!(app.retention, u16::MAX);
+        assert_eq!(app.timeout, u8::MAX);
+        assert_eq!(app.groups.values().next().unwrap().retention, 0);
+        assert_eq!(first_feed(&app).retention, u16::MAX);
     }
 
     #[test]
