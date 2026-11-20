@@ -58,6 +58,22 @@
           src = ./.;
           # Cargo.lock must be committed (true for executables — see .gitignore)
           cargoLock.lockFile = ./Cargo.lock;
+          # reqwest loads the system CA store even for the loopback test
+          # servers; the build sandbox has none (cacert sets SSL_CERT_FILE).
+          nativeCheckInputs = [ pkgs.cacert ];
+        };
+
+        # `nix flake check`; build one with `nix build .#checks.<system>.module-vm`
+        checks = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          module-eval = import ./nix/tests/eval.nix {
+            inherit pkgs;
+            inherit (nixpkgs.lib) nixosSystem;
+            module = self.nixosModules.default;
+          };
+          module-vm = import ./nix/tests/vm.nix {
+            inherit pkgs;
+            module = self.nixosModules.default;
+          };
         };
 
         devShells.default = pkgs.mkShell {
@@ -132,5 +148,14 @@
           '';
         };
       }
-    );
+    )
+    // {
+      # `imports = [ frust.nixosModules.default ];` then `services.frust.enable = true;`
+      nixosModules.default =
+        { lib, pkgs, ... }:
+        {
+          imports = [ ./nix/module.nix ];
+          services.frust.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        };
+    };
 }

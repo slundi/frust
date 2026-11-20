@@ -94,3 +94,87 @@ Typical cron entry (every 30 minutes, log to file):
 ```cron
 */30 * * * * /usr/local/bin/frust /etc/frust/config.yaml >> /var/log/frust.log 2>&1
 ```
+
+## NixOS
+
+The flake provides a NixOS module that writes the YAML config from Nix and runs frust periodically with a systemd
+timer (the NixOS equivalent of the cron entry above).
+
+```nix
+# flake.nix
+{
+  inputs.frust.url = "git+https://codeberg.org/slundi/frust";
+
+  outputs = { nixpkgs, frust, ... }: {
+    nixosConfigurations.router = nixpkgs.lib.nixosSystem {
+      modules = [
+        frust.nixosModules.default
+        ./configuration.nix
+      ];
+    };
+  };
+}
+```
+
+```nix
+# configuration.nix
+{
+  services.frust = {
+    enable = true;
+    schedule = "*:0/30";              # every 30 minutes, systemd.time(7) format
+    settings = {                      # any key of my-config.yaml, written as Nix
+      base_url = "https://example.org/rss/";
+      retention = 30;
+      filters = [
+        { slug = "no-ads"; expressions = [ "sponsored" "advertisement" ]; keep = false; }
+      ];
+      groups = [
+        {
+          title = "Tech";
+          output = "tech.atom";       # relative to outputDir
+          feeds = [
+            { title = "Example Blog"; url = "https://example.com/feed.xml"; filters = [ "no-ads" ]; }
+          ];
+        }
+      ];
+    };
+  };
+
+  services.nginx = {
+    enable = true;
+    virtualHosts."example.org".locations."/rss/".alias = "/var/www/frust/";
+  };
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enable` | `false` | Install the service and its timer |
+| `package` | the flake's build | frust package to run |
+| `settings` | `{ }` | Config, converted to YAML. `output` and `data_dir` are set by the two options below |
+| `outputDir` | `/var/www/frust` | Generated feeds, served by the web server (mode `0755`) |
+| `dataDir` | `/var/lib/frust` | Private databases (mode `0700`); the build fails if it is inside `outputDir` |
+| `schedule` | `hourly` | When to run, in `systemd.time(7)` calendar format |
+| `randomizedDelay` | `5m` | Random delay added to each run, so sources aren't all hit on the hour |
+| `logLevel` | `info` | `RUST_LOG` directive, e.g. `frust_feed=debug,warn` |
+| `user` / `group` | `frust` | Account running frust; created only when left to `frust` |
+| `configFile` | read-only | Path of the generated YAML |
+
+The service is sandboxed: it can only reach the network and write to `outputDir` and `dataDir`. A missed run (e.g.
+the device was off) is caught up at the next boot.
+
+```bash
+sudo systemctl start frust.service   # run now, returns when frust exits
+journalctl -u frust                  # logs
+systemctl list-timers frust          # next scheduled run
+```
+
+### Testing the module
+
+```bash
+nix flake check                                     # everything below
+nix build .#checks.x86_64-linux.module-eval         # fast: evaluates the module, validates the generated YAML
+nix build .#checks.x86_64-linux.module-vm           # boots a VM, runs frust against a local feed served by nginx
+```
+
+The VM test needs no internet access. It is much faster with KVM (`/dev/kvm`).
