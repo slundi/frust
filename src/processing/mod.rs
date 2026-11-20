@@ -368,19 +368,30 @@ fn feed_to_enrichment(feed: &Feed) -> Enrichment {
 }
 
 /// For each group, load its articles from storage and write the output file.
+///
+/// A failing group does not stop the others, but the run fails at the end so
+/// cron/monitoring sees it.
 fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
+    let mut failed_groups = 0;
     for group in app.groups.values() {
         let mut articles: Vec<Article> = Vec::new();
+        let mut load_failed = false;
         for feed_id in group.feeds.keys() {
             match storage.load_articles_for_feed(*feed_id) {
                 Ok(mut feed_articles) => articles.append(&mut feed_articles),
-                Err(e) => tracing::warn!(
-                    "Could not load articles for feed {} in group '{}': {}",
-                    feed_id,
-                    group.slug,
-                    e
-                ),
+                Err(e) => {
+                    load_failed = true;
+                    tracing::error!(
+                        "Could not load articles for feed {} in group '{}': {}",
+                        feed_id,
+                        group.slug,
+                        e
+                    )
+                }
             }
+        }
+        if load_failed {
+            failed_groups += 1;
         }
         articles.sort_unstable_by_key(|a| Reverse(a.timestamp));
 
@@ -408,18 +419,28 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 
         if let Err(e) = exporter.generate(&articles, &group.title, &link, &dest, &enrichments) {
             tracing::error!("Export failed for group '{}': {}", group.slug, e);
+            if !load_failed {
+                failed_groups += 1;
+            }
         }
+    }
+    if failed_groups > 0 {
+        return Err(FrustError::Export(format!(
+            "{failed_groups} of {} group(s) failed to export",
+            app.groups.len()
+        )));
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{FeedResult, append_within_cap, persist_results, with_deadline};
+    use super::{FeedResult, append_within_cap, persist_results, run_group_exports, with_deadline};
     use crate::error::FrustError;
-    use crate::model::{Article, FeedState};
+    use crate::model::{App, Article, FeedState, Group};
     use crate::storage::{Storage, test_support::FailingBackend};
     use redb::{Database, backends::InMemoryBackend};
+    use std::collections::HashMap;
     use std::sync::atomic::Ordering;
 
     fn make_article(id: u64, feed_id: u64) -> Article {
@@ -506,6 +527,83 @@ mod tests {
         // Articles are safe; losing the state only costs a re-fetch.
         assert_eq!(persist_results(&storage, results).unwrap(), 1);
         assert!(storage.load_article_ids().unwrap().contains(&10));
+    }
+
+    // ---- run_group_exports (B11) ----
+
+    fn feed(url: &str) -> crate::model::Feed {
+        crate::model::Feed {
+            title: url.to_string(),
+            slug: url.to_string(),
+            url: url.to_string(),
+            page_url: String::new(),
+            content_mode: crate::model::ContentMode::Default,
+            selector: None,
+            filters: Vec::new(),
+            retention: 0,
+            media: false,
+            media_max_size: 0,
+            enrichment_prepend: None,
+            enrichment_append: None,
+        }
+    }
+
+    /// App with one group per `(slug, output, feed_id)`.
+    fn app_with_groups(output_dir: &std::path::Path, groups: &[(&str, &str, u64)]) -> App {
+        let groups = groups
+            .iter()
+            .enumerate()
+            .map(|(index, (slug, output, feed_id))| {
+                let group = Group {
+                    title: slug.to_string(),
+                    slug: slug.to_string(),
+                    output: output.to_string(),
+                    feeds: HashMap::from([(*feed_id, feed(slug))]),
+                    ..Group::default()
+                };
+                (index as u64, group)
+            })
+            .collect();
+        App {
+            output: output_dir.display().to_string(),
+            groups,
+            ..App::default()
+        }
+    }
+
+    #[test]
+    fn test_run_group_exports_fails_when_a_group_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        // "blocked" is a file, so blocked/b.atom cannot be created.
+        std::fs::write(dir.path().join("blocked"), b"").unwrap();
+        let app = app_with_groups(
+            dir.path(),
+            &[("a", "a.atom", 1), ("b", "blocked/b.atom", 2)],
+        );
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        storage
+            .upsert_articles(vec![make_article(10, 1), make_article(20, 2)])
+            .unwrap();
+
+        let result = run_group_exports(&app, &storage);
+
+        let message = result
+            .expect_err("a failed export must fail the run")
+            .to_string();
+        assert!(message.contains("1 of 2"), "{message}");
+        // The healthy group is still exported.
+        assert!(dir.path().join("a.atom").is_file());
+    }
+
+    #[test]
+    fn test_run_group_exports_succeeds_when_all_groups_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = app_with_groups(dir.path(), &[("a", "a.atom", 1)]);
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        storage.upsert_articles(vec![make_article(10, 1)]).unwrap();
+
+        run_group_exports(&app, &storage).unwrap();
+        assert!(dir.path().join("a.atom").is_file());
     }
 
     #[tokio::test]

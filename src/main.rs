@@ -47,6 +47,35 @@ fn create_output_structure(app: &App) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Delete expired articles and orphaned media. Returns `false` if a step
+/// failed; the run goes on, but must end with a failure exit code.
+fn clean_storage(app: &App, storage: &Storage, now_ts: i64) -> bool {
+    let mut ok = true;
+    let feed_retentions: HashMap<u64, u16> = app
+        .groups
+        .values()
+        .flat_map(|g| g.feeds.iter().map(|(id, f)| (*id, f.retention)))
+        .collect();
+    match storage.delete_expired_articles(now_ts, &feed_retentions, app.retention) {
+        Ok(0) => info!("No article to delete"),
+        Ok(n) => tracing::info!("Cleaned {} expired article(s)", n),
+        Err(e) => {
+            tracing::error!("Article cleanup failed: {}", e);
+            ok = false;
+        }
+    }
+    let media_dir = Path::new(&app.output).join("media");
+    match storage.purge_orphaned_media(&media_dir) {
+        Ok(0) => info!("No media to delete"),
+        Ok(n) => tracing::info!("Purged {} orphaned media file(s)", n),
+        Err(e) => {
+            tracing::error!("Media purge failed: {}", e);
+            ok = false;
+        }
+    }
+    ok
+}
+
 async fn run_aggregator(config_path: &str) -> ExitCode {
     let pwd = match std::env::current_dir() {
         Ok(p) => p.display().to_string(),
@@ -65,10 +94,11 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
     let mut exit_code = ExitCode::SUCCESS;
     let app = crate::config::load_config_file(config_path.to_string());
     START_TIME.get_or_init(Utc::now);
-    std::fs::create_dir_all(app.output.clone()).unwrap_or_else(|e| {
-        tracing::error!("Unable to create output directory: {}", e);
-        exit_code = ExitCode::FAILURE;
-    });
+    // Nothing can be exported without it: stop here rather than fetch for nothing.
+    if let Err(e) = std::fs::create_dir_all(&app.output) {
+        tracing::error!("Unable to create output directory {}: {}", app.output, e);
+        return ExitCode::FAILURE;
+    }
     if let Err(e) = create_output_structure(&app) {
         tracing::error!("Failed to create output directories: {:#}", e);
         return ExitCode::FAILURE;
@@ -81,24 +111,17 @@ async fn run_aggregator(config_path: &str) -> ExitCode {
 
     {
         info!("Cleaning up old articles");
-        if let Ok(storage) = Storage::open_in(&app.data_dir) {
-            let feed_retentions: HashMap<u64, u16> = app
-                .groups
-                .values()
-                .flat_map(|g| g.feeds.iter().map(|(id, f)| (*id, f.retention)))
-                .collect();
-            let now_ts = START_TIME.get().unwrap().timestamp();
-            match storage.delete_expired_articles(now_ts, &feed_retentions, app.retention) {
-                Ok(0) => info!("No article to delete"),
-                Ok(n) => tracing::info!("Cleaned {} expired article(s)", n),
-                Err(e) => tracing::warn!("Article cleanup failed: {}", e),
+        // Scoped: redb refuses a second open of the same file in `start`.
+        let storage = match Storage::open_in(&app.data_dir) {
+            Ok(storage) => storage,
+            Err(e) => {
+                tracing::error!("Unable to open the databases in {}: {}", app.data_dir, e);
+                return ExitCode::FAILURE;
             }
-            let media_dir = output_dir.join("media");
-            match storage.purge_orphaned_media(&media_dir) {
-                Ok(0) => info!("No media to delete"),
-                Ok(n) => tracing::info!("Purged {} orphaned media file(s)", n),
-                Err(e) => tracing::warn!("Media purge failed: {}", e),
-            }
+        };
+        let now_ts = START_TIME.get().unwrap().timestamp();
+        if !clean_storage(&app, &storage, now_ts) {
+            exit_code = ExitCode::FAILURE;
         }
     }
 
@@ -169,9 +192,79 @@ async fn main() -> ExitCode {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::model::{App, Feed, Group};
+    use crate::model::{App, Article, Feed, Group};
+    use crate::storage::{Storage, test_support::FailingBackend};
 
-    use super::{build_log_filter, create_output_structure};
+    use super::{build_log_filter, clean_storage, create_output_structure, run_aggregator};
+
+    // ---- exit code (B11) ----
+
+    fn in_memory_db() -> redb::Database {
+        redb::Database::builder()
+            .create_with_backend(redb::backends::InMemoryBackend::new())
+            .unwrap()
+    }
+
+    #[test]
+    fn test_clean_storage_reports_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = app_with(&dir.path().display().to_string(), false, vec![]);
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        assert!(clean_storage(&app, &storage, 1_000_000));
+    }
+
+    #[test]
+    fn test_clean_storage_reports_failed_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = app_with(&dir.path().display().to_string(), false, vec![]);
+        app.retention = 1;
+        let (backend, fail_writes) = FailingBackend::new();
+        let articles_db = redb::Database::builder()
+            .create_with_backend(backend)
+            .unwrap();
+        let storage = Storage::from_databases(articles_db, in_memory_db());
+        storage
+            .upsert_articles(vec![Article {
+                id: 1,
+                feed_id: 1,
+                title: String::new(),
+                url: String::new(),
+                content: String::new(),
+                summary: None,
+                timestamp: 0,
+                added_at: 0,
+                enclosures: Vec::new(),
+            }])
+            .unwrap();
+
+        fail_writes.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!clean_storage(&app, &storage, 1_000_000));
+    }
+
+    #[tokio::test]
+    async fn test_run_aggregator_stops_when_output_dir_cannot_be_created() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("blocker"), b"").unwrap();
+        let data_dir = dir.path().join("data");
+        let config = dir.path().join("config.yaml");
+        std::fs::write(
+            &config,
+            format!(
+                "output: {}\ndata_dir: {}\n",
+                dir.path().join("blocker/out").display(),
+                data_dir.display()
+            ),
+        )
+        .unwrap();
+
+        let code = run_aggregator(config.to_str().unwrap()).await;
+
+        assert_eq!(code, std::process::ExitCode::FAILURE);
+        assert!(
+            !data_dir.exists(),
+            "must stop before touching the databases"
+        );
+    }
 
     fn unique_dir(prefix: &str) -> String {
         let nanos = std::time::SystemTime::now()
