@@ -10,7 +10,7 @@ use std::path::Path;
 const ARTICLES_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("articles");
 const STATE_TABLE: TableDefinition<u64, &[u8]> = TableDefinition::new("states");
 /// Secondary index keyed by `(feed_id, article_id)` with the article's
-/// `timestamp` as the value. Lets `delete_expired_articles` and
+/// [`expiry_ts`] as the value. Lets `delete_expired_articles` and
 /// `load_articles_for_feed` skip the decompress+deserialize step for the
 /// article payload — only the meta bytes (24 bytes/entry) are read.
 const META_TABLE: TableDefinition<(u64, u64), i64> = TableDefinition::new("article_meta");
@@ -19,7 +19,9 @@ const SCHEMA_TABLE: TableDefinition<&str, u32> = TableDefinition::new("schema");
 const SCHEMA_VERSION_KEY: &str = "version";
 /// * v1 (no schema table): article id = `xxh3(guid)`, global across feeds.
 /// * v2: article id scoped by feed, see [`crate::utils::article_id`].
-const SCHEMA_VERSION: u32 = 2;
+/// * v3: meta value is [`expiry_ts`] (was `timestamp`); dateless articles
+///   are dated `added_at` (was 0).
+const SCHEMA_VERSION: u32 = 3;
 
 pub(crate) const ARTICLES_FILE: &str = "articles.redb";
 pub(crate) const STATES_FILE: &str = "states.redb";
@@ -100,6 +102,13 @@ pub fn prepare_data_dir(data_dir: &Path, output_dir: &Path) -> Result<(), FrustE
     Ok(())
 }
 
+/// Instant the retention window of an article is measured from: its feed
+/// date, but never later than when frust first saw it, so a future or bogus
+/// date can't keep an article forever.
+fn expiry_ts(article: &Article) -> i64 {
+    article.timestamp.min(article.added_at)
+}
+
 fn decode_article(bytes: &[u8]) -> Result<Article, FrustError> {
     let decompressed = lz4_flex::decompress_size_prepended(bytes)
         .map_err(|e| FrustError::Serialization(e.to_string()))?;
@@ -157,13 +166,17 @@ impl Storage {
     }
 
     /// Upgrade the articles database to [`SCHEMA_VERSION`] in one transaction.
+    /// Every article is rewritten and the meta index is rebuilt from scratch.
     ///
-    /// v1 → v2: re-key every article with its feed-scoped id. Legacy GUID
-    /// collisions between feeds had already overwritten one of the articles;
-    /// the survivor is kept under its own feed, the meta index is rebuilt from
-    /// scratch, and the lost one is fetched again on the next run.
+    /// * v1 → v2: re-key every article with its feed-scoped id. Legacy GUID
+    ///   collisions between feeds had already overwritten one of the articles;
+    ///   the survivor is kept under its own feed, and the lost one is fetched
+    ///   again on the next run.
+    /// * v2 → v3: date the articles stored with a 0 timestamp (no date in the
+    ///   feed) with their `added_at`, and index [`expiry_ts`].
     fn migrate_schema(&self) -> Result<(), FrustError> {
-        if self.schema_version()? >= SCHEMA_VERSION {
+        let version = self.schema_version()?;
+        if version >= SCHEMA_VERSION {
             return Ok(());
         }
 
@@ -177,8 +190,9 @@ impl Storage {
         };
         if !legacy.is_empty() {
             tracing::info!(
-                "Migrating {} article(s) to feed-scoped ids (schema v{})",
+                "Migrating {} article(s) from schema v{} to v{}",
                 legacy.len(),
+                version,
                 SCHEMA_VERSION
             );
         }
@@ -188,11 +202,16 @@ impl Storage {
             let mut articles = write_txn.open_table(ARTICLES_TABLE)?;
             let mut meta = write_txn.open_table(META_TABLE)?;
             for mut article in legacy {
-                article.id = scope_guid_hash(article.feed_id, article.id);
+                if version < 2 {
+                    article.id = scope_guid_hash(article.feed_id, article.id);
+                }
+                if article.timestamp == 0 {
+                    article.timestamp = article.added_at;
+                }
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&article)?;
                 let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
                 articles.insert(article.id, compressed.as_slice())?;
-                meta.insert((article.feed_id, article.id), article.timestamp)?;
+                meta.insert((article.feed_id, article.id), expiry_ts(&article))?;
             }
             let mut schema = write_txn.open_table(SCHEMA_TABLE)?;
             schema.insert(SCHEMA_VERSION_KEY, SCHEMA_VERSION)?;
@@ -241,7 +260,7 @@ impl Storage {
         for item in articles_table.iter()? {
             let (_key, bytes) = item?;
             let article = decode_article(bytes.value())?;
-            entries.push((article.feed_id, article.id, article.timestamp));
+            entries.push((article.feed_id, article.id, expiry_ts(&article)));
         }
         drop(read_txn);
 
@@ -249,8 +268,8 @@ impl Storage {
         write_txn.delete_table(META_TABLE)?;
         {
             let mut meta = write_txn.open_table(META_TABLE)?;
-            for (feed_id, article_id, timestamp) in entries {
-                meta.insert((feed_id, article_id), timestamp)?;
+            for (feed_id, article_id, expiry) in entries {
+                meta.insert((feed_id, article_id), expiry)?;
             }
         }
         write_txn.commit()?;
@@ -334,14 +353,15 @@ impl Storage {
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&article)?;
                 let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
                 table.insert(article.id, compressed.as_slice())?;
-                meta.insert((article.feed_id, article.id), article.timestamp)?;
+                meta.insert((article.feed_id, article.id), expiry_ts(&article))?;
             }
         }
         write_txn.commit()?;
         Ok(())
     }
 
-    /// Delete articles that have exceeded their retention window.
+    /// Delete articles that have exceeded their retention window, measured
+    /// from [`expiry_ts`].
     ///
     /// Returns the number of deleted articles.
     /// `now_ts` is the current UNIX timestamp in seconds.
@@ -355,14 +375,14 @@ impl Storage {
     ) -> Result<usize, FrustError> {
         let read_txn = self.articles_db.begin_read()?;
         // Walk the meta index instead of the articles table so we never
-        // decompress a payload just to read its timestamp/feed_id.
+        // decompress a payload just to read its dates/feed_id.
         let to_delete: Vec<(u64, u64)> = match read_txn.open_table(META_TABLE) {
             Ok(table) => {
                 let mut victims = Vec::new();
                 for item in table.iter()? {
                     let (key, value) = item?;
                     let (feed_id, article_id) = key.value();
-                    let timestamp = value.value();
+                    let expiry = value.value();
                     let retention = feed_retentions
                         .get(&feed_id)
                         .copied()
@@ -371,7 +391,7 @@ impl Storage {
                         continue;
                     }
                     let cutoff = now_ts - retention as i64 * 86_400;
-                    if timestamp <= cutoff {
+                    if expiry <= cutoff {
                         victims.push((feed_id, article_id));
                     }
                 }
@@ -1128,6 +1148,89 @@ mod tests {
         let feed_2 = storage.load_articles_for_feed(2).unwrap();
         assert!(feed_2.iter().all(|a| expected.contains(&a.id)));
         assert_eq!(feed_2.len(), 2);
+    }
+
+    // ---- retention dates (B3) ----
+
+    #[test]
+    fn test_cleanup_future_dated_article_expires_from_added_at() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        let mut article = make_article(1, 42, now + 365 * 86_400);
+        article.added_at = now - 10 * 86_400;
+        storage.upsert_articles(vec![article]).unwrap();
+
+        let retentions = HashMap::from([(42u64, 7u16)]);
+        let deleted = storage
+            .delete_expired_articles(now, &retentions, 0)
+            .unwrap();
+        assert_eq!(deleted, 1, "a date in the future must not pin the article");
+    }
+
+    #[test]
+    fn test_cleanup_old_dated_article_expires_from_its_date() {
+        let storage = make_storage();
+        let now = 1_000_000_i64;
+        // Published 10 days ago but first seen yesterday: still expired.
+        let mut article = make_article(1, 42, now - 10 * 86_400);
+        article.added_at = now - 86_400;
+        storage.upsert_articles(vec![article]).unwrap();
+
+        let retentions = HashMap::from([(42u64, 7u16)]);
+        assert_eq!(
+            storage
+                .delete_expired_articles(now, &retentions, 0)
+                .unwrap(),
+            1
+        );
+    }
+
+    /// Write a v2 database (schema table at 2, meta value = `timestamp`)
+    /// holding a dateless article (timestamp 0) first seen at `added_at`.
+    fn write_v2_database(path: &str, added_at: i64) {
+        let mut article = make_article(1, 42, 0);
+        article.added_at = added_at;
+        let db = Database::builder().create(path).unwrap();
+        let tx = db.begin_write().unwrap();
+        {
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&article).unwrap();
+            let compressed = lz4_flex::compress_prepend_size(bytes.as_slice());
+            tx.open_table(ARTICLES_TABLE)
+                .unwrap()
+                .insert(article.id, compressed.as_slice())
+                .unwrap();
+            tx.open_table(META_TABLE)
+                .unwrap()
+                .insert((article.feed_id, article.id), 0)
+                .unwrap();
+            tx.open_table(SCHEMA_TABLE)
+                .unwrap()
+                .insert(SCHEMA_VERSION_KEY, 2)
+                .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn test_migration_v2_dates_dateless_articles() {
+        let now = 1_000_000_i64;
+        let articles_path = unique_path("articles");
+        write_v2_database(&articles_path, now - 86_400);
+
+        let storage = Storage::new(&articles_path, unique_path("states")).unwrap();
+
+        assert_eq!(storage.schema_version().unwrap(), SCHEMA_VERSION);
+        let articles = storage.load_articles_for_feed(42).unwrap();
+        assert_eq!(articles[0].id, 1, "v2 ids are not re-scoped");
+        assert_eq!(articles[0].timestamp, now - 86_400);
+        // Seen yesterday, retention 7 days: no longer swept as a 1970 article.
+        let retentions = HashMap::from([(42u64, 7u16)]);
+        assert_eq!(
+            storage
+                .delete_expired_articles(now, &retentions, 0)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]

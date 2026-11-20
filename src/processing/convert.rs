@@ -6,7 +6,9 @@ use crate::{
 /// Convert a `feed_rs` entry into our internal [`Article`].
 ///
 /// * `feed_id`  — XXH3 hash of the parent feed.
-/// * `now_ts`   — Unix timestamp (seconds) recorded as `added_at`.
+/// * `now_ts`   — Unix timestamp (seconds) recorded as `added_at`, and used
+///   as the date of entries that have none (same default as the retention
+///   check in the filter, so the two steps agree on the article's age).
 pub(super) fn entry_to_article(
     entry: &feed_rs::model::Entry,
     feed_id: u64,
@@ -38,7 +40,7 @@ pub(super) fn entry_to_article(
         .updated
         .or(entry.published)
         .map(|dt| dt.timestamp())
-        .unwrap_or(0);
+        .unwrap_or(now_ts);
 
     let enclosures: Vec<Enclosure> = entry
         .media
@@ -134,6 +136,31 @@ mod tests {
         let entry = parse_rss("1", "T", "https://example.com/");
         let article = entry_to_article(&entry, 1, 12345);
         assert_eq!(article.added_at, 12345);
+    }
+
+    #[test]
+    fn test_entry_without_date_is_dated_now() {
+        // No <pubDate>: a 0 timestamp would be expired by the next cleanup,
+        // then re-inserted as fresh, in a loop.
+        let entry = parse_rss("1", "T", "https://example.com/");
+        assert!(entry.updated.is_none() && entry.published.is_none());
+        let article = entry_to_article(&entry, 1, 12345);
+        assert_eq!(article.timestamp, 12345);
+    }
+
+    #[test]
+    fn test_entry_date_is_kept() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0"><channel>
+                <title>T</title><link>https://example.com</link>
+                <item><guid>1</guid><pubDate>Mon, 15 Jan 2024 00:00:00 GMT</pubDate></item>
+            </channel></rss>"#;
+        let entry = feed_rs::parser::parse(xml.as_bytes())
+            .unwrap()
+            .entries
+            .remove(0);
+        let article = entry_to_article(&entry, 1, 1_800_000_000);
+        assert_eq!(article.timestamp, 1_705_276_800);
     }
 
     #[test]
