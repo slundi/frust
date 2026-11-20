@@ -3,7 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
     future::Future,
     path::{Path, PathBuf},
-    sync::Arc,
     time::Duration,
 };
 
@@ -20,13 +19,11 @@ use crate::{
         AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter,
         group_link,
     },
-    model::{App, Article, Enrichment, ExportStrategy, Feed, FeedState, Group},
+    model::{App, Article, Enrichment, ExportStrategy, Feed, FeedState, Filter, Group},
     processing::safe_http::SafeClient,
     storage::Storage,
     utils::is_refresh_required,
 };
-
-type StatesMap = Arc<HashMap<u64, FeedState>>;
 
 /// Safety cap on a single feed response body. Real RSS/Atom feeds are rarely
 /// more than a few hundred KB; anything past this is either misconfigured or
@@ -84,6 +81,72 @@ struct FeedResult {
     state: FeedState,
 }
 
+/// Everything the feed workers of one run share: HTTP clients, the run clock,
+/// and what storage already knows (article ids, cache validators).
+///
+/// Workers borrow it: the fetch stream is driven inside `start`, so no `Arc`
+/// is needed.
+struct RunContext<'a> {
+    client: Client,
+    /// Feed URLs come from the config and are trusted; page URLs come from the
+    /// feeds themselves and go through this SSRF-guarded client.
+    scrape_client: SafeClient,
+    now: DateTime<Utc>,
+    min_refresh: i64,
+    filters: &'a HashMap<u64, Filter>,
+    existing_ids: HashSet<u64>,
+    states: HashMap<u64, FeedState>,
+}
+
+impl<'a> RunContext<'a> {
+    /// Build the clients and load the known ids and feed states. A failed load
+    /// is not fatal: the run goes on without dedup or cache headers.
+    fn new(app: &'a App, storage: &Storage, now: DateTime<Utc>) -> Result<Self, FrustError> {
+        debug!("Creating HTTP clients");
+        let timeout = Duration::from_secs(app.timeout as u64);
+        let client = Client::builder()
+            .timeout(timeout)
+            .user_agent(concat!("frust/", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        let scrape_client = SafeClient::new(timeout)?;
+
+        let existing_ids = match storage.load_article_ids() {
+            Ok(ids) => {
+                tracing::info!("Loaded {} known article IDs", ids.len());
+                ids
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Could not load article IDs, proceeding without dedup: {}",
+                    e
+                );
+                HashSet::new()
+            }
+        };
+
+        let states = match storage.load_all_states() {
+            Ok(s) => {
+                tracing::info!("Loaded {} feed state(s) from storage", s.len());
+                s
+            }
+            Err(e) => {
+                tracing::warn!("Could not load feed states, cache headers disabled: {}", e);
+                HashMap::new()
+            }
+        };
+
+        Ok(Self {
+            client,
+            scrape_client,
+            now,
+            min_refresh: app.min_refresh_time,
+            filters: &app.filters,
+            existing_ids,
+            states,
+        })
+    }
+}
+
 /// State of a feed checked without taking in new content (304, or a body
 /// over the size cap): record the check, but keep the stored ETag and
 /// Last-Modified so the next conditional request still asks for the content
@@ -129,47 +192,14 @@ pub(crate) async fn with_deadline<T>(
 /// Main processing entry point: fetches all feeds concurrently, applies
 /// filters/retention, persists new articles, then exports per-group output files.
 pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
-    debug!("Creating HTTP clients");
-    let timeout = Duration::from_secs(app.timeout as u64);
-    let client = Client::builder()
-        .timeout(timeout)
-        .user_agent(concat!("frust/", env!("CARGO_PKG_VERSION")))
-        .build()?;
-    // Feed URLs come from the config and are trusted; page URLs come from the
-    // feeds themselves and go through the SSRF-guarded client.
-    let scrape_client = SafeClient::new(timeout)?;
-
     let now = *START_TIME
         .get()
         .ok_or(FrustError::NotInitialized("START_TIME"))?;
-    let now_ts = now.timestamp();
 
     let storage = Storage::open_in(&app.data_dir)?;
-
-    let existing_ids: Arc<HashSet<u64>> = Arc::new(match storage.load_article_ids() {
-        Ok(ids) => {
-            tracing::info!("Loaded {} known article IDs", ids.len());
-            ids
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Could not load article IDs, proceeding without dedup: {}",
-                e
-            );
-            HashSet::new()
-        }
-    });
-
-    let states: StatesMap = Arc::new(match storage.load_all_states() {
-        Ok(s) => {
-            tracing::info!("Loaded {} feed state(s) from storage", s.len());
-            s
-        }
-        Err(e) => {
-            tracing::warn!("Could not load feed states, cache headers disabled: {}", e);
-            HashMap::new()
-        }
-    });
+    let ctx = RunContext::new(app, &storage, now)?;
+    let ctx = &ctx;
+    let now_ts = now.timestamp();
 
     let feeds_to_process = unique_feeds(app);
 
@@ -179,29 +209,21 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
         app.workers
     );
 
-    let filters = &app.filters;
-
     // Phase 1: fetch → filter → convert to Articles (runs concurrently)
     let results: Vec<FeedResult> = stream::iter(feeds_to_process)
         .map(|(feed_id, feed)| {
-            let client = client.clone();
-            let scrape_client = scrape_client.clone();
-            let min_refresh = app.min_refresh_time;
-            let existing_ids = Arc::clone(&existing_ids);
-            let states = Arc::clone(&states);
-
             async move {
-                let stored_state = states.get(&feed_id);
+                let stored_state = ctx.states.get(&feed_id);
 
                 let last_check = stored_state
                     .and_then(|s| s.last_check_ts)
                     .and_then(|ts| DateTime::from_timestamp(ts, 0));
-                if !is_refresh_required(last_check, now, min_refresh) {
+                if !is_refresh_required(last_check, ctx.now, ctx.min_refresh) {
                     info!("Refresh not needed for {}", feed.title);
                     return Ok(None);
                 }
 
-                let mut req = client.get(&feed.url);
+                let mut req = ctx.client.get(&feed.url);
                 if let Some(etag) = stored_state.and_then(|s| s.last_etag.as_deref()) {
                     req = req.header(header::IF_NONE_MATCH, etag);
                 }
@@ -265,10 +287,10 @@ pub(crate) async fn start(app: &App) -> Result<(), FrustError> {
                     &mut fetched_feed,
                     feed_id,
                     &feed,
-                    filters,
-                    &scrape_client,
+                    ctx.filters,
+                    &ctx.scrape_client,
                     feed.selector.clone(),
-                    &existing_ids,
+                    &ctx.existing_ids,
                 )
                 .await;
 
@@ -458,8 +480,8 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FeedResult, append_within_cap, checked_state, persist_results, run_group_exports,
-        unique_feeds, with_deadline,
+        FeedResult, RunContext, append_within_cap, checked_state, persist_results,
+        run_group_exports, unique_feeds, with_deadline,
     };
     use crate::error::FrustError;
     use crate::model::{App, Article, FeedState, Group};
@@ -629,6 +651,44 @@ mod tests {
 
         run_group_exports(&app, &storage).unwrap();
         assert!(dir.path().join("a.atom").is_file());
+    }
+
+    // ---- RunContext ----
+
+    fn run_time() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(2_000, 0).unwrap()
+    }
+
+    #[test]
+    fn test_run_context_loads_known_ids_and_states() {
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        storage.upsert_articles(vec![make_article(10, 1)]).unwrap();
+        storage
+            .save_feed_states(&[(1, make_result(1, "\"v1\"", vec![]).state)])
+            .unwrap();
+        let app = App {
+            min_refresh_time: 42,
+            ..App::default()
+        };
+
+        let ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+
+        assert!(ctx.existing_ids.contains(&10));
+        assert_eq!(ctx.states[&1].last_etag.as_deref(), Some("\"v1\""));
+        assert_eq!(ctx.min_refresh, 42);
+        assert_eq!(ctx.now, run_time());
+    }
+
+    #[test]
+    fn test_run_context_on_empty_storage_starts_without_dedup_or_validators() {
+        // No state table yet: the load fails, the run must still go on.
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        let app = App::default();
+
+        let ctx = RunContext::new(&app, &storage, run_time()).unwrap();
+
+        assert!(ctx.existing_ids.is_empty());
+        assert!(ctx.states.is_empty());
     }
 
     // ---- checked_state (B18) ----
