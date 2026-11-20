@@ -14,7 +14,9 @@ use crate::{
     model::{Article, ExportStrategy},
 };
 
-use super::{Enrichment, Exporter, article_date, article_urn, enriched_html, write_atomically};
+use super::{
+    Enrichment, ExportJob, Exporter, article_date, article_urn, enriched_html, write_atomically,
+};
 
 pub(crate) struct JsonExporter {
     pub(crate) strategy: ExportStrategy,
@@ -113,14 +115,14 @@ fn write_json<T: Serialize>(value: &T, path: &Path) -> Result<(), FrustError> {
 // ── strategies ────────────────────────────────────────────────────────────────
 
 impl Exporter for JsonExporter {
-    fn generate(
-        &self,
-        articles: &[Article],
-        title: &str,
-        link: &str,
-        destination: &Path,
-        enrichments: &HashMap<u64, Enrichment>,
-    ) -> Result<(), FrustError> {
+    fn generate(&self, job: &ExportJob<'_>) -> Result<(), FrustError> {
+        let ExportJob {
+            articles,
+            title,
+            link,
+            destination,
+            enrichments,
+        } = *job;
         info!("Exporting to JSON");
         match self.strategy {
             ExportStrategy::Monolithic => {
@@ -240,13 +242,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &[],
-            "My Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &[],
+            title: "My Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let v = parse(&dest);
         assert_eq!(
@@ -271,13 +273,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let v = parse(&dest);
         let item = &v["items"][0];
@@ -300,7 +302,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
+        .generate(&ExportJob {
+            articles: &[],
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         assert!(dest.exists());
     }
@@ -314,13 +322,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &[article],
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &[article],
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let v = parse(&dest);
         assert_eq!(v["items"][0]["summary"].as_str().unwrap(), "A summary");
@@ -339,13 +347,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &[article],
-            "Podcast Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &[article],
+            title: "Podcast Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let v = parse(&dest);
         let att = &v["items"][0]["attachments"][0];
@@ -365,13 +373,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         assert_eq!(fs::read_dir(&dest).unwrap().count(), 2);
     }
@@ -399,13 +407,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let path = dest.join("2024-01-15-my-article.json");
         let v = parse(&path);
@@ -424,13 +432,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -452,13 +460,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -481,13 +489,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let v = parse(&dest.join("2024-01-15.json"));
         let arr = v.as_array().unwrap();
@@ -516,13 +524,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &[article],
-            "Feed",
-            "https://example.com",
-            &dest,
-            &enrichments,
-        )
+        .generate(&ExportJob {
+            articles: &[article],
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &enrichments,
+        })
         .unwrap();
         let v = parse(&dest);
         // Enrichment templates are concatenated with the article body and the
@@ -544,13 +552,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &[article],
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &[article],
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let v = parse(&dest);
         let ch = v["items"][0]["content_html"].as_str().unwrap();
@@ -580,13 +588,13 @@ mod tests {
         JsonExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &[article],
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &[article],
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let v = parse(&dest);
         assert!(

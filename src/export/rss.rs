@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use quick_xml::{
@@ -10,21 +10,21 @@ use tracing::info;
 use crate::{error::FrustError, model::Article};
 
 use super::{
-    Enrichment, Exporter, article_date, article_urn, enriched_html, is_absolute_url,
+    Enrichment, ExportJob, Exporter, article_date, article_urn, enriched_html, is_absolute_url,
     write_atomically,
 };
 
 pub(crate) struct RssExporter;
 
 impl Exporter for RssExporter {
-    fn generate(
-        &self,
-        articles: &[Article],
-        title: &str,
-        link: &str,
-        destination: &Path,
-        enrichments: &HashMap<u64, Enrichment>,
-    ) -> Result<(), FrustError> {
+    fn generate(&self, job: &ExportJob<'_>) -> Result<(), FrustError> {
+        let ExportJob {
+            articles,
+            title,
+            link,
+            destination,
+            enrichments,
+        } = *job;
         info!("Exporting to RSS");
         write_atomically(destination, |out| {
             write_rss_to(
@@ -191,7 +191,8 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use std::path::PathBuf;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
     fn make_article(id: u64, title: &str, url: &str, ts: i64) -> Article {
@@ -225,13 +226,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.xml");
         RssExporter
-            .generate(
-                &[],
-                "Empty Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[],
+                title: "Empty Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<title>Empty Feed</title>"));
@@ -245,13 +246,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.rss");
         RssExporter
-            .generate(
-                &[article],
-                "F",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "F",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         read_xml(&dest)
     }
@@ -308,7 +309,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.rss");
         RssExporter
-            .generate(&[], "T", link, &dest, &no_enrichment())
+            .generate(&ExportJob {
+                articles: &[],
+                title: "T",
+                link,
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         read_xml(&dest)
     }
@@ -335,13 +342,13 @@ mod tests {
         let dest = output_path(&dir, "feed.xml");
         let articles = vec![make_article(1, "Hello World", "https://example.com/1", 0)];
         RssExporter
-            .generate(
-                &articles,
-                "My Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &articles,
+                title: "My Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<title>Hello World</title>"));
@@ -353,7 +360,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("sub").join("dir").join("feed.xml");
         RssExporter
-            .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
+            .generate(&ExportJob {
+                articles: &[],
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         assert!(dest.exists());
     }
@@ -369,13 +382,13 @@ mod tests {
             length: Some(4096),
         });
         RssExporter
-            .generate(
-                &[article],
-                "Podcast Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "Podcast Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("url=\"https://example.com/ep1.mp3\""));
@@ -395,13 +408,13 @@ mod tests {
             1_705_276_800,
         )];
         RssExporter
-            .generate(
-                &articles,
-                "Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &articles,
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<pubDate>"), "pubDate element missing");
@@ -415,13 +428,13 @@ mod tests {
             make_article(1, "AT&T <News> \"Q&A\"", "https://example.com/1?a=1&b=2", 0);
         article.content = "5 < 10 & ok".to_string();
         RssExporter
-            .generate(
-                &[article],
-                "News & Media",
-                "https://example.com/?x=1&y=2",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "News & Media",
+                link: "https://example.com/?x=1&y=2",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         // Text nodes: & and < must be entity-escaped
@@ -455,13 +468,13 @@ mod tests {
             length: Some(1),
         });
         RssExporter
-            .generate(
-                &[article],
-                "F",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "F",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(
@@ -493,13 +506,13 @@ mod tests {
             },
         );
         RssExporter
-            .generate(
-                &[article],
-                "Feed",
-                "https://example.com",
-                &dest,
-                &enrichments,
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &enrichments,
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("Read on Test Feed"), "prepend missing");

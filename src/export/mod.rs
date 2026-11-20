@@ -166,22 +166,26 @@ pub(crate) fn enriched_html(article: &Article, enrichment: Option<&Enrichment>) 
     }
 }
 
+/// What to export and where: one channel (a group's articles) to one output.
+#[derive(Clone, Copy)]
+pub(crate) struct ExportJob<'a> {
+    /// Items to export.
+    pub(crate) articles: &'a [Article],
+    /// Channel/document title (group or feed name).
+    pub(crate) title: &'a str,
+    /// Canonical URL of the channel (base URL of the output site).
+    pub(crate) link: &'a str,
+    /// For Monolithic, path to the output file; for Individual/Daily, path to
+    /// the output directory.
+    pub(crate) destination: &'a Path,
+    /// Per-feed enrichment config keyed by `Article::feed_id`. RSS, Atom and
+    /// JSON exporters inject the rendered prepend/append; other exporters may
+    /// ignore it.
+    pub(crate) enrichments: &'a HashMap<u64, Enrichment>,
+}
+
 pub(crate) trait Exporter {
-    /// `articles`:     items to export.
-    /// `title`:        channel/document title (group or feed name).
-    /// `link`:         canonical URL of the channel (base URL of the output site).
-    /// `destination`:  for Monolithic, path to the output file; for Individual/Daily, path to the output directory.
-    /// `enrichments`:  per-feed enrichment config keyed by `Article::feed_id`.
-    ///                 RSS, Atom and JSON exporters inject the rendered prepend/append;
-    ///                 other exporters may ignore it.
-    fn generate(
-        &self,
-        articles: &[Article],
-        title: &str,
-        link: &str,
-        destination: &Path,
-        enrichments: &HashMap<u64, Enrichment>,
-    ) -> Result<(), FrustError>;
+    fn generate(&self, job: &ExportJob<'_>) -> Result<(), FrustError>;
 }
 
 #[cfg(test)]

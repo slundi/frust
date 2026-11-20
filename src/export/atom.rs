@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use quick_xml::{
@@ -14,20 +14,21 @@ use crate::{
 };
 
 use super::{
-    Exporter, article_date, article_urn, enriched_html, is_absolute_url, write_atomically,
+    ExportJob, Exporter, article_date, article_urn, enriched_html, is_absolute_url,
+    write_atomically,
 };
 
 pub(crate) struct AtomExporter;
 
 impl Exporter for AtomExporter {
-    fn generate(
-        &self,
-        articles: &[Article],
-        title: &str,
-        link: &str,
-        destination: &Path,
-        enrichments: &HashMap<u64, Enrichment>,
-    ) -> Result<(), FrustError> {
+    fn generate(&self, job: &ExportJob<'_>) -> Result<(), FrustError> {
+        let ExportJob {
+            articles,
+            title,
+            link,
+            destination,
+            enrichments,
+        } = *job;
         info!("Exporting to Atom");
         write_atomically(destination, |out| {
             let mut writer = Writer::new_with_indent(out, b' ', 2);
@@ -205,7 +206,8 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use std::path::PathBuf;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
     fn make_article(id: u64, title: &str, url: &str, ts: i64) -> Article {
@@ -239,13 +241,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.atom");
         AtomExporter
-            .generate(
-                &[],
-                "Empty Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[],
+                title: "Empty Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("xmlns=\"http://www.w3.org/2005/Atom\""));
@@ -264,13 +266,13 @@ mod tests {
         let mut article = make_article(1, "T", "https://example.com/1", 0);
         article.added_at = 1_705_276_800;
         AtomExporter
-            .generate(
-                &[article],
-                "F",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "F",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         let entry = &xml[xml.find("<entry>").unwrap()..];
@@ -287,13 +289,13 @@ mod tests {
         let mut article = make_article(1, "T", "https://example.com/1", 0);
         article.content = "[x](javascript:alert(1)) <script>bad()</script>".to_string();
         AtomExporter
-            .generate(
-                &[article],
-                "F",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "F",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(!xml.contains("javascript:"), "{xml}");
@@ -306,7 +308,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = output_path(&dir, "feed.atom");
         AtomExporter
-            .generate(&[], "T", link, &dest, &no_enrichment())
+            .generate(&ExportJob {
+                articles: &[],
+                title: "T",
+                link,
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         read_xml(&dest)
     }
@@ -342,13 +350,13 @@ mod tests {
         let dest = output_path(&dir, "feed.atom");
         let articles = vec![make_article(1, "Hello World", "https://example.com/1", 0)];
         AtomExporter
-            .generate(
-                &articles,
-                "My Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &articles,
+                title: "My Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<title>Hello World</title>"));
@@ -375,10 +383,22 @@ mod tests {
         art_a.content = "body".into();
         art_b.content = "body".into();
         AtomExporter
-            .generate(&[art_a], "F", "https://example.com", &a, &no_enrichment())
+            .generate(&ExportJob {
+                articles: &[art_a],
+                title: "F",
+                link: "https://example.com",
+                destination: &a,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         AtomExporter
-            .generate(&[art_b], "F", "https://example.com", &b, &no_enrichment())
+            .generate(&ExportJob {
+                articles: &[art_b],
+                title: "F",
+                link: "https://example.com",
+                destination: &b,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
 
         let extract_id = |p: &Path| {
@@ -404,7 +424,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("sub").join("dir").join("feed.atom");
         AtomExporter
-            .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
+            .generate(&ExportJob {
+                articles: &[],
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         assert!(dest.exists());
     }
@@ -420,13 +446,13 @@ mod tests {
             length: Some(4096),
         });
         AtomExporter
-            .generate(
-                &[article],
-                "Podcast Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "Podcast Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("rel=\"enclosure\""));
@@ -447,13 +473,13 @@ mod tests {
             1_705_276_800,
         )];
         AtomExporter
-            .generate(
-                &articles,
-                "Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &articles,
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<published>2024-01-15T00:00:00+00:00</published>"));
@@ -468,13 +494,13 @@ mod tests {
         article.summary = Some("Short summary".to_string());
         article.content = "Full **markdown** content".to_string();
         AtomExporter
-            .generate(
-                &[article],
-                "Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("<summary type=\"html\">Short summary</summary>"));
@@ -493,13 +519,13 @@ mod tests {
             make_article(2, "Newer", "https://example.com/2", 1_705_276_800),
         ];
         AtomExporter
-            .generate(
-                &articles,
-                "Feed",
-                "https://example.com",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &articles,
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         // The feed-level <updated> should be the newer timestamp
@@ -515,13 +541,13 @@ mod tests {
         article.content = "5 < 10 & ok".to_string();
         article.summary = Some("Sum & <sub>".to_string());
         AtomExporter
-            .generate(
-                &[article],
-                "News & Media",
-                "https://example.com/?x=1&y=2",
-                &dest,
-                &no_enrichment(),
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "News & Media",
+                link: "https://example.com/?x=1&y=2",
+                destination: &dest,
+                enrichments: &no_enrichment(),
+            })
             .unwrap();
         let xml = read_xml(&dest);
         // Text nodes escaped
@@ -565,13 +591,13 @@ mod tests {
             },
         );
         AtomExporter
-            .generate(
-                &[article],
-                "Feed",
-                "https://example.com",
-                &dest,
-                &enrichments,
-            )
+            .generate(&ExportJob {
+                articles: &[article],
+                title: "Feed",
+                link: "https://example.com",
+                destination: &dest,
+                enrichments: &enrichments,
+            })
             .unwrap();
         let xml = read_xml(&dest);
         assert!(xml.contains("SOURCE: My Feed"), "prepend missing");

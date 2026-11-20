@@ -19,8 +19,8 @@ use crate::{
     START_TIME,
     error::FrustError,
     export::{
-        AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter,
-        group_link,
+        AtomExporter, EpubExporter, ExportJob, Exporter, JsonExporter, MarkdownExporter,
+        RssExporter, group_link,
     },
     model::{App, Article, Enrichment, ExportStrategy, Feed, FeedState, Filter, Group},
     processing::safe_http::SafeClient,
@@ -493,6 +493,13 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
         let exporter = select_exporter(&dest);
         let link = group_link(app, group);
         let enrichments = build_enrichment_map(group);
+        let job = ExportJob {
+            articles: &articles,
+            title: &group.title,
+            link: &link,
+            destination: &dest,
+            enrichments: &enrichments,
+        };
 
         tracing::info!(
             "Exporting {} article(s) for group '{}' → {}",
@@ -501,7 +508,7 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
             dest.display()
         );
 
-        if let Err(e) = exporter.generate(&articles, &group.title, &link, &dest, &enrichments) {
+        if let Err(e) = exporter.generate(&job) {
             tracing::error!("Export failed for group '{}': {}", group.slug, e);
             if !load_failed {
                 failed_groups += 1;
@@ -694,6 +701,24 @@ mod tests {
 
         run_group_exports(&app, &storage).unwrap();
         assert!(dir.path().join("a.atom").is_file());
+    }
+
+    #[test]
+    fn test_run_group_exports_passes_group_title_and_link_to_exporter() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = app_with_groups(dir.path(), &[("a", "a.atom", 1)]);
+        app.base_url = Some("https://example.com".to_string());
+        for group in app.groups.values_mut() {
+            group.title = "Group A".to_string();
+        }
+        let storage = Storage::from_databases(in_memory_db(), in_memory_db());
+        storage.upsert_articles(vec![make_article(10, 1)]).unwrap();
+
+        run_group_exports(&app, &storage).unwrap();
+
+        let atom = std::fs::read_to_string(dir.path().join("a.atom")).unwrap();
+        assert!(atom.contains("<title>Group A</title>"), "{atom}");
+        assert!(atom.contains("https://example.com/a.atom"), "{atom}");
     }
 
     // ---- RunContext ----

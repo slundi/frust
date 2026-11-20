@@ -15,21 +15,21 @@ use crate::{
     utils::yaml_quote,
 };
 
-use super::{Enrichment, Exporter, write_atomically};
+use super::{ExportJob, Exporter, write_atomically};
 
 pub(crate) struct MarkdownExporter {
     pub(crate) strategy: ExportStrategy,
 }
 
 impl Exporter for MarkdownExporter {
-    fn generate(
-        &self,
-        articles: &[Article],
-        title: &str,
-        link: &str,
-        destination: &Path,
-        _enrichments: &HashMap<u64, Enrichment>,
-    ) -> Result<(), FrustError> {
+    fn generate(&self, job: &ExportJob<'_>) -> Result<(), FrustError> {
+        let ExportJob {
+            articles,
+            title,
+            link,
+            destination,
+            enrichments: _,
+        } = *job;
         info!("Exporting to Markdown");
         match self.strategy {
             ExportStrategy::Monolithic => monolithic(articles, title, link, destination),
@@ -186,13 +186,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &[],
-            "My Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &[],
+            title: "My Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let content = fs::read_to_string(&dest).unwrap();
         assert!(content.contains("# My Feed"));
@@ -213,13 +213,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &articles,
-            "My Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "My Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let content = fs::read_to_string(&dest).unwrap();
         assert!(content.contains("title: \"Hello World\""));
@@ -234,7 +234,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(&[], "Feed", "https://example.com", &dest, &no_enrichment())
+        .generate(&ExportJob {
+            articles: &[],
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         assert!(dest.exists());
     }
@@ -253,13 +259,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Monolithic,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let content = fs::read_to_string(&dest).unwrap();
         assert!(content.contains(r#"title: "Say \"Hello\"""#));
@@ -288,13 +294,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let count = fs::read_dir(&dest).unwrap().count();
         assert_eq!(count, 2);
@@ -314,13 +320,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let path = dest.join("2024-01-15-my-article.md");
         let content = fs::read_to_string(path).unwrap();
@@ -340,13 +346,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Individual,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -370,13 +376,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let mut files: Vec<String> = fs::read_dir(&dest)
             .unwrap()
@@ -399,13 +405,13 @@ mod tests {
         MarkdownExporter {
             strategy: ExportStrategy::Daily,
         }
-        .generate(
-            &articles,
-            "Feed",
-            "https://example.com",
-            &dest,
-            &no_enrichment(),
-        )
+        .generate(&ExportJob {
+            articles: &articles,
+            title: "Feed",
+            link: "https://example.com",
+            destination: &dest,
+            enrichments: &no_enrichment(),
+        })
         .unwrap();
         let content = fs::read_to_string(dest.join("2024-01-15.md")).unwrap();
         assert!(content.contains("First"));
