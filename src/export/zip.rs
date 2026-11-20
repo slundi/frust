@@ -11,7 +11,7 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use crate::{
     error::FrustError,
-    export::{atom::write_atom_to, write_atomically},
+    export::{atom::write_atom_to, group_link, write_atomically},
     model::{Enrichment, Group},
     storage::{Storage, prepare_data_dir},
 };
@@ -82,7 +82,7 @@ pub(crate) fn build_zip_archive(output_path: &str, config_path: &str) -> Result<
                 &mut writer,
                 &articles,
                 &group.title,
-                &group.output,
+                &group_link(&app, group),
                 &enrichments,
             )?;
             let xml_bytes = writer.into_inner();

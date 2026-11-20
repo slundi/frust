@@ -8,6 +8,9 @@ use crate::{DEFAULT_HTTP_TIMEOUT, DEFAULT_RETRIEVE_SERVER_MEDIA};
 #[derive(Debug, Clone)]
 pub(crate) struct App {
     pub(crate) output: String,
+    /// Public URL of `output` (e.g. `https://example.org/rss`), used to build
+    /// the absolute channel links and `rel="self"` links of the exports.
+    pub(crate) base_url: Option<String>,
     /// Private directory for the redb databases. Must not be served by the
     /// web server: it holds the subscription list, ETags and history.
     pub(crate) data_dir: String,
@@ -49,6 +52,7 @@ impl Default for App {
         .to_string();
         Self {
             output,
+            base_url: None,
             data_dir,
             retrieve_media_server: DEFAULT_RETRIEVE_SERVER_MEDIA,
             timeout: DEFAULT_HTTP_TIMEOUT,

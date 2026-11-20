@@ -9,6 +9,7 @@ use crate::model::{App, ContentMode, Feed, Filter, Group};
 
 const APP_KEYS: &[&str] = &[
     "output",
+    "base_url",
     "data_dir",
     "workers",
     "retrieve_server_media",
@@ -118,6 +119,17 @@ impl App {
         // load output folder
         if let Some(output) = optional_string_field(map, "output") {
             self.output = output;
+        }
+        // public URL of the output folder, for absolute channel links
+        if let Some(base_url) = optional_string_field(map, "base_url") {
+            match url::Url::parse(&base_url) {
+                Ok(parsed) if matches!(parsed.scheme(), "http" | "https") => {
+                    self.base_url = Some(base_url.trim_end_matches('/').to_string());
+                }
+                _ => panic!(
+                    "Invalid data in config file: base_url must be an absolute http(s) URL, got '{base_url}'"
+                ),
+            }
         }
         // private database directory (defaults to the XDG state dir)
         if let Some(data_dir) = optional_string_field(map, "data_dir") {
@@ -383,6 +395,12 @@ impl App {
                 self.groups.insert(group_code, group_obj);
             }
             tracing::info!("Loaded groups: {}", self.groups.len());
+            if self.base_url.is_none() && !self.groups.is_empty() {
+                tracing::warn!(
+                    "No base_url: channel links in the exports are relative, which RSS \
+                     and Atom readers or validators may reject"
+                );
+            }
             for (url, slugs) in shared_feeds(&self.groups) {
                 tracing::warn!(
                     "Feed {} is in groups {}: it is fetched once, with the settings \
@@ -1144,6 +1162,23 @@ groups:
         let group = app.groups.values().next().unwrap();
         assert_eq!(group.title, "My Group");
         assert_eq!(group.slug, "g");
+    }
+
+    #[test]
+    fn test_base_url_is_loaded_without_trailing_slash() {
+        let app = app_from_yaml("base_url: https://example.org/rss/\n");
+        assert_eq!(app.base_url.as_deref(), Some("https://example.org/rss"));
+    }
+
+    #[test]
+    fn test_base_url_defaults_to_none() {
+        assert!(app_from_yaml("output: /srv\n").base_url.is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "base_url must be an absolute http(s) URL")]
+    fn test_relative_base_url_is_rejected() {
+        app_from_yaml("base_url: /rss\n");
     }
 
     #[test]

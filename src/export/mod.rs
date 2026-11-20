@@ -22,8 +22,46 @@ use std::{
 
 use crate::{
     error::FrustError,
-    model::{Article, Enrichment},
+    model::{App, Article, Enrichment, Group},
 };
+
+/// Public URL of a group's output file, used as the channel link, Atom id
+/// and `rel="self"` link: `{base_url}/{output}`, with `output` taken
+/// relative to the app output directory.
+///
+/// Without `base_url`, a root-relative path (`/{output}`) — which feed
+/// validators reject, hence the warning at config load.
+pub(crate) fn group_link(app: &App, group: &Group) -> String {
+    let output = Path::new(&group.output);
+    let relative = if output.is_absolute() {
+        output
+            .strip_prefix(&app.output)
+            .ok()
+            .or_else(|| output.file_name().map(Path::new))
+            .unwrap_or(output)
+    } else {
+        output
+    };
+    let relative: Vec<String> = relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let path = relative.join("/");
+    match app.base_url.as_deref() {
+        Some(base) => {
+            let joined = format!("{}/{}", base.trim_end_matches('/'), path);
+            // Normalise and percent-encode (spaces, non-ASCII file names).
+            url::Url::parse(&joined).map(String::from).unwrap_or(joined)
+        }
+        None => format!("/{path}"),
+    }
+}
+
+/// Whether `link` is an absolute URL, as `rel="self"` links and Atom ids
+/// require.
+pub(crate) fn is_absolute_url(link: &str) -> bool {
+    url::Url::parse(link).is_ok()
+}
 
 /// Write `destination` atomically: `write` fills a hidden temporary file in
 /// the same directory (`.<name>.tmp`), which is flushed, synced, then renamed
@@ -100,6 +138,69 @@ mod tests {
     use super::*;
     use crate::model::Article;
     use std::io::Write;
+
+    // ---- group_link (B13) ----
+
+    fn link_for(base_url: Option<&str>, app_output: &str, group_output: &str) -> String {
+        let app = App {
+            output: app_output.to_string(),
+            base_url: base_url.map(str::to_string),
+            ..App::default()
+        };
+        let group = Group {
+            output: group_output.to_string(),
+            ..Group::default()
+        };
+        group_link(&app, &group)
+    }
+
+    #[test]
+    fn test_group_link_joins_base_url_and_relative_output() {
+        assert_eq!(
+            link_for(Some("https://example.org/rss"), "/srv/www", "tech.atom"),
+            "https://example.org/rss/tech.atom"
+        );
+        assert_eq!(
+            link_for(Some("https://example.org/"), "/srv/www", "news/tech.rss"),
+            "https://example.org/news/tech.rss"
+        );
+    }
+
+    #[test]
+    fn test_group_link_strips_output_dir_from_absolute_output() {
+        assert_eq!(
+            link_for(
+                Some("https://example.org"),
+                "/srv/www",
+                "/srv/www/a/tech.atom"
+            ),
+            "https://example.org/a/tech.atom"
+        );
+        // Outside of the output dir: only the file name can be guessed.
+        assert_eq!(
+            link_for(
+                Some("https://example.org"),
+                "/srv/www",
+                "/elsewhere/tech.atom"
+            ),
+            "https://example.org/tech.atom"
+        );
+    }
+
+    #[test]
+    fn test_group_link_percent_encodes() {
+        assert_eq!(
+            link_for(Some("https://example.org"), "/srv", "my feed.atom"),
+            "https://example.org/my%20feed.atom"
+        );
+    }
+
+    #[test]
+    fn test_group_link_without_base_url_is_root_relative() {
+        let link = link_for(None, "/srv/www", "tech.atom");
+        assert_eq!(link, "/tech.atom");
+        assert!(!is_absolute_url(&link));
+    }
 
     // ---- write_atomically (B9) ----
 

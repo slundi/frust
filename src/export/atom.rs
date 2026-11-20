@@ -6,13 +6,14 @@ use quick_xml::{
     events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event},
 };
 use tracing::info;
+use twox_hash::XxHash3_64;
 
 use crate::{
     error::FrustError,
     model::{Article, Enrichment},
 };
 
-use super::{Exporter, render_template, write_atomically};
+use super::{Exporter, is_absolute_url, render_template, write_atomically};
 
 pub(crate) struct AtomExporter;
 
@@ -56,16 +57,21 @@ pub(crate) fn write_atom_to<W: std::io::Write>(
         .map_err(|e| FrustError::Export(e.to_string()))?;
 
     write_text_element(writer, "title", title)?;
-    write_text_element(writer, "id", link)?;
-
-    // <link rel="alternate" href="..."/>
-    {
+    // <id> must be an absolute IRI (RFC 4287 §4.2.6): the feed URL when
+    // base_url is set, else a stable URN derived from the relative link.
+    if is_absolute_url(link) {
+        write_text_element(writer, "id", link)?;
+        // <link rel="self" type="application/atom+xml" href="..."/>
         let mut link_tag = BytesStart::new("link");
-        link_tag.push_attribute(("rel", "alternate"));
+        link_tag.push_attribute(("rel", "self"));
+        link_tag.push_attribute(("type", "application/atom+xml"));
         link_tag.push_attribute(("href", link));
         writer
             .write_event(Event::Empty(link_tag))
             .map_err(|e| FrustError::Export(e.to_string()))?;
+    } else {
+        let urn = format!("urn:xxh3:{:016x}", XxHash3_64::oneshot(link.as_bytes()));
+        write_text_element(writer, "id", &urn)?;
     }
 
     // <updated> — most recent article timestamp, or now
@@ -255,6 +261,42 @@ mod tests {
         assert!(xml.contains("<title>Empty Feed</title>"));
         assert!(xml.contains("<id>https://example.com</id>"));
         assert!(!xml.contains("<entry>"));
+    }
+
+    // ---- channel links (B13) ----
+
+    fn atom_with_link(link: &str) -> String {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.atom");
+        AtomExporter
+            .generate(&[], "T", link, &dest, &no_enrichment())
+            .unwrap();
+        read_xml(&dest)
+    }
+
+    #[test]
+    fn test_atom_absolute_link_is_id_and_self_link() {
+        let xml = atom_with_link("https://example.org/rss/tech.atom");
+        assert!(xml.contains("<id>https://example.org/rss/tech.atom</id>"));
+        assert!(xml.contains(
+            "<link rel=\"self\" type=\"application/atom+xml\" href=\"https://example.org/rss/tech.atom\"/>"
+        ));
+        assert!(!xml.contains("rel=\"alternate\""));
+    }
+
+    #[test]
+    fn test_atom_relative_link_gives_urn_id_and_no_self_link() {
+        let xml = atom_with_link("/tech.atom");
+        assert!(xml.contains("<id>urn:xxh3:"), "{xml}");
+        assert!(!xml.contains("<id>/tech.atom</id>"));
+        assert!(!xml.contains("<link"));
+        // Stable across runs.
+        let id_line = |xml: &str| {
+            xml.lines()
+                .find(|line| line.contains("<id>"))
+                .map(str::to_string)
+        };
+        assert_eq!(id_line(&xml), id_line(&atom_with_link("/tech.atom")));
     }
 
     #[test]

@@ -53,6 +53,7 @@ Copy and edit [`my-config.yaml`](my-config.yaml):
 
 ```yaml
 output: /var/www/rss          # default output directory
+base_url: https://example.org/rss  # public URL of `output`, for absolute feed links
 data_dir: /var/lib/frust      # databases, keep it out of the web root
                               # (default: $XDG_STATE_HOME/frust, then
                               # ~/.local/state/frust, then /var/lib/frust)

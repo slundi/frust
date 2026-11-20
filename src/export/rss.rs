@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::{error::FrustError, model::Article};
 
-use super::{Enrichment, Exporter, render_template, write_atomically};
+use super::{Enrichment, Exporter, is_absolute_url, render_template, write_atomically};
 
 pub(crate) struct RssExporter;
 
@@ -49,6 +49,7 @@ fn write_rss_to<W: std::io::Write>(
     // <rss version="2.0">
     let mut rss_tag = BytesStart::new("rss");
     rss_tag.push_attribute(("version", "2.0"));
+    rss_tag.push_attribute(("xmlns:atom", "http://www.w3.org/2005/Atom"));
     writer
         .write_event(Event::Start(rss_tag))
         .map_err(|e| FrustError::Export(e.to_string()))?;
@@ -61,6 +62,17 @@ fn write_rss_to<W: std::io::Write>(
     write_text_element(writer, "title", title)?;
     write_text_element(writer, "link", link)?;
     write_text_element(writer, "description", title)?;
+    // <atom:link rel="self">: recommended by the RSS Advisory Board, must be
+    // absolute, so only with a base_url.
+    if is_absolute_url(link) {
+        let mut self_link = BytesStart::new("atom:link");
+        self_link.push_attribute(("href", link));
+        self_link.push_attribute(("rel", "self"));
+        self_link.push_attribute(("type", "application/rss+xml"));
+        writer
+            .write_event(Event::Empty(self_link))
+            .map_err(|e| FrustError::Export(e.to_string()))?;
+    }
 
     for article in articles {
         write_item(writer, article, enrichments.get(&article.feed_id))?;
@@ -216,6 +228,33 @@ mod tests {
         assert!(xml.contains("<title>Empty Feed</title>"));
         assert!(xml.contains("<link>https://example.com</link>"));
         assert!(!xml.contains("<item>"));
+    }
+
+    // ---- channel links (B13) ----
+
+    fn rss_with_link(link: &str) -> String {
+        let dir = TempDir::new().unwrap();
+        let dest = output_path(&dir, "feed.rss");
+        RssExporter
+            .generate(&[], "T", link, &dest, &no_enrichment())
+            .unwrap();
+        read_xml(&dest)
+    }
+
+    #[test]
+    fn test_rss_absolute_link_adds_atom_self_link() {
+        let xml = rss_with_link("https://example.org/rss/tech.rss");
+        assert!(xml.contains("xmlns:atom=\"http://www.w3.org/2005/Atom\""));
+        assert!(xml.contains(
+            "<atom:link href=\"https://example.org/rss/tech.rss\" rel=\"self\" type=\"application/rss+xml\"/>"
+        ));
+    }
+
+    #[test]
+    fn test_rss_relative_link_has_no_self_link() {
+        let xml = rss_with_link("/tech.rss");
+        assert!(xml.contains("<link>/tech.rss</link>"));
+        assert!(!xml.contains("<atom:link"));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+# base_url: https://example.org/rss  # RECOMMENDED: public URL of `output`, makes channel links absolute (valid RSS/Atom)
 # data_dir: /var/lib/frust  # OPTIONAL: databases dir, must NOT be served by the web server.
 #                           # Default $XDG_STATE_HOME/frust, else ~/.local/state/frust, else /var/lib/frust
 # media: false          # OPTIONAL: download assets to media/<hash>.<ext>, default false

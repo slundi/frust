@@ -16,7 +16,10 @@ use tracing::{debug, info};
 use crate::{
     START_TIME,
     error::FrustError,
-    export::{AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter},
+    export::{
+        AtomExporter, EpubExporter, Exporter, JsonExporter, MarkdownExporter, RssExporter,
+        group_link,
+    },
     model::{App, Article, Enrichment, ExportStrategy, Feed, FeedState, Group},
     processing::safe_http::SafeClient,
     storage::Storage,
@@ -421,7 +424,7 @@ fn run_group_exports(app: &App, storage: &Storage) -> Result<(), FrustError> {
         };
 
         let exporter = select_exporter(&dest);
-        let link = format!("/{}", group.slug);
+        let link = group_link(app, group);
         let enrichments = build_enrichment_map(group);
 
         tracing::info!(

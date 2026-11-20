@@ -59,8 +59,10 @@ struct ItemDto<'a> {
 struct FeedDto<'a> {
     version: &'static str,
     title: &'a str,
+    /// URL of this feed file (JSON Feed `feed_url`); `home_page_url` would be
+    /// the website, which a group of feeds does not have.
     #[serde(skip_serializing_if = "str::is_empty")]
-    home_page_url: &'a str,
+    feed_url: &'a str,
     items: Vec<ItemDto<'a>>,
 }
 
@@ -165,7 +167,7 @@ fn monolithic(
     let feed = FeedDto {
         version: "https://jsonfeed.org/version/1.1",
         title,
-        home_page_url: link,
+        feed_url: link,
         items: articles
             .iter()
             .map(|a| to_item(a, enrichments.get(&a.feed_id)))
@@ -276,7 +278,7 @@ mod tests {
             "https://jsonfeed.org/version/1.1"
         );
         assert_eq!(v["title"].as_str().unwrap(), "My Feed");
-        assert_eq!(v["home_page_url"].as_str().unwrap(), "https://example.com");
+        assert_eq!(v["feed_url"].as_str().unwrap(), "https://example.com");
         assert!(v["items"].as_array().unwrap().is_empty());
     }
 

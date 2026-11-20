@@ -121,6 +121,7 @@ mod tests {
     fn write_config_at(path: &str, output_dir: &str, group_slug: &str) {
         let yaml = format!(
             "output: {out}\n\
+             base_url: https://feeds.example/rss\n\
              data_dir: {out}/data\n\
              groups:\n\
              - title: {slug}\n  slug: {slug}\n  output: {slug}.atom\n  \
@@ -184,7 +185,7 @@ mod tests {
         let mut xml = String::new();
         entry.read_to_string(&mut xml).unwrap();
         assert!(
-            xml.contains("<id>sentinelgroup.atom</id>"),
+            xml.contains("<id>https://feeds.example/rss/sentinelgroup.atom</id>"),
             "atom <id> must reflect the sentinel group's output: {}",
             xml
         );

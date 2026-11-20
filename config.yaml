@@ -1,3 +1,5 @@
+# base_url: https://example.org/rss  # RECOMMENDED: public URL of the output folder, makes channel links absolute (valid RSS/Atom)
+
 filters:
 - slug: "guitar-standard"
   # sentences or regexes should be defined
